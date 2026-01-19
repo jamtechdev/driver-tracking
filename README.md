@@ -1,97 +1,173 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Driver Tracking App
 
-# Getting Started
+React Native application for driver route tracking and management. Built with TypeScript, Redux Toolkit, and Google Maps integration.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Project Overview
 
-## Step 1: Start Metro
+This is a 12-week project divided into three milestones:
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+- **Milestone 1 (Weeks 1–4)**: Foundation, Authentication, Route Assignment, Passenger & Fare System
+- **Milestone 2 (Weeks 5–8)**: Maps, GPS, Messaging, Operational Tools
+- **Milestone 3 (Weeks 9–12)**: Optimization, Device Scaling, QA, Store Readiness
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+## Tech Stack
+
+- **React Native** 0.83.1
+- **TypeScript**
+- **Redux Toolkit** - State management
+- **React Navigation** - Navigation
+- **Google Maps** (react-native-maps) - Maps and location
+- **Axios** - HTTP client
+- **Jest + Detox** - Testing
+
+## Prerequisites
+
+- Node.js >= 20
+- React Native development environment set up
+- Android Studio (for Android development)
+- Xcode (for iOS development, macOS only)
+- Google Maps API key
+
+## Getting Started
+
+### 1. Install Dependencies
 
 ```sh
-# Using npm
-npm start
+npm install
+# or
+yarn install
+```
 
-# OR using Yarn
+### 2. iOS Setup
+
+```sh
+cd ios
+bundle install
+bundle exec pod install
+cd ..
+```
+
+### 3. Environment Configuration
+
+Copy `.env.example` to `.env` and fill in your configuration:
+
+```sh
+cp .env.example .env
+```
+
+Update the following in `.env`:
+- `GOOGLE_MAPS_API_KEY` - Your Google Maps API key
+- `API_BASE_URL` - Your backend API URL
+
+### 4. Android Google Maps Configuration
+
+Update `android/app/src/main/AndroidManifest.xml` and replace `YOUR_GOOGLE_MAPS_API_KEY` with your actual Google Maps API key.
+
+### 5. iOS Google Maps Configuration
+
+Update `ios/DriverTracking/AppDelegate.swift` to add your Google Maps API key (instructions will be provided in Week 5).
+
+### 6. Start Metro Bundler
+
+```sh
+npm start
+# or
 yarn start
 ```
 
-## Step 2: Build and run your app
+### 7. Run the App
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
+**Android:**
 ```sh
-# Using npm
 npm run android
-
-# OR using Yarn
+# or
 yarn android
 ```
 
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
+**iOS:**
 ```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
 npm run ios
-
-# OR using Yarn
+# or
 yarn ios
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+## Available Scripts
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+- `npm start` - Start Metro bundler
+- `npm run android` - Run on Android
+- `npm run ios` - Run on iOS
+- `npm test` - Run tests
+- `npm run test:watch` - Run tests in watch mode
+- `npm run test:coverage` - Run tests with coverage
+- `npm run lint` - Run ESLint
+- `npm run lint:fix` - Fix ESLint errors
+- `npm run format` - Format code with Prettier
+- `npm run format:check` - Check code formatting
+- `npm run type-check` - Run TypeScript type checking
+- `npm run clean` - Clean build artifacts
 
-## Step 3: Modify your app
+## Project Structure
 
-Now that you have successfully run the app, let's make changes!
+```
+src/
+├── api/              # API layer (client, endpoints, API calls)
+├── components/        # Reusable UI components
+├── screens/           # Screen components
+├── navigation/        # Navigation configuration
+├── store/             # Redux store and slices
+├── services/          # Business logic services
+├── hooks/             # Custom React hooks
+├── utils/             # Utility functions
+├── types/             # TypeScript type definitions
+└── config/            # Configuration files
+```
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+## Development Status
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+### ✅ Completed (Week 1)
+- Project initialization
+- Folder structure setup
+- Redux store configuration
+- Navigation structure
+- API client setup
+- Configuration files
+- Basic screen placeholders
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+### 🚧 In Progress
+- Native module configuration
+- Testing framework setup
 
-## Congratulations! :tada:
+### 📋 Upcoming
+- Week 2: Authentication module
+- Week 3: Route assignment system
+- Week 4: Passenger & fare tallying
 
-You've successfully run and modified your React Native App. :partying_face:
+## Permissions
 
-### Now what?
+The app requires the following permissions:
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+- **Location** (Foreground & Background) - For GPS tracking
+- **Internet** - For API communication
+- **Vibrate** - For notifications
 
-# Troubleshooting
+## Testing
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+### Unit Tests
+```sh
+npm test
+```
 
-# Learn More
+### E2E Tests (Detox)
+```sh
+# Build and run E2E tests
+detox build -c android.emu.debug
+detox test -c android.emu.debug
+```
 
-To learn more about React Native, take a look at the following resources:
+## Contributing
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+This project follows the milestone timeline. Development should proceed according to the plan outlined in the project documentation.
+
+## License
+
+Private project - All rights reserved
