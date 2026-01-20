@@ -1,38 +1,190 @@
 /**
- * Map Screen
- * Coming Soon
+ * Map Screen - Coming Soon with Animations
  */
 
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Animated, ScrollView } from 'react-native';
 
 const MapScreen: React.FC = () => {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(rotateAnim, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(rotateAnim, {
+            toValue: 0,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+        ])
+      ),
+    ]).start();
+  }, []);
+
+  const rotate = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '10deg'],
+  });
+
+  const features = [
+    { icon: '📍', text: 'Real-time location tracking' },
+    { icon: '🛣️', text: 'Route navigation & directions' },
+    { icon: '🚏', text: 'Stop locations & markers' },
+    { icon: '🚦', text: 'Traffic updates' },
+    { icon: '📍', text: 'GPS accuracy' },
+  ];
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Coming Soon</Text>
-      <Text style={styles.subtitle}>Map feature will be available soon</Text>
-    </View>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <Animated.View
+        style={[
+          styles.content,
+          {
+            opacity: fadeAnim,
+            transform: [{ scale: scaleAnim }],
+          },
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.iconContainer,
+            {
+              transform: [{ rotate }],
+            },
+          ]}
+        >
+          <Text style={styles.icon}>🗺️</Text>
+        </Animated.View>
+        <Text style={styles.title}>Map</Text>
+        <Text style={styles.subtitle}>Coming Soon</Text>
+        <Text style={styles.description}>
+          Interactive map with real-time tracking{'\n'}
+          and route navigation
+        </Text>
+
+        <View style={styles.featuresContainer}>
+          <Text style={styles.featuresTitle}>Features:</Text>
+          {features.map((item, index) => (
+            <Animated.View
+              key={index}
+              style={[
+                styles.featureCard,
+                {
+                  opacity: fadeAnim,
+                  transform: [
+                    {
+                      translateX: fadeAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-50, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Text style={styles.featureIcon}>{item.icon}</Text>
+              <Text style={styles.featureText}>{item.text}</Text>
+            </Animated.View>
+          ))}
+        </View>
+      </Animated.View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
+  content: {
+    alignItems: 'center',
+    padding: 30,
+    paddingTop: 60,
+  },
+  iconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#E0F2FE',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    padding: 20,
+    marginBottom: 30,
+  },
+  icon: {
+    fontSize: 60,
   },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#000000',
-    marginBottom: 12,
+    color: '#1E3A5F',
+    marginBottom: 10,
+    textAlign: 'center',
   },
   subtitle: {
-    fontSize: 18,
-    color: '#666666',
+    fontSize: 20,
+    color: '#50C878',
+    fontWeight: '600',
+    marginBottom: 15,
+  },
+  description: {
+    fontSize: 16,
+    color: '#64748B',
     textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 40,
+  },
+  featuresContainer: {
+    width: '100%',
+    maxWidth: 350,
+  },
+  featuresTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1E3A5F',
+    marginBottom: 20,
+  },
+  featureCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 18,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  featureIcon: {
+    fontSize: 28,
+    marginRight: 15,
+  },
+  featureText: {
+    fontSize: 16,
+    color: '#475569',
+    fontWeight: '500',
+    flex: 1,
   },
 });
 

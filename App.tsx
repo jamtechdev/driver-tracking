@@ -32,7 +32,20 @@ function App(): React.JSX.Element {
     <SafeAreaProvider>
       <StatusBar barStyle="dark-content" />
       <NavigationContainer>
-        <Stack.Navigator initialRouteName="Login">
+        <Stack.Navigator
+          initialRouteName="Login"
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: '#1E3A5F',
+            },
+            headerTintColor: '#FFFFFF',
+            headerTitleStyle: {
+              fontWeight: 'bold',
+            },
+            animation: 'slide_from_right',
+            animationDuration: 300,
+          }}
+        >
           {/* Auth Stack */}
           <Stack.Screen 
             name="Login" 
