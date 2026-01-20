@@ -78,12 +78,19 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.drivertracking"
+    
+    buildFeatures {
+        buildConfig = true
+    }
+    
     defaultConfig {
         applicationId "com.drivertracking"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        
+        // (Maps disabled for now)
     }
     signingConfigs {
         debug {

@@ -8,3 +8,12 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# Suppress Google Maps license validation warnings/errors
+-assumenosideeffects class com.google.android.gms.maps.** {
+    *;
+}
+
+# Keep react-native-maps classes
+-keep class com.airbnb.android.react.maps.** { *; }
+-keep class com.google.android.gms.maps.** { *; }
