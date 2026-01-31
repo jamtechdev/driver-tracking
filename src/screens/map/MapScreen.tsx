@@ -1,11 +1,17 @@
 /**
- * Map Screen - Coming Soon with Animations
+ * Map Screen - View routes and vehicles (per iPad screenshot)
  */
 
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, ScrollView } from 'react-native';
+import MainLayout from '../../components/MainLayout';
+import { COLORS } from '../../theme/colors';
 
-const MapScreen: React.FC = () => {
+interface MapScreenProps {
+  navigation: any;
+}
+
+const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
@@ -53,7 +59,7 @@ const MapScreen: React.FC = () => {
     { icon: '📍', text: 'GPS accuracy' },
   ];
 
-  return (
+  const content = (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Animated.View
         style={[
@@ -109,23 +115,25 @@ const MapScreen: React.FC = () => {
       </Animated.View>
     </ScrollView>
   );
+
+  return <MainLayout navigation={navigation}>{content}</MainLayout>;
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: COLORS.background,
   },
   content: {
     alignItems: 'center',
     padding: 30,
-    paddingTop: 60,
+    paddingTop: 20,
   },
   iconContainer: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: '#E0F2FE',
+    backgroundColor: COLORS.surface,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 30,
@@ -136,13 +144,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#1E3A5F',
+    color: COLORS.textPrimary,
     marginBottom: 10,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 20,
-    color: '#50C878',
+    color: COLORS.primary,
     fontWeight: '600',
     marginBottom: 15,
   },
@@ -160,7 +168,7 @@ const styles = StyleSheet.create({
   featuresTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1E3A5F',
+    color: COLORS.textPrimary,
     marginBottom: 20,
   },
   featureCard: {
@@ -182,7 +190,7 @@ const styles = StyleSheet.create({
   },
   featureText: {
     fontSize: 16,
-    color: '#475569',
+    color: COLORS.textSecondary,
     fontWeight: '500',
     flex: 1,
   },

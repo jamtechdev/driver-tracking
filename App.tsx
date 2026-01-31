@@ -4,18 +4,24 @@
  */
 
 import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AuthProvider } from './src/context/AuthContext';
+import { DriverModalProvider } from './src/context/DriverModalContext';
+import { BrightnessProvider } from './src/context/BrightnessContext';
+import { EmergencyProvider } from './src/context/EmergencyContext';
+
 // Auth Screens
-import LoginScreen from './src/screens/auth/LoginScreen';
+import DriverSelectScreen from './src/screens/auth/DriverSelectScreen';
 import PinEntryScreen from './src/screens/auth/PinEntryScreen';
-import SupervisorLoginScreen from './src/screens/auth/SupervisorLoginScreen';
 
 // Main Screens
 import HomeScreen from './src/screens/home/HomeScreen';
+import SupervisorHomeScreen from './src/screens/supervisor/SupervisorHomeScreen';
 import MapScreen from './src/screens/map/MapScreen';
 import RouteSelectionScreen from './src/screens/route/RouteSelectionScreen';
 import RouteDetailsScreen from './src/screens/route/RouteDetailsScreen';
@@ -29,89 +35,61 @@ const Stack = createNativeStackNavigator();
 
 function App(): React.JSX.Element {
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" />
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName="Login"
-          screenOptions={{
-            headerStyle: {
-              backgroundColor: '#1E3A5F',
-            },
-            headerTintColor: '#FFFFFF',
-            headerTitleStyle: {
-              fontWeight: 'bold',
-            },
-            animation: 'slide_from_right',
-            animationDuration: 300,
-          }}
-        >
-          {/* Auth Stack */}
-          <Stack.Screen 
-            name="Login" 
-            component={LoginScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen 
-            name="PinEntry" 
-            component={PinEntryScreen}
-            options={{ title: 'Enter PIN' }}
-          />
-          <Stack.Screen 
-            name="SupervisorLogin" 
-            component={SupervisorLoginScreen}
-            options={{ title: 'Supervisor Login' }}
-          />
-          
-          {/* Main Stack */}
-          <Stack.Screen 
-            name="Home" 
-            component={HomeScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen 
-            name="Map" 
-            component={MapScreen}
-            options={{ title: 'Map' }}
-          />
-          <Stack.Screen 
-            name="RouteSelection" 
-            component={RouteSelectionScreen}
-            options={{ title: 'Select Route' }}
-          />
-          <Stack.Screen 
-            name="RouteDetails" 
-            component={RouteDetailsScreen}
-            options={{ title: 'Route Details' }}
-          />
-          <Stack.Screen 
-            name="PreTrip" 
-            component={PreTripScreen}
-            options={{ title: 'Pre-Trip Inspection' }}
-          />
-          <Stack.Screen 
-            name="PostTrip" 
-            component={PostTripScreen}
-            options={{ title: 'Post-Trip Inspection' }}
-          />
-          <Stack.Screen 
-            name="PassengerFare" 
-            component={PassengerFareScreen}
-            options={{ title: 'Passenger & Fare' }}
-          />
-          <Stack.Screen 
-            name="Messaging" 
-            component={MessagingScreen}
-            options={{ title: 'Messaging' }}
-          />
-          <Stack.Screen 
-            name="Settings" 
-            component={SettingsScreen}
-            options={{ title: 'Settings' }}
-          />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <DriverModalProvider>
+            <BrightnessProvider>
+            <EmergencyProvider>
+            <StatusBar barStyle="light-content" backgroundColor="#1E2228" />
+            <NavigationContainer>
+              <Stack.Navigator
+                initialRouteName="Home"
+                screenOptions={{
+                  headerStyle: { backgroundColor: '#1E2228' },
+                  headerTintColor: '#FFFFFF',
+                  headerTitleStyle: { fontWeight: 'bold' },
+                  contentStyle: { backgroundColor: '#1E2228' },
+                  animation: 'slide_from_right',
+                  animationDuration: 300,
+                }}
+              >
+                <Stack.Screen
+                  name="DriverSelect"
+                  component={DriverSelectScreen}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="PinEntry"
+                  component={PinEntryScreen as React.ComponentType<any>}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="Home"
+                  component={HomeScreen}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="SupervisorHome"
+                  component={SupervisorHomeScreen}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen name="Map" component={MapScreen} options={{ title: 'Map' }} />
+                <Stack.Screen name="RouteSelection" component={RouteSelectionScreen} options={{ title: 'Select Route' }} />
+                <Stack.Screen name="RouteDetails" component={RouteDetailsScreen} options={{ title: 'Route Details' }} />
+                <Stack.Screen name="PreTrip" component={PreTripScreen} options={{ title: 'Pre-Trip Inspection' }} />
+                <Stack.Screen name="PostTrip" component={PostTripScreen} options={{ title: 'Post-Trip Inspection' }} />
+                <Stack.Screen name="PassengerFare" component={PassengerFareScreen} options={{ title: 'Passenger & Fare' }} />
+                <Stack.Screen name="Messaging" component={MessagingScreen} options={{ title: 'Messaging' }} />
+                <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
+              </Stack.Navigator>
+            </NavigationContainer>
+            </EmergencyProvider>
+            </BrightnessProvider>
+          </DriverModalProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

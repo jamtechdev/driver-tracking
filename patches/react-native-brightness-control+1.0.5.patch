@@ -1,0 +1,33 @@
+diff --git a/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessModule.kt b/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessModule.kt
+index 373a617..a1b2c3d 100644
+--- a/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessModule.kt
++++ b/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessModule.kt
+@@ -11,8 +11,20 @@ class BrightnessModule(reactContext: ReactApplicationContext) : ReactContextBase
+ 
+     @ReactMethod
+     fun setBrightness(brightness: Float, duration: Int = 0) {
+-        val activity = currentActivity ?: return
++        val activity = reactApplicationContext.currentActivity ?: return
++        val resolver = reactApplicationContext.contentResolver
+ 
+         activity.runOnUiThread {
+             val layoutParams = activity.window.attributes
++
++            // 1. Set system brightness (0-255) for device-wide effect - requires WRITE_SETTINGS
++            if (Settings.System.canWrite(reactApplicationContext)) {
++                Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
++                val systemBrightness = (brightness * 255).toInt().coerceIn(0, 255)
++                Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, systemBrightness)
++            }
+ 
+             if (duration == 0) {
+                 layoutParams.screenBrightness = brightness
+@@ -42,7 +54,7 @@ class BrightnessModule(reactContext: ReactApplicationContext) : ReactContextBase
+ 
+     @ReactMethod
+     fun getBrightness(promise: Promise) {
+-        val activity = currentActivity
++        val activity = reactApplicationContext.currentActivity
+         if (activity == null) {
+             promise.resolve(0.5f) 
+             return

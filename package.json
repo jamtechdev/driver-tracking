@@ -19,16 +19,25 @@
     "type-check": "tsc --noEmit",
     "clean": "react-native clean",
     "clean:android": "cd android && ./gradlew clean && cd ..",
-    "clean:ios": "cd ios && rm -rf Pods Podfile.lock && pod install && cd .."
+    "clean:ios": "cd ios && rm -rf Pods Podfile.lock && pod install && cd ..",
+    "build:android:release": "cd android && ./gradlew assembleRelease && cd ..",
+    "build:android:bundle": "cd android && ./gradlew bundleRelease && cd ..",
+    "build:ios:release": "cd ios && xcodebuild -workspace DriverTracking.xcworkspace -scheme DriverTracking -configuration Release -sdk iphoneos -archivePath build/DriverTracking.xcarchive archive && cd .."
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^1.21.0",
+    "@react-native-community/slider": "^5.1.2",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/native-stack": "^6.9.17",
     "react": "19.2.0",
     "react-native": "0.83.1",
+    "react-native-brightness-control": "^1.0.5",
+    "react-native-gesture-handler": "^2.30.0",
+    "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^3.29.0",
-    "react-native-safe-area-context": "^5.5.2"
+    "react-native-svg": "^15.15.1",
+    "react-native-svg-path-gradient": "^0.4.0",
+    "react-native-vector-icons": "^10.3.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -1,165 +1,245 @@
 /**
- * Settings Screen - Coming Soon
+ * MDT Settings Screen - Display, Device Info, Debug, Changelog, Acknowledgements
  */
 
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Switch,
+  TouchableOpacity,
+  Platform,
+  Alert,
+  Pressable,
+} from 'react-native';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { COLORS } from '../../theme/colors';
 
-const SettingsScreen: React.FC = () => {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+const MDT_ID_KEY = '@driver_tracking:mdt_id';
+const TIME_FORMAT_KEY = '@driver_tracking:time_format';
+
+const generateMdtId = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const segment = (len: number) =>
+    Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `BPT-${segment(4)}-${segment(6)}`;
+};
+
+const { version } = require('../../../package.json');
+const APP_VERSION = `${version} (746)`;
+
+const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  const [mdtId, setMdtId] = useState<string>('');
+  const [use24HourClock, setUse24HourClock] = useState(false);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 50,
-        friction: 7,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    (async () => {
+      try {
+        const [storedId, storedFormat] = await Promise.all([
+          AsyncStorage.getItem(MDT_ID_KEY),
+          AsyncStorage.getItem(TIME_FORMAT_KEY),
+        ]);
+        setMdtId(storedId || generateMdtId());
+        setUse24HourClock(storedFormat === '24h');
+      } catch {
+        setMdtId(generateMdtId());
+      }
+    })();
   }, []);
 
-  const features = [
-    { icon: '🔔', text: 'Notification preferences' },
-    { icon: '🌙', text: 'Dark mode toggle' },
-    { icon: '🔒', text: 'Privacy & security' },
-    { icon: '📱', text: 'App preferences' },
-    { icon: 'ℹ️', text: 'About & support' },
+  useEffect(() => {
+    if (mdtId) {
+      AsyncStorage.setItem(MDT_ID_KEY, mdtId);
+    }
+  }, [mdtId]);
+
+  const handle24HourToggle = async (value: boolean) => {
+    setUse24HourClock(value);
+    await AsyncStorage.setItem(TIME_FORMAT_KEY, value ? '24h' : '12h');
+  };
+
+  const navItems = [
+    { id: 'Debug', label: 'Debug' },
+    { id: 'Changelog', label: 'Changelog' },
+    { id: 'Acknowledgements', label: 'Acknowledgements' },
   ];
 
-  return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Animated.View
-        style={[
-          styles.content,
-          {
-            opacity: fadeAnim,
-            transform: [{ scale: scaleAnim }],
-          },
-        ]}
-      >
-        <View style={styles.iconContainer}>
-          <Text style={styles.icon}>⚙️</Text>
-        </View>
-        <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Coming Soon</Text>
-        <Text style={styles.description}>
-          Customize your app experience{'\n'}
-          and manage preferences
-        </Text>
+  const handleNavItem = (id: string) => {
+    Alert.alert(id, 'Coming soon');
+  };
 
-        <View style={styles.featuresContainer}>
-          <Text style={styles.featuresTitle}>Features:</Text>
-          {features.map((item, index) => (
-            <Animated.View
-              key={index}
-              style={[
-                styles.featureCard,
-                {
-                  opacity: fadeAnim,
-                  transform: [
-                    {
-                      translateX: fadeAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-50, 0],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <Text style={styles.featureIcon}>{item.icon}</Text>
-              <Text style={styles.featureText}>{item.text}</Text>
-            </Animated.View>
-          ))}
+  return (
+    <SafeAreaView style={styles.wrapper} edges={['left']}>
+      <View style={styles.container}>
+        <View style={styles.panel}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>MDT Settings</Text>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={styles.doneText}>Done</Text>
+          </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>DISPLAY</Text>
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>Use a 24-hour clock</Text>
+                <Switch
+                  value={use24HourClock}
+                  onValueChange={handle24HourToggle}
+                  trackColor={{ false: '#CBD5E1', true: COLORS.primary }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>DEVICE INFORMATION</Text>
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>MDT ID</Text>
+                <Text style={styles.rowValue}>{mdtId || '—'}</Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>App Version</Text>
+                <Text style={styles.rowValue}>{APP_VERSION}</Text>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              {navItems.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.navItem}
+                  onPress={() => handleNavItem(item.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.navLabel}>{item.label}</Text>
+                  <MaterialIcons name="chevron-right" size={22} color="#94A3B8" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <Text style={styles.footer}>
+            Copyright © 2023 Bishop Peak Technology, Inc.
+          </Text>
         </View>
-      </Animated.View>
-    </ScrollView>
+        <Pressable style={styles.overlay} onPress={() => navigation.goBack()} />
+      </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  wrapper: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    flexDirection: 'row',
+  },
+  overlay: {
+    flex: 1,
+  },
+  panel: {
+    width: '75%',
+    maxWidth: 400,
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 4, height: 0 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 16,
+      },
+    }),
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  doneText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.accentBlue,
   },
   content: {
-    alignItems: 'center',
-    padding: 30,
-    paddingTop: 60,
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#F1F5F9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
+  section: {
+    marginBottom: 28,
   },
-  icon: {
-    fontSize: 60,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#1E3A5F',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 20,
-    color: '#95A5A6',
+  sectionTitle: {
+    fontSize: 12,
     fontWeight: '600',
-    marginBottom: 15,
+    color: '#64748B',
+    letterSpacing: 0.5,
+    marginBottom: 12,
   },
-  description: {
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  rowLabel: {
+    fontSize: 16,
+    color: '#1E293B',
+    fontWeight: '500',
+  },
+  rowValue: {
     fontSize: 16,
     color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 40,
-  },
-  featuresContainer: {
-    width: '100%',
-    maxWidth: 350,
-  },
-  featuresTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1E3A5F',
-    marginBottom: 20,
-  },
-  featureCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 18,
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  featureIcon: {
-    fontSize: 28,
-    marginRight: 15,
-  },
-  featureText: {
-    fontSize: 16,
-    color: '#475569',
     fontWeight: '500',
-    flex: 1,
+  },
+  navItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  navLabel: {
+    fontSize: 16,
+    color: '#1E293B',
+    fontWeight: '500',
+  },
+  footer: {
+    fontSize: 12,
+    color: '#94A3B8',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    textAlign: 'center',
   },
 });
 
 export default SettingsScreen;
-
