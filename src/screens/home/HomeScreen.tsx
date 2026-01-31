@@ -71,6 +71,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const handleEmergencyPress = () => {
     if (!emergencyActivated) {
       activateEmergency();
+    } else {
+      // When activated, tap opens the reason modal directly (clear hold timer if any)
+      handleEmergencyPressOut();
+      setShowReasonModal(true);
     }
   };
 
@@ -275,18 +279,20 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               numberOfLines={3}
             />
             <View style={styles.reasonModalButtons}>
-              <Pressable
+              <TouchableOpacity
                 style={[styles.reasonModalBtn, styles.reasonModalBtnCancel]}
                 onPress={handleReasonCancel}
+                activeOpacity={0.7}
               >
                 <Text style={styles.reasonModalBtnCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[styles.reasonModalBtn, styles.reasonModalBtnSubmit]}
                 onPress={handleReasonSubmit}
+                activeOpacity={0.7}
               >
                 <Text style={styles.reasonModalBtnSubmitText}>Submit</Text>
-              </Pressable>
+              </TouchableOpacity>
             </View>
           </Pressable>
         </Pressable>
