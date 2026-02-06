@@ -4,17 +4,24 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Pressable, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Pressable } from 'react-native';
+import { useNavigationState } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../theme/colors';
+import { BOTTOM_BAR_HEIGHT } from '../utils/constants';
 import { useAuth } from '../context/AuthContext';
 import { useBrightness } from '../context/BrightnessContext';
+import { useMessagingModal } from '../context/MessagingModalContext';
+import { useSettingsModal } from '../context/SettingsModalContext';
+import { useMapModal } from '../context/MapModalContext';
+import { useChecklistModal } from '../context/ChecklistModalContext';
 
 interface SidebarProps {
   navigation: any;
   onProceedIfSafe?: () => void;
   onNavPress?: () => void;
   variant?: 'compact' | 'drawer';
+  isTablet?: boolean;
 }
 
 const SIDEBAR_ITEMS = [
@@ -30,21 +37,28 @@ const Sidebar: React.FC<SidebarProps> = ({
   onProceedIfSafe,
   onNavPress,
   variant,
+  isTablet,
 }) => {
   const { width } = Dimensions.get('window');
-  const { driver, logout, serviceStatus } = useAuth();
-  const { setBrightnessVisible } = useBrightness();
+  const { driver, serviceStatus } = useAuth();
+  const { setBrightnessVisible, brightnessVisible } = useBrightness();
+  const { open: openMessagingModal, visible: messagingModalVisible } = useMessagingModal();
+  const { open: openSettingsModal, visible: settingsModalVisible } = useSettingsModal();
+  const { open: openMapModal, visible: mapModalVisible } = useMapModal();
+  const { open: openChecklistModal, visible: checklistModalVisible } = useChecklistModal();
   const isDrawer = variant === 'drawer' || width < 600;
+  const isLoggedOut = !driver || driver.role === 'unassigned';
 
   const handlePower = () => {
     onNavPress?.();
-    if (!driver || driver.role === 'unassigned') return;
-    logout();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Home' }],
-    });
+    if (isLoggedOut) return;
+    // Power = device/shift control - separate from logout (placeholder for power-off MDT, etc.)
   };
+
+  const currentRoute = useNavigationState((state) => {
+    const route = state?.routes?.[state.index];
+    return route?.name ?? '';
+  });
 
   const handleNav = (screen: string) => {
     onNavPress?.();
@@ -52,11 +66,22 @@ const Sidebar: React.FC<SidebarProps> = ({
       setBrightnessVisible(true);
       return;
     }
-    if (screen === 'Settings') {
-      navigation.navigate('Settings');
+    if (screen === 'Messaging') {
+      openMessagingModal();
       return;
     }
-    navigation.navigate(screen);
+    if (screen === 'Settings') {
+      openSettingsModal();
+      return;
+    }
+    if (screen === 'Map') {
+      navigation.navigate('Map');
+      return;
+    }
+    if (screen === 'PreTrip') {
+      openChecklistModal();
+      return;
+    }
   };
 
   const handleProceed = () => {
@@ -71,37 +96,29 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Text style={styles.drawerTitle}>Menu</Text>
         </View>
         <ScrollView style={styles.drawerNav} showsVerticalScrollIndicator={false}>
-          {SIDEBAR_ITEMS.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.drawerItem}
-              onPress={() => handleNav(item.id)}
-              activeOpacity={0.6}
-            >
-              <MaterialIcons name={item.icon as any} size={24} color="rgba(255,255,255,0.9)" style={styles.drawerIcon} />
-              <Text style={styles.drawerLabel}>{item.label}</Text>
-              <MaterialIcons name="chevron-right" size={20} color="rgba(255,255,255,0.25)" />
-            </TouchableOpacity>
-          ))}
+          {SIDEBAR_ITEMS.map((item) => {
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.drawerItem}
+                onPress={() => handleNav(item.id)}
+                activeOpacity={0.6}
+              >
+                <MaterialIcons name={item.icon as any} size={24} color="rgba(255,255,255,0.9)" style={styles.drawerIcon} />
+                <Text style={styles.drawerLabel}>{item.label}</Text>
+                <MaterialIcons name="chevron-right" size={20} color="rgba(255,255,255,0.25)" />
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
         <View style={styles.drawerFooter}>
-          <Pressable
-            style={[styles.powerButton, (!driver || driver.role === 'unassigned') && styles.powerButtonDisabled]}
-            onPress={handlePower}
-            disabled={!driver || driver.role === 'unassigned'}
-            android_ripple={null}
+          <TouchableOpacity
+            style={styles.proceedButtonDrawer}
+            onPress={handleProceed}
+            activeOpacity={0.7}
           >
-            <View style={[styles.powerIconWrap, (!driver || driver.role === 'unassigned') && styles.powerIconWrapDisabled]}>
-              <MaterialIcons
-                name="power-settings-new"
-                size={22}
-                color={(!driver || driver.role === 'unassigned') ? 'rgba(255,255,255,0.35)' : '#F87171'}
-              />
-            </View>
-            <Text style={[styles.powerLabel, (!driver || driver.role === 'unassigned') && styles.powerLabelDisabled]}>
-              Power
-            </Text>
-          </Pressable>
+            <Text style={styles.proceedTextDrawer}>Proceed if Safe</Text>
+          </TouchableOpacity>
           <View style={[
             styles.serviceStatusRow,
             serviceStatus === 'in_service' ? styles.serviceStatusInService : styles.serviceStatusOutOfService,
@@ -118,83 +135,170 @@ const Sidebar: React.FC<SidebarProps> = ({
               {serviceStatus === 'out_of_service' ? 'Out of Service' : 'In Service'}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.proceedButtonDrawer}
-            onPress={handleProceed}
-            activeOpacity={0.7}
+          <Pressable
+            style={[styles.powerButtonSidebar, isLoggedOut && styles.powerButtonSidebarDisabled]}
+            onPress={handlePower}
+            disabled={isLoggedOut}
+            android_ripple={null}
           >
-            <Text style={styles.proceedTextDrawer}>Proceed if Safe</Text>
-          </TouchableOpacity>
+            <MaterialIcons
+              name="power-settings-new"
+              size={32}
+              color={isLoggedOut ? 'rgba(255,255,255,0.3)' : '#FFFFFF'}
+              style={styles.powerIcon}
+            />
+            <Text style={[styles.powerLabel, isLoggedOut && styles.powerLabelDisabled]}>Power</Text>
+          </Pressable>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.sidebar}>
+    <View style={[styles.sidebar, isTablet && styles.sidebarTablet]}>
       <View style={styles.navItems}>
-        {SIDEBAR_ITEMS.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={styles.navItem}
-            onPress={() => handleNav(item.id)}
-            activeOpacity={0.6}
-          >
-            <MaterialIcons name={item.icon as any} size={24} color="rgba(255,255,255,0.8)" style={styles.navIcon} />
-            <Text style={styles.navLabel} numberOfLines={1}>
-              {item.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {SIDEBAR_ITEMS.map((item) => {
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={[
+                styles.navItem,
+                isTablet && styles.navItemTablet,
+              ]}
+              onPress={() => handleNav(item.id)}
+              activeOpacity={0.6}
+            >
+              <MaterialIcons
+                name={item.icon as any}
+                size={isTablet ? 36 : 32}
+                color="#FFFFFF"
+                style={styles.navIcon}
+              />
+              <Text style={[styles.navLabel, isTablet && styles.navLabelTablet]} numberOfLines={1}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
-      <TouchableOpacity
-        style={styles.proceedButton}
-        onPress={handleProceed}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.proceedText}>Proceed if Safe</Text>
-      </TouchableOpacity>
+      <View style={styles.proceedPowerColumn}>
+        <TouchableOpacity
+          style={[styles.proceedButton, isTablet && styles.proceedButtonTablet]}
+          onPress={handleProceed}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.proceedText, isTablet && styles.proceedTextTablet]}>Proceed if Safe</Text>
+        </TouchableOpacity>
+        <Pressable
+          style={[styles.powerButtonSidebarCompact, isLoggedOut && styles.powerButtonSidebarDisabled]}
+          onPress={handlePower}
+          disabled={isLoggedOut}
+          android_ripple={null}
+        >
+          <MaterialIcons
+            name="power-settings-new"
+            size={32}
+            color={isLoggedOut ? 'rgba(255,255,255,0.3)' : '#FFFFFF'}
+            style={styles.powerIcon}
+          />
+          <Text style={[styles.powerLabel, isLoggedOut && styles.powerLabelDisabled]}>Power</Text>
+        </Pressable>
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   sidebar: {
-    width: 72,
-    backgroundColor: '#252A32',
-    paddingVertical: 16,
-    paddingHorizontal: 8,
+    width: 88,
+    backgroundColor: '#232931',
+    paddingTop: 20,
+    paddingBottom: 0,
+    paddingHorizontal: 12,
     borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.06)',
+    borderRightColor: 'rgba(255,255,255,0.08)',
+  },
+  sidebarTablet: {
+    width: '100%',
+    flex: 1,
+    paddingTop: 24,
+    paddingBottom: 0,
+  },
+  navItemTablet: {
+    paddingVertical: 20,
+    marginBottom: 6,
+  },
+  navLabelTablet: {
+    fontSize: 14,
+  },
+  proceedButtonTablet: {
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  proceedTextTablet: {
+    fontSize: 14,
   },
   navItems: {
     flex: 1,
   },
   navItem: {
     alignItems: 'center',
-    paddingVertical: 12,
-    marginBottom: 2,
-  },
-  navIcon: {
+    paddingVertical: 16,
     marginBottom: 4,
   },
+  navIcon: {
+    marginBottom: 6,
+  },
   navLabel: {
-    fontSize: 9,
-    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    color: '#FFFFFF',
     textAlign: 'center',
     fontWeight: '500',
   },
+  proceedPowerColumn: {
+    marginTop: 'auto',
+    alignSelf: 'stretch',
+    gap: 0,
+    marginBottom: 8,
+  },
   proceedButton: {
     backgroundColor: '#22C55E',
-    paddingVertical: 12,
-    paddingHorizontal: 6,
-    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderRadius: 10,
     alignItems: 'center',
-    marginTop: 8,
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  powerButtonSidebarCompact: {
+    width: '100%',
+    height: BOTTOM_BAR_HEIGHT,
+    alignSelf: 'stretch',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingTop: 14,
+    backgroundColor: '#232931',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: -12,
+  },
+  powerIcon: {
+    marginBottom: 6,
+  },
+  powerLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.9)',
+  },
+  powerLabelDisabled: {
+    color: 'rgba(255,255,255,0.3)',
   },
   proceedText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: '700',
   },
   drawer: {
@@ -248,43 +352,8 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
     borderTopWidth: 1.5,
     borderTopColor: 'rgba(255,255,255,0.08)',
-    gap: 14,
+    gap: 4,
     backgroundColor: 'rgba(0,0,0,0.15)',
-  },
-  powerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(239, 68, 68, 0.35)',
-  },
-  powerButtonDisabled: {
-    opacity: 0.5,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  powerIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(239, 68, 68, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  powerLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FCA5A5',
-  },
-  powerLabelDisabled: {
-    color: 'rgba(255,255,255,0.4)',
-  },
-  powerIconWrapDisabled: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   serviceStatusRow: {
     flexDirection: 'row',
@@ -313,16 +382,36 @@ const styles = StyleSheet.create({
   },
   proceedButtonDrawer: {
     backgroundColor: '#16A34A',
-    paddingVertical: 18,
-    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(34, 197, 94, 0.4)',
+    marginBottom: 4,
     shadowColor: '#22C55E',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 8,
+  },
+  powerButtonSidebar: {
+    width: '100%',
+    height: BOTTOM_BAR_HEIGHT,
+    alignSelf: 'stretch',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingTop: 14,
+    backgroundColor: '#232931',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    marginTop: 4,
+    marginHorizontal: -18,
+  },
+  powerButtonSidebarDisabled: {
+    backgroundColor: '#232931',
+    opacity: 0.6,
   },
   proceedTextDrawer: {
     color: '#FFFFFF',

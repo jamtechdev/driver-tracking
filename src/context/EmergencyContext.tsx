@@ -1,14 +1,24 @@
 /**
  * Emergency Context - Silent alarm activated/deactivated state
+ * Sends driver message API (controller=driver&action=message) for emergency and canned messages.
  */
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import Toast from 'react-native-toast-message';
+import { useAuth } from './AuthContext';
+import { useDriverModel } from './DriverModelContext';
+import { PEAK_DEFAULT_PARAMS } from '@/config/env';
+import { sendDriverMessage } from '@/api/driverMessage.api';
+
+const EMERGENCY_ACTIVATED = 'EMERGENCY MODE ACTIVATED';
+const EMERGENCY_CLEARED = 'EMERGENCY MODE cleared';
 
 interface EmergencyContextType {
   emergencyActivated: boolean;
   messageSent: boolean;
   activateEmergency: () => void;
   deactivateEmergency: (reason: string) => void;
+  sendCannedMessage: (message: string) => void;
 }
 
 const EmergencyContext = createContext<EmergencyContextType | null>(null);
@@ -16,18 +26,70 @@ const EmergencyContext = createContext<EmergencyContextType | null>(null);
 export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [emergencyActivated, setEmergencyActivated] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
+  const { vehicleId, driver } = useAuth();
+  const { lastLocation } = useDriverModel();
+  const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
+
+  const sendMessage = useCallback(
+    async (message: string) => {
+      if (!vehicleId || !driver?.id) {
+        Toast.show({
+          type: 'error',
+          text1: 'Emergency',
+          text2: 'Select a vehicle and driver first.',
+        });
+        throw new Error('Vehicle and driver required');
+      }
+      const lat = lastLocation?.latitude ?? 0;
+      const lng = lastLocation?.longitude ?? 0;
+      try {
+        await sendDriverMessage({
+          agencyID,
+          vehicleID: vehicleId,
+          driverID: driver.id,
+          lat,
+          lng,
+          message,
+        });
+      } catch (err) {
+        if (__DEV__) console.warn('[EmergencyContext] sendDriverMessage failed', err);
+        Toast.show({
+          type: 'error',
+          text1: 'Message failed',
+          text2: 'Could not send to server. Try again.',
+        });
+        throw err;
+      }
+    },
+    [agencyID, vehicleId, driver?.id, lastLocation?.latitude, lastLocation?.longitude]
+  );
 
   const activateEmergency = useCallback(() => {
     setEmergencyActivated(true);
     setMessageSent(true);
-    // TODO: Send silent emergency alert to backend
-  }, []);
+    sendMessage(EMERGENCY_ACTIVATED).catch(() => {
+      setEmergencyActivated(false);
+      setMessageSent(false);
+    });
+  }, [sendMessage]);
 
-  const deactivateEmergency = useCallback((reason: string) => {
-    setEmergencyActivated(false);
-    setMessageSent(false);
-    // TODO: Send deactivation reason to backend
-  }, []);
+  const deactivateEmergency = useCallback(
+    (reason: string) => {
+      setEmergencyActivated(false);
+      setMessageSent(false);
+      const message = reason?.trim() ? `${EMERGENCY_CLEARED} - ${reason}` : EMERGENCY_CLEARED;
+      sendMessage(message).catch(() => {});
+    },
+    [sendMessage]
+  );
+
+  const sendCannedMessage = useCallback(
+    (message: string) => {
+      setMessageSent(true);
+      sendMessage(message).catch(() => setMessageSent(false));
+    },
+    [sendMessage]
+  );
 
   return (
     <EmergencyContext.Provider
@@ -36,6 +98,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         messageSent,
         activateEmergency,
         deactivateEmergency,
+        sendCannedMessage,
       }}
     >
       {children}

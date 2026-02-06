@@ -41,9 +41,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   const slideAnim = useRef(new Animated.Value(-280)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const { isOpen: driverModalVisible, open: openDriverModal, close: closeDriverModal } = useDriverModal();
-  const { brightnessVisible, setBrightnessVisible, brightness, setBrightness } = useBrightness();
-  const { width } = useWindowDimensions();
-  const isMobile = width < 900;
+  const { brightnessVisible, setBrightnessVisible, brightness, setBrightness, brightnessSupported } = useBrightness();
+  const { width, height } = useWindowDimensions();
+  // Use Platform.isPad for iPad (iPad Mini portrait = 744px, would fail width >= 768)
+  const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
+  const isMobile = !isTablet;
 
   useEffect(() => {
     if (sidebarVisible) {
@@ -63,6 +65,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
     <Sidebar
       navigation={navigation}
       variant={isMobile ? 'drawer' : 'compact'}
+      isTablet={isTablet}
       onNavPress={() => setSidebarVisible(false)}
       onProceedIfSafe={() => {
         setSidebarVisible(false);
@@ -79,20 +82,100 @@ const MainLayout: React.FC<MainLayoutProps> = ({
     []
   );
 
+  const mainContent = (
+    <>
+      {children}
+      {isMobile && showSidebar && (
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => setSidebarVisible(true)}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="menu" size={24} color={COLORS.textPrimary} />
+        </TouchableOpacity>
+      )}
+    </>
+  );
+
   return (
     <SidebarProvider value={sidebarApi}>
-      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-        <View style={styles.content}>
-          {brightnessVisible && (
-            <View style={styles.brightnessSection}>
+      <SafeAreaView
+        style={styles.container}
+        edges={[]}
+      >
+        {isTablet && showSidebar ? (
+          <View style={styles.tabletRow}>
+            <View style={styles.tabletSidebar}>
+              {sidebarContent}
+            </View>
+            <View style={styles.tabletMain}>
+              <View style={[styles.content, styles.contentTop]}>{mainContent}</View>
+              <View style={styles.bottomBarWrapper}>
+                <BottomBar
+                  navigation={navigation}
+                  onDriverPress={openDriverModal}
+                />
+              </View>
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={[styles.content, styles.contentTop]}>{mainContent}</View>
+            <View style={styles.bottomBarWrapper}>
+              <BottomBar
+                navigation={navigation}
+                onDriverPress={openDriverModal}
+              />
+            </View>
+          </>
+        )}
+        <SelectDriverModal
+          visible={driverModalVisible}
+          onClose={closeDriverModal}
+          navigation={navigation}
+        />
+
+        {brightnessVisible && (
+          <View style={[styles.brightnessOverlay, isTablet && styles.brightnessOverlayTablet]}>
+            <View style={styles.brightnessCard}>
               <View style={styles.brightnessHeader}>
-                <MaterialIcons name="wb-sunny" size={24} color={COLORS.primary} />
-                <Text style={styles.brightnessTitle}>Brightness</Text>
+                <View style={styles.brightnessTitleRow}>
+                  <MaterialIcons name="brightness-6" size={20} color={COLORS.primary} />
+                  <Text style={styles.brightnessTitle}>Screen brightness</Text>
+                </View>
                 <TouchableOpacity
                   onPress={() => setBrightnessVisible(false)}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={styles.brightnessCloseBtn}
                 >
-                  <MaterialIcons name="close" size={24} color={COLORS.textSecondary} />
+                  <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.brightnessValueRow}>
+                <TouchableOpacity
+                  style={styles.brightnessStepBtn}
+                  onPress={() => setBrightness(Math.max(0, brightness - 10))}
+                  disabled={brightness <= 0}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons
+                    name="remove"
+                    size={22}
+                    color={brightness <= 0 ? COLORS.textMuted : COLORS.textPrimary}
+                  />
+                </TouchableOpacity>
+                <Text style={styles.brightnessPercent}>{Math.round(brightness)}%</Text>
+                <TouchableOpacity
+                  style={styles.brightnessStepBtn}
+                  onPress={() => setBrightness(Math.min(100, brightness + 10))}
+                  disabled={brightness >= 100}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons
+                    name="add"
+                    size={22}
+                    color={brightness >= 100 ? COLORS.textMuted : COLORS.textPrimary}
+                  />
                 </TouchableOpacity>
               </View>
               <Slider
@@ -100,13 +183,27 @@ const MainLayout: React.FC<MainLayoutProps> = ({
                 minimumValue={0}
                 maximumValue={100}
                 value={brightness}
-                onValueChange={setBrightness}
-                minimumTrackTintColor={COLORS.accentBlue}
-                maximumTrackTintColor="#374151"
+                onValueChange={(v) => setBrightness(typeof v === 'number' ? v : Number(v))}
+                minimumTrackTintColor={COLORS.primary}
+                maximumTrackTintColor="rgba(255,255,255,0.2)"
                 thumbTintColor="#FFFFFF"
                 step={1}
               />
-              {Platform.OS === 'android' && (
+              <View style={styles.brightnessLabels}>
+                <Text style={styles.brightnessLabelText}>Dim</Text>
+                <Text style={styles.brightnessLabelText}>Bright</Text>
+              </View>
+              {brightnessSupported === false && (
+                <Text style={styles.brightnessUnsupportedText}>
+                  Brightness control isn’t available. Rebuild the app from Xcode or Android Studio and run again.
+                </Text>
+              )}
+              {Platform.OS === 'ios' && brightnessSupported !== false && (
+                <Text style={styles.brightnessSimulatorHint}>
+                  In the iOS Simulator, brightness won’t change. Use a real iPhone or iPad to test.
+                </Text>
+              )}
+              {Platform.OS === 'android' && brightnessSupported !== false && (
                 <TouchableOpacity
                   style={styles.brightnessHint}
                   onPress={() => Linking.openSettings()}
@@ -118,30 +215,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({
                 </TouchableOpacity>
               )}
             </View>
-          )}
-          {children}
-          {isMobile && showSidebar && (
-            <TouchableOpacity
-              style={styles.menuButton}
-              onPress={() => setSidebarVisible(true)}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons name="menu" size={24} color={COLORS.textPrimary} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={styles.bottomBarWrapper}>
-          <BottomBar
-            navigation={navigation}
-            onDriverPress={openDriverModal}
-          />
-        </View>
-        <SelectDriverModal
-          visible={driverModalVisible}
-          onClose={closeDriverModal}
-          navigation={navigation}
-        />
+          </View>
+        )}
 
         {isMobile && showSidebar && (
           <Modal
@@ -150,8 +225,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({
             animationType="none"
             statusBarTranslucent={Platform.OS === 'android'}
             onRequestClose={() => setSidebarVisible(false)}
+            presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+            supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
           >
-            <View style={styles.drawerOverlay}>
+            <View style={[StyleSheet.absoluteFill, styles.drawerOverlay]}>
               <Animated.View
                 style={[
                   styles.drawerContent,
@@ -176,42 +253,130 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   );
 };
 
+
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    width: '100%',
+    height: '100%',
     backgroundColor: COLORS.background,
+  },
+  tabletRow: {
+    flex: 1,
+    flexDirection: 'row',
+    width: '100%',
+    minWidth: 0,
+  },
+  tabletSidebar: {
+    width: 120,
+    backgroundColor: '#232931',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.08)',
+  },
+  tabletMain: {
+    flex: 1,
+    minWidth: 0,
   },
   content: {
     flex: 1,
-    paddingTop: 56,
     paddingBottom: 72,
     overflow: 'visible',
   },
-  brightnessSection: {
-    marginHorizontal: 24,
-    marginTop: 12,
-    marginBottom: 8,
-    padding: 16,
-    backgroundColor: '#252A32',
+  contentTop: {
+    paddingTop: 0,
+  },
+  brightnessOverlay: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    zIndex: 200,
+    elevation: 200,
+  },
+  brightnessOverlayTablet: {
+    left: 136,
+    right: 16,
+  },
+  brightnessCard: {
+    padding: 12,
+    backgroundColor: 'rgba(37, 42, 50, 0.88)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
   },
   brightnessHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    gap: 10,
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  brightnessTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   brightnessTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: COLORS.textPrimary,
+  },
+  brightnessCloseBtn: {
+    padding: 2,
+  },
+  brightnessValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    gap: 12,
+  },
+  brightnessStepBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brightnessPercent: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.primary,
+    minWidth: 48,
+    textAlign: 'center',
   },
   brightnessSlider: {
     width: '100%',
-    height: 40,
+    height: 32,
+  },
+  brightnessLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 2,
+    paddingHorizontal: 2,
+  },
+  brightnessLabelText: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+  },
+  brightnessUnsupportedText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    lineHeight: 16,
+  },
+  brightnessSimulatorHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: COLORS.textMuted,
+    lineHeight: 16,
+    fontStyle: 'italic',
   },
   brightnessHint: {
     marginTop: 8,
@@ -244,7 +409,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)',
   },
   drawerOverlay: {
-    flex: 1,
     flexDirection: 'row',
     backgroundColor: 'transparent',
   },

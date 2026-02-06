@@ -2,6 +2,9 @@
  * App Constants
  */
 
+/** Height of the bottom bar (matches BottomBar inner height) */
+export const BOTTOM_BAR_HEIGHT = 82;
+
 export const APP_CONSTANTS = {
   // Passenger/Fare
   MAX_PASSENGER_COUNT: 999,

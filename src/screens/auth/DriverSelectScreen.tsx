@@ -12,6 +12,7 @@ import {
   Modal,
   FlatList,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { DRIVERS, type Driver } from '../../data/drivers';
 import { COLORS } from '../../theme/colors';
@@ -74,6 +75,7 @@ const DriverSelectScreen: React.FC<DriverSelectScreenProps> = ({ navigation }) =
         transparent
         animationType="fade"
         onRequestClose={handleCancel}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
       >
         <TouchableOpacity
           style={styles.modalOverlay}

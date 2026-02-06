@@ -1,16 +1,57 @@
 /**
  * Location Service
- * GPS tracking and location management
- * Placeholder - to be implemented in Week 5-6
+ * GPS tracking and location management.
+ * Lazy-loads @react-native-community/geolocation so the app does not crash if the native module is not linked.
  */
 
-import Geolocation from '@react-native-community/geolocation';
+export interface GeolocationResponse {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  heading?: number;
+  speed?: number;
+}
+
+let _geolocation: typeof import('@react-native-community/geolocation').default | null | 'failed' = null;
+
+function getGeolocation(): typeof import('@react-native-community/geolocation').default | null {
+  if (_geolocation === 'failed') return null;
+  if (_geolocation !== null) return _geolocation;
+  try {
+    const mod = require('@react-native-community/geolocation');
+    if (!mod) {
+      _geolocation = 'failed';
+      return null;
+    }
+    const Default = mod.default;
+    if (!Default) {
+      _geolocation = 'failed';
+      return null;
+    }
+    _geolocation = Default;
+    return _geolocation;
+  } catch (_e) {
+    _geolocation = 'failed';
+    return null;
+  }
+}
 
 export const locationService = {
+  /**
+   * Whether the native geolocation module is available (linked).
+   */
+  isAvailable(): boolean {
+    return getGeolocation() !== null;
+  },
+
   /**
    * Get current location
    */
   getCurrentLocation: (): Promise<GeolocationResponse> => {
+    const Geolocation = getGeolocation();
+    if (!Geolocation) {
+      return Promise.reject(new Error('Geolocation not linked. Run "pod install" and rebuild.'));
+    }
     return new Promise((resolve, reject) => {
       Geolocation.getCurrentPosition(
         (position) => {
@@ -22,9 +63,7 @@ export const locationService = {
             speed: position.coords.speed ?? undefined,
           });
         },
-        (error) => {
-          reject(error);
-        },
+        reject,
         {
           enableHighAccuracy: true,
           timeout: 15000,
@@ -35,44 +74,60 @@ export const locationService = {
   },
 
   /**
-   * Start watching position
+   * Start watching position. Returns watch ID, or -1 if geolocation is not available.
    */
   watchPosition: (
     onSuccess: (position: GeolocationResponse) => void,
-    onError: (error: any) => void
+    onError: (error: { message?: string }) => void
   ): number => {
-    return Geolocation.watchPosition(
-      (position) => {
-        onSuccess({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          heading: position.coords.heading ?? undefined,
-          speed: position.coords.speed ?? undefined,
-        });
-      },
-      onError,
-      {
-        enableHighAccuracy: true,
-        distanceFilter: 10, // Update every 10 meters
-        interval: 5000, // Update every 5 seconds
-      }
-    );
+    let Geolocation: typeof import('@react-native-community/geolocation').default | null = null;
+    try {
+      Geolocation = getGeolocation();
+    } catch (_e) {
+      onError({ message: 'Geolocation not linked. Run "pod install" in ios/ and rebuild the app.' });
+      return -1;
+    }
+    if (!Geolocation) {
+      onError({ message: 'Geolocation not linked. Run "pod install" in ios/ and rebuild the app.' });
+      return -1;
+    }
+    try {
+      return Geolocation.watchPosition(
+        (position) => {
+          onSuccess({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            heading: position.coords.heading ?? undefined,
+            speed: position.coords.speed ?? undefined,
+          });
+        },
+        onError,
+        {
+          enableHighAccuracy: true,
+          distanceFilter: 10,
+          interval: 5000,
+        }
+      );
+    } catch (e) {
+      onError({ message: e instanceof Error ? e.message : 'Geolocation not linked. Run "pod install" and rebuild.' });
+      return -1;
+    }
   },
 
   /**
-   * Clear watch
+   * Clear watch (no-op if watchId is -1 or native module not linked).
    */
   clearWatch: (watchId: number) => {
-    Geolocation.clearWatch(watchId);
+    if (watchId === -1) return;
+    const Geolocation = getGeolocation();
+    if (Geolocation) {
+      try {
+        Geolocation.clearWatch(watchId);
+      } catch (_) {
+        // ignore
+      }
+    }
   },
 };
-
-interface GeolocationResponse {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
-  heading?: number;
-  speed?: number;
-}
 

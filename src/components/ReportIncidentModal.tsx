@@ -91,8 +91,10 @@ const ReportIncidentModal: React.FC = () => {
       animationType="fade"
       onRequestClose={handleBack}
       statusBarTranslucent={Platform.OS === 'android'}
+      presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
     >
-      <Pressable style={styles.overlay} onPress={handleBack}>
+      <Pressable style={[StyleSheet.absoluteFill, styles.overlay]} onPress={handleBack}>
         <Pressable
           style={[styles.modalContent, isTablet && styles.modalContentTablet]}
           onPress={() => {}}
@@ -180,7 +182,6 @@ const ReportIncidentModal: React.FC = () => {
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',

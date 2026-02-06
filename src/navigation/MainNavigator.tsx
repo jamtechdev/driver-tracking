@@ -15,6 +15,7 @@ import RouteDetailsScreen from '@/screens/route/RouteDetailsScreen';
 import PassengerFareScreen from '@/screens/passenger/PassengerFareScreen';
 import PreTripScreen from '@/screens/inspection/PreTripScreen';
 import PostTripScreen from '@/screens/inspection/PostTripScreen';
+import PinEntryScreen from '@/screens/auth/PinEntryScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<MainStackParamList>();
@@ -44,6 +45,7 @@ export const MainNavigator: React.FC = () => {
       }}
     >
       <Stack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
+      <Stack.Screen name="PinEntry" component={PinEntryScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RouteSelection" component={RouteSelectionScreen} />
       <Stack.Screen name="RouteDetails" component={RouteDetailsScreen} />
       <Stack.Screen name="PassengerFare" component={PassengerFareScreen} />

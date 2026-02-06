@@ -91,6 +91,13 @@ npm run ios
 yarn ios
 ```
 
+### iPad full screen
+
+The app is configured for full-screen, landscape-only on iPad (`UIRequiresFullScreen` and orientation locks). If it opens in a **window** (e.g. in the simulator with Stage Manager on):
+
+- **Simulator:** Turn off Stage Manager: **Settings → Multitasking & Dock → Stage Manager** (off). Then run the app again.
+- **Device:** Either disable Stage Manager in **Settings → Multitasking & Dock**, or tap the **green full-screen button** on the app window to maximize it.
+
 ## Available Scripts
 
 - `npm start` - Start Metro bundler

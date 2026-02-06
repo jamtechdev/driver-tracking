@@ -3,8 +3,8 @@
  */
 
 export const COLORS = {
-  // Dark theme backgrounds (#2C2C2C reference)
-  background: '#1E2228',
+  // Dark theme backgrounds (ss1 reference: #1C2023 charcoal)
+  background: '#1C2023',
   backgroundSecondary: '#2C2C2C',
   surface: '#363B42',
   surfaceLight: '#40464D',
@@ -19,6 +19,14 @@ export const COLORS = {
   early: '#EAB308',
   late: '#F97316',
   emergency: '#EF4444',
+
+  // Gauge gradient (ss2): Late (orange-red) at start → On Time (green) at middle → Early (orange-red) at end
+  // Arc: start lower-left (Late) → top (On Time) → end lower-right (Early)
+  gaugeGradient: [
+    '#EA580C', '#F97316', '#FB923C', '#FBBF24', '#EAB308', '#84CC16',
+    '#22C55E', '#16A34A', '#22C55E', '#84CC16', '#EAB308', '#FBBF24',
+    '#FB923C', '#F97316', '#EA580C',
+  ],
 
   // Accents
   primary: '#22C55E', // Green - Proceed if Safe, On Time

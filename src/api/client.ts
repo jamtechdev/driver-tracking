@@ -4,7 +4,9 @@
  */
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import Toast from 'react-native-toast-message';
 import { API_CONFIG } from '@/config/api.config';
+import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TOKEN_KEY = '@driver_tracking:auth_token';
@@ -19,10 +21,15 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
-// Request interceptor - Add auth token to requests
+// Request interceptor - Add Peak Transit default params and auth token
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
     try {
+      // When using Peak API base (index.php with no query), add default query params so agencyID stays 121
+      const baseUrl = config.baseURL ?? API_CONFIG.BASE_URL;
+      if (typeof baseUrl === 'string' && baseUrl.includes('peaktransit.com') && baseUrl.includes('index.php') && !baseUrl.includes('?')) {
+        config.params = { ...PEAK_DEFAULT_PARAMS, ...config.params };
+      }
       const token = await AsyncStorage.getItem(TOKEN_KEY);
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
@@ -37,9 +44,20 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor - Handle errors and token refresh
+// Response interceptor - Toast for each request, handle errors and token refresh
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const method = response.config.method?.toUpperCase() ?? 'Request';
+    const url = typeof response.config.url === 'string' ? response.config.url : '';
+    const label = url.split('?')[0].split('/').filter(Boolean).pop() || 'API';
+    Toast.show({
+      type: 'success',
+      text1: 'Success',
+      text2: `${method} ${label} completed`,
+      visibilityTime: 2000,
+    });
+    return response;
+  },
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
@@ -71,6 +89,16 @@ apiClient.interceptors.response.use(
       }
     }
 
+    const message = error.response?.data?.errormsg
+      ?? error.response?.data?.message
+      ?? error.message
+      ?? 'Request failed';
+    Toast.show({
+      type: 'error',
+      text1: 'Error',
+      text2: String(message),
+      visibilityTime: 3000,
+    });
     return Promise.reject(error);
   }
 );

@@ -12,6 +12,13 @@ export const API_CONFIG = {
   RETRY_DELAY: 1000, // 1 second
 };
 
+/** Full URL for driver data (agency, vehicles, routes, drivers, messages, stops). Use this for all “get everything” calls. */
+export { DRIVER_DATA_API_URL, INCOMING_MESSAGES_BASE_URL, CHECKLIST_GET_BASE_URL, CHECKLIST_SUBMIT_BASE_URL } from './env';
+
+/** Base URL for driver vehicle self-assign (Peak Transit: vehicleassignments/selfupdate). Append routeID, vehicleID, driverID. */
+export const DRIVER_VEHICLE_SELECT_BASE_URL =
+  'https://api.peaktransit.com/v5/index.php/?app_id=DR&key=005b0274ca5e97ceb3d804077113792c&controller=vehicleassignments&action=selfupdate&source=MDT&agencyID=121';
+
 export const API_ENDPOINTS = {
   // Authentication
   AUTH: {
@@ -22,7 +29,6 @@ export const API_ENDPOINTS = {
     REFRESH_TOKEN: '/auth/refresh',
     VERIFY_SESSION: '/auth/verify',
   },
-  
   // Routes
   ROUTES: {
     LIST: '/routes',
@@ -38,7 +44,6 @@ export const API_ENDPOINTS = {
     SYNC: '/passengers/sync',
     HISTORY: '/passengers/history',
   },
-  
   // Messaging
   MESSAGING: {
     SEND: '/messages/send',
@@ -53,11 +58,14 @@ export const API_ENDPOINTS = {
     POST_TRIP: '/inspections/post-trip',
     SUBMIT: '/inspections/submit',
   },
-  
+
   // Location
   LOCATION: {
     UPDATE: '/location/update',
     SYNC: '/location/sync',
   },
+
+  // Driver self vehicle select (path only; full URL is DRIVER_VEHICLE_SELECT_BASE_URL)
+  DRIVER_VEHICLE_SELECT: '/driver/vehicle/select',
 };
 

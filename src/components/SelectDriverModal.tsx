@@ -10,14 +10,17 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
-  Dimensions,
+  useWindowDimensions,
   Platform,
   Pressable,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DRIVERS, type Driver } from '../data/drivers';
 import { COLORS } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+
+const SIDEBAR_WIDTH = 120;
 
 interface SelectDriverModalProps {
   visible: boolean;
@@ -31,10 +34,11 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
   navigation,
 }) => {
   const { driver: currentDriver, login } = useAuth();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const handleSelectDriver = (driver: Driver) => {
     onClose();
-
     if (driver.role === 'unassigned') {
       login(driver);
       return;
@@ -46,8 +50,10 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
     }
   };
 
-  const { width } = Dimensions.get('window');
-  const modalWidth = Math.min(width - 48, 400);
+  const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
+  const contentWidth = isTablet ? width - SIDEBAR_WIDTH : width;
+  const modalWidth = Math.min(contentWidth - 48, isTablet ? 340 : 440);
+  const maxModalHeight = height - insets.top - insets.bottom - 48;
 
   return (
     <Modal
@@ -56,45 +62,58 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
       animationType="fade"
       onRequestClose={onClose}
       statusBarTranslucent={Platform.OS === 'android'}
+      presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+      supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
     >
-      <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.modal, { width: modalWidth }]}>
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={onClose}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              style={styles.cancelBtn}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <Text style={styles.title}>Select Driver</Text>
-            <View style={styles.headerSpacer} />
-          </View>
-          <FlatList
-            data={DRIVERS}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => {
-              const isSelected = currentDriver?.id === item.id;
-              return (
+      <View style={StyleSheet.absoluteFill}>
+        <View style={[styles.overlayWrapper, isTablet && styles.rootTablet]}>
+          {isTablet && (
+            <Pressable style={styles.sidebarBackdrop} onPress={onClose} />
+          )}
+          <View style={styles.overlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+            <View style={[
+              styles.modal,
+              { width: modalWidth, maxHeight: maxModalHeight },
+              isTablet && styles.modalCompact,
+            ]}>
+              <View style={styles.header}>
                 <TouchableOpacity
-                  style={[
-                    styles.driverItem,
-                    isSelected && styles.driverItemSelected,
-                  ]}
-                  onPress={() => handleSelectDriver(item)}
-                  activeOpacity={0.7}
+                  onPress={onClose}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={styles.cancelBtn}
                 >
-                  <Text style={styles.driverName}>{item.name}</Text>
-                  {isSelected && (
-                    <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
-                  )}
+                  <Text style={styles.cancelText}>Cancel</Text>
                 </TouchableOpacity>
-              );
-            }}
-            style={styles.list}
-            showsVerticalScrollIndicator={false}
-          />
+                <Text style={styles.title}>Select Driver</Text>
+                <View style={styles.headerSpacer} />
+              </View>
+              <FlatList
+                data={DRIVERS}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => {
+                  const isSelected = currentDriver?.id === item.id;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.driverItem,
+                        isSelected && styles.driverItemSelected,
+                      ]}
+                      onPress={() => handleSelectDriver(item)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.driverName}>{item.name}</Text>
+                      {isSelected && (
+                        <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                style={[styles.list, isTablet ? styles.listCompact : { maxHeight: maxModalHeight - 80 }]}
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
+          </View>
         </View>
       </View>
     </Modal>
@@ -102,17 +121,35 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  overlayWrapper: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  rootTablet: {
+    flexDirection: 'row',
+  },
+  sidebarBackdrop: {
+    width: SIDEBAR_WIDTH,
+  },
+  modalCompact: {
+    maxHeight: 420,
+  },
+  listCompact: {
+    maxHeight: 320,
+  },
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   modal: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#252A32',
     borderRadius: 16,
     maxHeight: 420,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -132,7 +169,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 18,
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: 'rgba(255,255,255,0.08)',
   },
   cancelBtn: {
     minWidth: 60,
@@ -145,7 +182,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1E293B',
+    color: COLORS.textPrimary,
   },
   headerSpacer: {
     width: 60,
@@ -160,14 +197,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   driverItemSelected: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: 'rgba(37, 99, 235, 0.15)',
   },
   driverName: {
     fontSize: 16,
-    color: '#1E293B',
+    color: COLORS.textPrimary,
     fontWeight: '500',
   },
 });

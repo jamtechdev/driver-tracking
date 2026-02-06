@@ -1,165 +1,192 @@
 /**
- * Messaging Screen - Coming Soon
+ * Messaging Screen - Incoming messages (polled every 5s) + Send Message
  */
 
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, ScrollView } from 'react-native';
+import React from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIncomingMessages } from '../../context/IncomingMessagesContext';
+import { useMessagingModal } from '../../context/MessagingModalContext';
+import { COLORS } from '../../theme/colors';
+import type { IncomingMessageItem } from '../../api/incomingMessages.api';
 
-const MessagingScreen: React.FC = () => {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+const MessagingScreen: React.FC<{ navigation: any }> = () => {
+  const insets = useSafeAreaInsets();
+  const { messages, loading, error, refetch } = useIncomingMessages();
+  const { open: openSendModal } = useMessagingModal();
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 50,
-        friction: 7,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  const features = [
-    { icon: '💬', text: 'Real-time messaging' },
-    { icon: '📢', text: 'Announcements & alerts' },
-    { icon: '👥', text: 'Group conversations' },
-    { icon: '🔔', text: 'Push notifications' },
-    { icon: '📎', text: 'File & image sharing' },
-  ];
+  const renderItem = ({ item }: { item: IncomingMessageItem }) => (
+    <View style={styles.messageCard}>
+      {item.userName ? (
+        <Text style={styles.messageSender}>{item.userName}</Text>
+      ) : null}
+      <Text style={styles.messageBody}>{item.message}</Text>
+    </View>
+  );
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Animated.View
-        style={[
-          styles.content,
-          {
-            opacity: fadeAnim,
-            transform: [{ scale: scaleAnim }],
-          },
-        ]}
-      >
-        <View style={styles.iconContainer}>
-          <Text style={styles.icon}>💬</Text>
-        </View>
-        <Text style={styles.title}>Messaging</Text>
-        <Text style={styles.subtitle}>Coming Soon</Text>
-        <Text style={styles.description}>
-          Stay connected with dispatchers{'\n'}
-          and fellow drivers
-        </Text>
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Messages</Text>
+        <TouchableOpacity
+          style={styles.sendButton}
+          onPress={openSendModal}
+          activeOpacity={0.8}
+        >
+          <MaterialIcons name="campaign" size={22} color="#FFF" />
+          <Text style={styles.sendButtonText}>Send message</Text>
+        </TouchableOpacity>
+      </View>
 
-        <View style={styles.featuresContainer}>
-          <Text style={styles.featuresTitle}>Features:</Text>
-          {features.map((item, index) => (
-            <Animated.View
-              key={index}
-              style={[
-                styles.featureCard,
-                {
-                  opacity: fadeAnim,
-                  transform: [
-                    {
-                      translateX: fadeAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-50, 0],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <Text style={styles.featureIcon}>{item.icon}</Text>
-              <Text style={styles.featureText}>{item.text}</Text>
-            </Animated.View>
-          ))}
+      {error ? (
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
+            <Text style={styles.retryBtnText}>Retry</Text>
+          </TouchableOpacity>
         </View>
-      </Animated.View>
-    </ScrollView>
+      ) : (
+        <FlatList
+          data={messages}
+          keyExtractor={(item) => item.messageID ?? String(Math.random())}
+          renderItem={renderItem}
+          contentContainerStyle={[
+            styles.listContent,
+            messages.length === 0 && styles.listContentEmpty,
+          ]}
+          ListEmptyComponent={
+            loading && messages.length === 0 ? (
+              <View style={styles.centered}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={styles.loadingText}>Loading messages…</Text>
+              </View>
+            ) : (
+              <View style={styles.centered}>
+                <MaterialIcons name="mail-outline" size={48} color={COLORS.textMuted} />
+                <Text style={styles.emptyText}>No incoming messages</Text>
+                <Text style={styles.emptySubtext}>Messages refresh every 5 seconds</Text>
+              </View>
+            )
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={loading && messages.length > 0}
+              onRefresh={refetch}
+              tintColor={COLORS.primary}
+            />
+          }
+        />
+      )}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: COLORS.background,
   },
-  content: {
-    alignItems: 'center',
-    padding: 30,
-    paddingTop: 60,
-  },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#DBEAFE',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  icon: {
-    fontSize: 60,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#1E3A5F',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 20,
-    color: '#3498DB',
-    fontWeight: '600',
-    marginBottom: 15,
-  },
-  description: {
-    fontSize: 16,
-    color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 40,
-  },
-  featuresContainer: {
-    width: '100%',
-    maxWidth: 350,
-  },
-  featuresTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1E3A5F',
-    marginBottom: 20,
-  },
-  featureCard: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 18,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  sendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+  },
+  sendButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  listContent: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  listContentEmpty: {
+    flexGrow: 1,
+  },
+  messageCard: {
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
+    padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
-  featureIcon: {
-    fontSize: 28,
-    marginRight: 15,
+  messageSender: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    marginBottom: 6,
   },
-  featureText: {
+  messageBody: {
     fontSize: 16,
-    color: '#475569',
-    fontWeight: '500',
+    color: COLORS.textPrimary,
+    lineHeight: 22,
+  },
+  centered: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+  },
+  emptyText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: COLORS.textMuted,
+  },
+  emptySubtext: {
+    marginTop: 4,
+    fontSize: 14,
+    color: COLORS.textMuted,
+  },
+  errorText: {
+    fontSize: 15,
+    color: COLORS.emergency,
+    textAlign: 'center',
+  },
+  retryBtn: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: COLORS.accentBlue,
+    borderRadius: 8,
+  },
+  retryBtnText: {
+    fontSize: 16,
+    color: '#FFF',
+    fontWeight: '600',
   },
 });
 
 export default MessagingScreen;
-

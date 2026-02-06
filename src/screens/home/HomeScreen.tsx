@@ -15,34 +15,47 @@ import {
   Pressable,
   Modal,
   TextInput,
+  Platform,
 } from 'react-native';
 import Svg, { Line, Circle } from 'react-native-svg';
 import GradientPath from 'react-native-svg-path-gradient';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useWindowDimensions } from 'react-native';
 import MainLayout from '../../components/MainLayout';
+import VehicleSelectModal from '../../components/VehicleSelectModal';
 import { COLORS } from '../../theme/colors';
 import { useAuth } from '../../context/AuthContext';
 import { useDriverModal } from '../../context/DriverModalContext';
 import { useEmergency } from '../../context/EmergencyContext';
+import { useReportIncidentModal } from '../../context/ReportIncidentModalContext';
+import { deviceService } from '../../services/device.service';
+import { passengerApi } from '../../api/passenger.api';
 
 interface HomeScreenProps {
   navigation: any;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GAUGE_SIZE = Math.min(SCREEN_WIDTH - 48, 280);
+const GAUGE_SIZE = Math.min(SCREEN_WIDTH - 48, 300);
 
 const HOLD_DURATION_MS = 5000;
 
+const DEFAULT_STOP_ID = '0';
+
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
-  const { driver } = useAuth();
+  const { driver, passengerCount, setPassengerCount, selectedRouteId } = useAuth();
   const { open: openDriverModal } = useDriverModal();
   const { emergencyActivated, activateEmergency, deactivateEmergency } = useEmergency();
-  const { width } = useWindowDimensions();
+  const { open: openReportIncidentModal } = useReportIncidentModal();
+  const { width, height } = useWindowDimensions();
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [reasonText, setReasonText] = useState('');
+  const [isCharging, setIsCharging] = useState(true);
+  const [showPassengerModal, setShowPassengerModal] = useState(false);
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMobile = width < 900;
+  const isMobile = !((Platform.OS === 'ios' && Platform.isPad) || width >= 600);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -52,6 +65,35 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  useEffect(() => {
+    deviceService.isCharging().then(setIsCharging);
+    const removeListener = deviceService.addBatteryListener(({ charging }) => setIsCharging(charging));
+    return removeListener;
+  }, []);
+
+  // Fetch passenger history when a route is selected and set count from tallies
+  useEffect(() => {
+    if (!selectedRouteId) return;
+    let cancelled = false;
+    passengerApi
+      .getHistory(selectedRouteId)
+      .then((tallies) => {
+        if (cancelled) return;
+        const count = tallies.reduce((sum, t) => sum + (t.passengersOn ?? 0) - (t.passengersOff ?? 0), 0);
+        setPassengerCount(Math.max(0, count));
+      })
+      .catch(() => {
+        // Keep current count on error (e.g. endpoint not available)
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRouteId, setPassengerCount]);
+
+  const powerTrackingStatus = isCharging
+    ? 'Auto/Tracking On'
+    : 'No Power (Auto/Tracking On)';
 
   const handleEmergencyPressIn = () => {
     if (!emergencyActivated) return;
@@ -72,9 +114,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     if (!emergencyActivated) {
       activateEmergency();
     } else {
-      // When activated, tap opens the reason modal directly (clear hold timer if any)
       handleEmergencyPressOut();
-      setShowReasonModal(true);
+      openReportIncidentModal();
     }
   };
 
@@ -87,6 +128,42 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const handleReasonCancel = () => {
     setReasonText('');
     setShowReasonModal(false);
+  };
+
+  const handleBoarding = () => {
+    const next = Math.min(999, passengerCount + 1);
+    setPassengerCount(next);
+    if (selectedRouteId) {
+      passengerApi
+        .submitTally({
+          routeId: selectedRouteId,
+          stopId: DEFAULT_STOP_ID,
+          passengersOn: 1,
+          passengersOff: 0,
+          fareType: 'full',
+          fareAmount: 0,
+          timestamp: new Date().toISOString(),
+        })
+        .catch(() => {});
+    }
+  };
+
+  const handleAlighting = () => {
+    const next = Math.max(0, passengerCount - 1);
+    setPassengerCount(next);
+    if (selectedRouteId) {
+      passengerApi
+        .submitTally({
+          routeId: selectedRouteId,
+          stopId: DEFAULT_STOP_ID,
+          passengersOn: 0,
+          passengersOff: 1,
+          fareType: 'full',
+          fareAmount: 0,
+          timestamp: new Date().toISOString(),
+        })
+        .catch(() => {});
+    }
   };
 
   const menuItems = [
@@ -120,11 +197,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     const endX = cx + radius * Math.cos(endRad);
     const endY = cy + radius * Math.sin(endRad);
     const arcPath = `M ${startX},${startY} A ${radius},${radius} 0 1 1 ${endX},${endY}`;
-    // ss2: Smooth gradient - orange-red left → yellow → light green top → darker green right
-    const gradientColors = [
-      '#EA580C', '#F97316', '#FB923C', '#FBBF24', '#FACC15', '#EAB308',
-      '#A3E635', '#84CC16', '#22C55E', '#16A34A', '#15803D',
-    ];
 
     return (
       <View style={[styles.gaugeWrapper, { width: size, height: size + 44 }]}>
@@ -134,7 +206,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             {/* ss2: Thick gradient arc - smooth transition */}
             <GradientPath
               d={arcPath}
-              colors={gradientColors}
+              colors={COLORS.gaugeGradient}
               strokeWidth={arcStrokeWidth}
               precision={15}
             />
@@ -182,64 +254,82 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     <MainLayout navigation={navigation}>
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { minHeight: height - 128 }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.topRow}>
-          {isMobile ? <View style={styles.menuBtnPlaceholder} /> : null}
-          <Text style={styles.timeDisplay}>
+        <Pressable
+          style={[
+            styles.emergencyBtn,
+            styles.emergencyBtnAbsolute,
+            emergencyActivated && styles.emergencyBtnActivated,
+          ]}
+          onPress={handleEmergencyPress}
+          onPressIn={handleEmergencyPressIn}
+          onPressOut={handleEmergencyPressOut}
+        >
+          <View style={[
+            styles.emergencyBtnCircle,
+            emergencyActivated && styles.emergencyBtnCircleActivated,
+          ]}>
+            <Text style={styles.emergencyBtnArrow}>→</Text>
+          </View>
+          <Text
+            style={[
+              styles.emergencyBtnText,
+              emergencyActivated && styles.emergencyBtnTextActivated,
+            ]}
+          >
+            {emergencyActivated ? 'Activated' : 'Emergency'}
+          </Text>
+        </Pressable>
+
+        <View style={styles.centerSection}>
+          <Text style={styles.timeDisplayCenter}>
             {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
-          <Pressable
-            style={[
-              styles.emergencyBtn,
-              emergencyActivated && styles.emergencyBtnActivated,
-            ]}
-            onPress={handleEmergencyPress}
-            onPressIn={handleEmergencyPressIn}
-            onPressOut={handleEmergencyPressOut}
-          >
-            <View
-              style={[
-                styles.emergencyIconWrap,
-                emergencyActivated && styles.emergencyIconWrapActivated,
-              ]}
-            >
-              <Text style={styles.emergencyIcon}>→</Text>
-            </View>
-            <Text
-              style={[
-                styles.emergencyText,
-                emergencyActivated && styles.emergencyTextActivated,
-              ]}
-            >
-              {emergencyActivated ? 'Activated' : 'Emergency'}
-            </Text>
-          </Pressable>
+          <Animated.View style={[styles.gaugeSection, { opacity: fadeAnim }]}>
+            <StatusGauge />
+          </Animated.View>
         </View>
 
-        <Animated.View style={[styles.gaugeSection, { opacity: fadeAnim }]}>
-          <StatusGauge />
-        </Animated.View>
-
         <View style={styles.buttonRow}>
-          <View style={styles.statusBtn}>
-            <Text style={styles.statusBtnIcon}>👥</Text>
-            <Text style={styles.statusBtnValue}>0</Text>
-          </View>
-          <TouchableOpacity style={styles.statusBtn} onPress={openDriverModal} activeOpacity={0.7}>
-            <Text style={styles.statusBtnIcon}>✏️</Text>
+          <TouchableOpacity
+            style={[styles.statusBtn, styles.statusBtnWithCount]}
+            onPress={() => setShowPassengerModal(true)}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="people" size={32} color="#FFFFFF" />
+            <Text style={styles.statusBtnCount}>{passengerCount}</Text>
           </TouchableOpacity>
-          <View style={styles.statusBtn}>
-            <Text style={styles.statusBtnIcon}>🎫</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.statusBtn}
+            onPress={() => setShowPassengerModal(true)}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="account-edit" size={32} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.statusBtn, (!driver || driver.role === 'unassigned') && styles.statusBtnDisabled]}
+            onPress={() => {
+              if (driver && driver.role !== 'unassigned') setShowVehicleModal(true);
+            }}
+            activeOpacity={0.7}
+            disabled={!driver || driver.role === 'unassigned'}
+          >
+            <MaterialIcons
+              name="confirmation-number"
+              size={32}
+              color={driver && driver.role !== 'unassigned' ? '#FFFFFF' : 'rgba(255,255,255,0.4)'}
+            />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.gpsRow}>
           <View style={styles.gpsDot} />
-          <Text style={styles.gpsText}>GPS Tracking (Auto)</Text>
+          <Text style={styles.gpsText}>{powerTrackingStatus}</Text>
         </View>
 
+        {/* Quick Actions - commented out
         <Animated.View style={[styles.quickActions, { opacity: fadeAnim }]}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.menuGrid}>
@@ -256,15 +346,63 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             ))}
           </View>
         </Animated.View>
+        */}
       </ScrollView>
+
+      <Modal
+        visible={showPassengerModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPassengerModal(false)}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+        supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
+      >
+        <Pressable style={[StyleSheet.absoluteFill, styles.reasonModalOverlay]} onPress={() => setShowPassengerModal(false)}>
+          <Pressable style={styles.passengerModalContent} onPress={() => {}}>
+            <Text style={styles.passengerModalTitle}>Count Passengers</Text>
+            <Text style={styles.passengerModalCount}>{passengerCount}</Text>
+            <View style={styles.passengerModalButtons}>
+              <TouchableOpacity
+                style={styles.passengerModalBtn}
+                onPress={handleAlighting}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons name="person-remove" size={36} color="#FFFFFF" />
+                <Text style={styles.passengerModalBtnLabel}>Alighting</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.passengerModalBtn}
+                onPress={handleBoarding}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons name="person-add" size={36} color="#FFFFFF" />
+                <Text style={styles.passengerModalBtnLabel}>Boarding</Text>
+              </TouchableOpacity>
+            </View>
+            <Pressable
+              style={styles.passengerModalDone}
+              onPress={() => setShowPassengerModal(false)}
+            >
+              <Text style={styles.passengerModalDoneText}>Done</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <VehicleSelectModal
+        visible={showVehicleModal}
+        onClose={() => setShowVehicleModal(false)}
+      />
 
       <Modal
         visible={showReasonModal}
         transparent
         animationType="fade"
         onRequestClose={handleReasonCancel}
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+        supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
       >
-        <Pressable style={styles.reasonModalOverlay} onPress={handleReasonCancel}>
+        <Pressable style={[StyleSheet.absoluteFill, styles.reasonModalOverlay]} onPress={handleReasonCancel}>
           <Pressable style={styles.reasonModalContent} onPress={() => {}}>
             <Text style={styles.reasonModalTitle}>
               Reason for Clearing Emergency State
@@ -307,81 +445,69 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 24,
+    paddingBottom: 40,
   },
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  centerSection: {
+    flex: 1,
+    justifyContent: 'flex-start',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 20,
+    paddingTop: 8,
   },
-  menuBtnPlaceholder: {
-    width: 48,
-    height: 48,
-  },
-  timeDisplay: {
-    flex: 1,
-    fontSize: 32,
-    fontWeight: '200',
+  timeDisplayCenter: {
+    fontSize: 28,
+    fontWeight: '600',
     color: COLORS.textPrimary,
     letterSpacing: 0.5,
     textAlign: 'center',
+    marginBottom: 14,
+  },
+  emergencyBtnAbsolute: {
+    position: 'absolute',
+    top: 12,
+    right: 24,
+    zIndex: 10,
   },
   emergencyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.emergency,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    paddingRight: 16,
-    borderRadius: 14,
+    backgroundColor: '#3A3A3C',
+    paddingVertical: 6,
+    paddingLeft: 6,
+    paddingRight: 20,
+    borderRadius: 28,
     gap: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
   },
-  emergencyIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  emergencyBtnCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: COLORS.emergency,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#EF4444',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 4,
   },
-  emergencyIcon: {
+  emergencyBtnCircleActivated: {
+    backgroundColor: '#EAB308',
+  },
+  emergencyBtnArrow: {
     color: '#FFF',
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: 'bold',
   },
-  emergencyText: {
-    color: '#FFF',
-    fontSize: 13,
+  emergencyBtnText: {
+    fontSize: 16,
     fontWeight: '600',
+    color: '#FFFFFF',
   },
   emergencyBtnActivated: {
-    backgroundColor: '#EAB308',
-    borderColor: 'rgba(234, 179, 8, 0.5)',
+    backgroundColor: '#4A4A4C',
   },
-  emergencyIconWrapActivated: {
-    backgroundColor: '#CA8A04',
-    shadowColor: '#EAB308',
-  },
-  emergencyTextActivated: {
-    color: '#1E293B',
+  emergencyBtnTextActivated: {
+    color: '#FFFFFF',
   },
   reasonModalOverlay: {
-    flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -438,9 +564,64 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1E293B',
   },
+  passengerModalContent: {
+    backgroundColor: '#252A32',
+    borderRadius: 16,
+    padding: 28,
+    width: '100%',
+    maxWidth: 320,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+  },
+  passengerModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 16,
+  },
+  passengerModalCount: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginBottom: 24,
+  },
+  passengerModalButtons: {
+    flexDirection: 'row',
+    gap: 20,
+    marginBottom: 24,
+  },
+  passengerModalBtn: {
+    backgroundColor: '#3A3A3C',
+    paddingVertical: 20,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+    alignItems: 'center',
+    minWidth: 120,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  passengerModalBtnLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginTop: 8,
+  },
+  passengerModalDone: {
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+  },
+  passengerModalDoneText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
   gaugeSection: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginTop: -4,
+    marginBottom: 16,
   },
   gaugeWrapper: {
     alignItems: 'center',
@@ -469,15 +650,15 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   gaugeLabel: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
+    fontSize: 14,
+    color: '#FFFFFF',
     fontWeight: '600',
     letterSpacing: 0.2,
   },
   gaugeLabelLate: {},
   gaugeLabelOnTime: {
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 0,
   },
   gaugeLabelEarly: {
     textAlign: 'right',
@@ -487,40 +668,43 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 14,
     paddingHorizontal: 24,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   statusBtn: {
     flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2A3038',
-    paddingVertical: 18,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    gap: 8,
+    backgroundColor: '#232931',
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.12)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
     shadowRadius: 6,
     elevation: 4,
   },
-  statusBtnIcon: {
-    fontSize: 22,
+  statusBtnDisabled: {
+    opacity: 0.5,
   },
-  statusBtnValue: {
-    fontSize: 18,
+  statusBtnWithCount: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  statusBtnCount: {
+    fontSize: 22,
+    color: '#FFFFFF',
     fontWeight: '600',
-    color: COLORS.textPrimary,
   },
   gpsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'flex-end',
     paddingHorizontal: 24,
-    marginBottom: 28,
+    marginTop: -4,
+    marginBottom: 16,
   },
   gpsDot: {
     width: 8,
@@ -530,8 +714,8 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   gpsText: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
+    fontSize: 15,
+    color: '#FFFFFF',
     fontWeight: '500',
   },
   quickActions: {

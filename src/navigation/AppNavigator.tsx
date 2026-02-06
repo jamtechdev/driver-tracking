@@ -3,7 +3,7 @@
  * Handles navigation between Auth, Main, and Supervisor flows
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
@@ -11,6 +11,7 @@ import { AuthNavigator } from './AuthNavigator';
 import { MainNavigator } from './MainNavigator';
 import { SupervisorNavigator } from './SupervisorNavigator';
 import { useAppSelector } from '@/store/hooks';
+import { useAuth } from '@/context/AuthContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 

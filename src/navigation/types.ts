@@ -25,6 +25,7 @@ export type MainTabParamList = {
 
 export type MainStackParamList = {
   Tabs: NavigatorScreenParams<MainTabParamList>;
+  PinEntry: { driver: any };
   RouteSelection: undefined;
   RouteDetails: { routeId: string };
   PassengerFare: { routeId: string; stopId?: string };

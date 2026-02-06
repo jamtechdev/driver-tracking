@@ -8,13 +8,14 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   BackHandler,
   Platform,
   SafeAreaView,
   StatusBar,
   Animated,
   Pressable,
+  ScrollView,
+  Alert,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../../theme/colors';
@@ -28,11 +29,10 @@ interface PinEntryScreenProps {
 
 const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) => {
   const { login } = useAuth();
-  const driver = route?.params?.driver;
+  const driver : any= route?.params?.driver;
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const scaleAnim = useRef(new Animated.Value(1)).current;
-
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (navigation.canGoBack()) {
@@ -68,12 +68,13 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
       navigation.goBack();
       return;
     }
+
     const success = login(driver, pin);
     if (success) {
       if (driver.role === 'supervisor') {
-        navigation.replace('SupervisorHome');
+        navigation.navigate('SupervisorHome');
       } else {
-        navigation.replace('Home');
+        navigation.goBack();
       }
     } else {
       setError('Invalid PIN. Please try again.');
@@ -114,7 +115,12 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F0F4F8" />
-      <View style={styles.container}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.header}>
           <View style={styles.avatarWrap}>
             <View style={styles.avatarCircle}>
@@ -135,12 +141,23 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
         ) : null}
 
         <Animated.View style={[styles.keypad, { transform: [{ scale: scaleAnim }] }]}>
-          {[['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['', '0', 'del']].map(
+          {[['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['back', '0', 'del']].map(
             (row, rowIndex) => (
               <View key={rowIndex} style={styles.keypadRow}>
                 {row.map((key) =>
-                  key === '' ? (
-                    <View key="empty" style={styles.keyButton} />
+                  key === 'back' ? (
+                    <Pressable
+                      key="back"
+                      style={({ pressed }) => [
+                        styles.keyButton,
+                        styles.backKeyButton,
+                        pressed && styles.keyButtonPressed,
+                      ]}
+                      onPress={handleBack}
+                    >
+                      <MaterialIcons name="arrow-back" size={24} color="#64748B" />
+                      <Text style={styles.backKeyText}>Back</Text>
+                    </Pressable>
                   ) : key === 'del' ? (
                     <Pressable
                       key="del"
@@ -185,15 +202,7 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
             </Text>
           </Pressable>
         )}
-
-        <Pressable
-          style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-          onPress={handleBack}
-        >
-          <MaterialIcons name="arrow-back" size={20} color="#6B7280" />
-          <Text style={styles.backText}>Back to Select Driver</Text>
-        </Pressable>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -203,18 +212,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F0F4F8',
   },
-  container: {
+  scrollView: {
     flex: 1,
+  },
+  container: {
+    flexGrow: 1,
     backgroundColor: '#F0F4F8',
     paddingHorizontal: 28,
-    paddingTop: Platform.OS === 'ios' ? 24 : 36,
+    paddingTop: Platform.OS === 'ios' ? 20 : 28,
+    paddingBottom: 24,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 36,
+    marginBottom: 20,
   },
   avatarWrap: {
-    marginBottom: 24,
+    marginBottom: 16,
     ...Platform.select({
       ios: {
         shadowColor: '#3B82F6',
@@ -261,7 +274,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 20,
     gap: 18,
   },
   pinDot: {
@@ -298,9 +311,9 @@ const styles = StyleSheet.create({
   keypad: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    padding: 24,
-    marginTop: 32,
-    marginBottom: 28,
+    padding: 20,
+    marginTop: 16,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
     ...Platform.select({
@@ -319,12 +332,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 10,
     gap: 12,
   },
   keyButton: {
     flex: 1,
-    minHeight: 62,
+    minHeight: 52,
     borderRadius: 16,
     backgroundColor: '#F1F5F9',
     justifyContent: 'center',
@@ -344,13 +357,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
     borderColor: '#FECACA',
   },
+  backKeyButton: {
+    backgroundColor: '#F1F5F9',
+  },
+  backKeyText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 2,
+  },
   submitButton: {
     backgroundColor: '#93C5FD',
-    paddingVertical: 18,
+    paddingVertical: 16,
     paddingHorizontal: 36,
     borderRadius: 16,
     alignSelf: 'center',
-    marginBottom: 24,
+    marginTop: 16,
+    marginBottom: 16,
     minWidth: 220,
     alignItems: 'center',
     borderWidth: 1,
@@ -379,23 +402,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     letterSpacing: 0.3,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    gap: 8,
-  },
-  backButtonPressed: {
-    opacity: 0.7,
-  },
-  backText: {
-    color: '#64748B',
-    fontSize: 16,
-    fontWeight: '600',
   },
 });
 
