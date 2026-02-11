@@ -39,7 +39,7 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
   // When driver logs in (not unassigned), show their name; otherwise "Unassigned"
   const driverName = driver && driver.role !== 'unassigned' ? driver.name : 'Unassigned';
   const vehicleDisplay = vehicleName || vehicleId || '—';
-  const bottomPadding = Math.min(insets.bottom, 8);
+  const bottomPadding = insets.bottom-5;
 
   return (
     <View style={styles.outer}>
@@ -60,15 +60,20 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
           <View style={styles.divider} />
 
           <Pressable
-            style={styles.item}
-            onPress={() => setShowVehicleModal(true)}
+            style={[styles.item, isLoggedOut && styles.itemDisabled]}
+            onPress={() => !isLoggedOut && setShowVehicleModal(true)}
+            disabled={isLoggedOut}
             android_ripple={null}
             hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
           >
-            <View style={styles.iconWrap}>
-              <MaterialIcons name="directions-bus" size={32} color="rgba(255,255,255,0.95)" />
+            <View style={[styles.iconWrap, isLoggedOut && styles.iconWrapDisabled]}>
+              <MaterialIcons
+                name="directions-bus"
+                size={32}
+                color={isLoggedOut ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.95)'}
+              />
             </View>
-            <Text style={styles.itemLabel} numberOfLines={1}>{vehicleDisplay}</Text>
+            <Text style={[styles.itemLabel, isLoggedOut && styles.itemLabelDisabled]} numberOfLines={1}>{vehicleDisplay}</Text>
           </Pressable>
 
           <View style={styles.divider} />
@@ -91,22 +96,24 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
             style={[
               styles.item,
               isLoggedOut && styles.itemDisabled,
-              serviceStatus === 'out_of_service' && styles.routeItemOutOfService,
+              serviceStatus === 'out_of_service' && !isLoggedOut && styles.routeItemOutOfService,
             ]}
-            onPress={() => setShowRouteModal(true)}
+            onPress={() => !isLoggedOut && setShowRouteModal(true)}
+            disabled={isLoggedOut}
             android_ripple={null}
             hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
           >
             <View
               style={[
                 styles.iconWrap,
-                serviceStatus === 'out_of_service' && styles.routeWrapOutOfService,
+                serviceStatus === 'out_of_service' && !isLoggedOut && styles.routeWrapOutOfService,
+                isLoggedOut && styles.iconWrapDisabled,
               ]}
             >
                 <MaterialIcons
                   name="route"
                   size={32}
-                  color="rgba(255,255,255,0.95)"
+                  color={isLoggedOut ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.95)'}
                 />
             </View>
             <Text
@@ -162,11 +169,14 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
 const styles = StyleSheet.create({
   outer: {
     backgroundColor: 'transparent',
+    zIndex: 9999,
+    elevation: 9999,
   },
   container: {
     backgroundColor: '#232931',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
+    elevation: 9999,
   },
   inner: {
     flexDirection: 'row',

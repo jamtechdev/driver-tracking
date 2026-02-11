@@ -390,8 +390,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 100,
-    elevation: 100,
+    zIndex: 9999,
+    elevation: 9999,
   },
   menuButton: {
     position: 'absolute',

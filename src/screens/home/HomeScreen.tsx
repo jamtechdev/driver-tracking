@@ -3,7 +3,7 @@
  * Clean design for mobile
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Animated,
-  Dimensions,
   Pressable,
   Modal,
   TextInput,
@@ -36,8 +35,8 @@ interface HomeScreenProps {
   navigation: any;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GAUGE_SIZE = Math.min(SCREEN_WIDTH - 48, 300);
+const GAUGE_MAX_WIDTH = 300;
+const GAUGE_MIN_SIZE = 140;
 
 const HOLD_DURATION_MS = 5000;
 
@@ -56,7 +55,25 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobile = !((Platform.OS === 'ios' && Platform.isPad) || width >= 600);
+  const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
+  const isPortrait = height > width;
+  const isLandscape = width > height;
+  const centerGaugeVertically = isMobile || (isTablet && isPortrait);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // Responsive gauge size from device dimensions (no scroll: fit in viewport)
+  const contentHeight = height - 128;
+  const gaugeSize = useMemo(() => {
+    const base = Math.min(
+      width - 48,
+      GAUGE_MAX_WIDTH,
+      Math.max(GAUGE_MIN_SIZE, contentHeight - 210),
+    );
+    if (isLandscape) {
+      return Math.min(Math.round(base * 1.15), width - 48, GAUGE_MAX_WIDTH);
+    }
+    return base;
+  }, [width, contentHeight, isLandscape]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -177,7 +194,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   ];
 
   const StatusGauge = () => {
-    const size = GAUGE_SIZE;
+    const size = gaugeSize;
     const cx = size / 2;
     const cy = size / 2;
     // ss2: Thick arc, ~270° open at bottom, smooth gradient
@@ -252,15 +269,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   return (
     <MainLayout navigation={navigation}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { minHeight: height - 128 }]}
-        showsVerticalScrollIndicator={false}
-      >
+      <View style={styles.contentContainer}>
         <Pressable
           style={[
             styles.emergencyBtn,
             styles.emergencyBtnAbsolute,
+            isMobile && styles.emergencyBtnAbsolutePhone,
             emergencyActivated && styles.emergencyBtnActivated,
           ]}
           onPress={handleEmergencyPress}
@@ -283,11 +297,22 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </Text>
         </Pressable>
 
-        <View style={styles.centerSection}>
+        <View
+          style={[
+            styles.centerSection,
+            centerGaugeVertically && styles.centerSectionPhone,
+          ]}
+        >
           <Text style={styles.timeDisplayCenter}>
             {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
-          <Animated.View style={[styles.gaugeSection, { opacity: fadeAnim }]}>
+          <Animated.View
+            style={[
+              styles.gaugeSection,
+              centerGaugeVertically && styles.gaugeSectionPhone,
+              { opacity: fadeAnim },
+            ]}
+          >
             <StatusGauge />
           </Animated.View>
         </View>
@@ -347,7 +372,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </View>
         </Animated.View>
         */}
-      </ScrollView>
+      </View>
 
       <Modal
         visible={showPassengerModal}
@@ -440,12 +465,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  scrollView: {
+  contentContainer: {
     flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 40,
+    paddingBottom: 24,
   },
   centerSection: {
     flex: 1,
@@ -453,6 +475,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 24,
     paddingTop: 8,
+  },
+  centerSectionPhone: {
+    justifyContent: 'center',
+    paddingTop: 0,
   },
   timeDisplayCenter: {
     fontSize: 28,
@@ -468,6 +494,9 @@ const styles = StyleSheet.create({
     right: 24,
     zIndex: 10,
   },
+  emergencyBtnAbsolutePhone: {
+    top: 8,
+  },
   emergencyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -479,6 +508,7 @@ const styles = StyleSheet.create({
     gap: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+    marginTop: 20,
   },
   emergencyBtnCircle: {
     width: 40,
@@ -495,6 +525,7 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 20,
     fontWeight: 'bold',
+    alignSelf: 'center',
   },
   emergencyBtnText: {
     fontSize: 16,
@@ -622,6 +653,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: -4,
     marginBottom: 16,
+  },
+  gaugeSectionPhone: {
+    marginTop: 12,
   },
   gaugeWrapper: {
     alignItems: 'center',

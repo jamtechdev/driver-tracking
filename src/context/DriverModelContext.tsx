@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import { locationService } from '@/services/location.service';
+import { requestLocationPermission } from '@/utils/permissions';
 import { deviceService } from '@/services/device.service';
 import { mdtUpdate, vehicleUpdate, speedMpsToMph, type MdtUpdateParams, type VehicleUpdateParams } from '@/api/position.api';
 import { APP_CONSTANTS } from '@/utils/constants';

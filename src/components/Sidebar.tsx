@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, useWindowDimensions, ScrollView, Pressable } from 'react-native';
 import { useNavigationState } from '@react-navigation/native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../theme/colors';
@@ -39,7 +39,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   variant,
   isTablet,
 }) => {
-  const { width } = Dimensions.get('window');
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const { driver, serviceStatus } = useAuth();
   const { setBrightnessVisible, brightnessVisible } = useBrightness();
   const { open: openMessagingModal, visible: messagingModalVisible } = useMessagingModal();
@@ -119,7 +120,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             <Text style={styles.proceedTextDrawer}>Proceed if Safe</Text>
           </TouchableOpacity>
-          <View style={[
+          {/* <View style={[
             styles.serviceStatusRow,
             serviceStatus === 'in_service' ? styles.serviceStatusInService : styles.serviceStatusOutOfService,
           ]}>
@@ -134,7 +135,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             ]}>
               {serviceStatus === 'out_of_service' ? 'Out of Service' : 'In Service'}
             </Text>
-          </View>
+          </View> */}
           <Pressable
             style={[styles.powerButtonSidebar, isLoggedOut && styles.powerButtonSidebarDisabled]}
             onPress={handlePower}
@@ -155,7 +156,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   }
 
   return (
-    <View style={[styles.sidebar, isTablet && styles.sidebarTablet]}>
+    <View style={[styles.sidebar, isTablet && styles.sidebarTablet, isLandscape && styles.sidebarLandscape]}>
       <View style={styles.navItems}>
         {SIDEBAR_ITEMS.map((item) => {
           return (
@@ -164,6 +165,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               style={[
                 styles.navItem,
                 isTablet && styles.navItemTablet,
+                isLandscape && styles.navItemLandscape,
               ]}
               onPress={() => handleNav(item.id)}
               activeOpacity={0.6}
@@ -224,9 +226,15 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 0,
   },
+  sidebarLandscape: {
+    height: '40%',
+  },
   navItemTablet: {
     paddingVertical: 20,
     marginBottom: 6,
+  },
+  navItemLandscape: {
+    paddingVertical: 5,
   },
   navLabelTablet: {
     fontSize: 14,

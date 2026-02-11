@@ -1,0 +1,231 @@
+diff --git a/node_modules/react-native-device-battery/android/build.gradle b/node_modules/react-native-device-battery/android/build.gradle
+index 4d99c41..a8b91b7 100644
+--- a/node_modules/react-native-device-battery/android/build.gradle
++++ b/node_modules/react-native-device-battery/android/build.gradle
+@@ -1,6 +1,7 @@
+ buildscript {
+     repositories {
+-        jcenter()
++        mavenCentral()
++        google()
+     }
+ 
+     dependencies {
+diff --git a/node_modules/react-native-device-battery/android/build/generated/source/buildConfig/debug/com/robinpowered/react/battery/BuildConfig.java b/node_modules/react-native-device-battery/android/build/generated/source/buildConfig/debug/com/robinpowered/react/battery/BuildConfig.java
+new file mode 100644
+index 0000000..ffe6ebc
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/generated/source/buildConfig/debug/com/robinpowered/react/battery/BuildConfig.java
+@@ -0,0 +1,10 @@
++/**
++ * Automatically generated file. DO NOT MODIFY
++ */
++package com.robinpowered.react.battery;
++
++public final class BuildConfig {
++  public static final boolean DEBUG = Boolean.parseBoolean("true");
++  public static final String LIBRARY_PACKAGE_NAME = "com.robinpowered.react.battery";
++  public static final String BUILD_TYPE = "debug";
++}
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml b/node_modules/react-native-device-battery/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml
+new file mode 100644
+index 0000000..c84c4da
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="com.robinpowered.react.battery" >
++
++    <uses-sdk android:minSdkVersion="24" />
++
++</manifest>
+\ No newline at end of file
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json b/node_modules/react-native-device-battery/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json
+new file mode 100644
+index 0000000..e44fd79
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json
+@@ -0,0 +1,18 @@
++{
++  "version": 3,
++  "artifactType": {
++    "type": "AAPT_FRIENDLY_MERGED_MANIFESTS",
++    "kind": "Directory"
++  },
++  "applicationId": "com.robinpowered.react.battery",
++  "variantName": "debug",
++  "elements": [
++    {
++      "type": "SINGLE",
++      "filters": [],
++      "attributes": [],
++      "outputFile": "AndroidManifest.xml"
++    }
++  ],
++  "elementType": "File"
++}
+\ No newline at end of file
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties b/node_modules/react-native-device-battery/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties
+new file mode 100644
+index 0000000..1211b1e
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties
+@@ -0,0 +1,6 @@
++aarFormatVersion=1.0
++aarMetadataVersion=1.0
++minCompileSdk=1
++minCompileSdkExtension=0
++minAndroidGradlePluginVersion=1.0.0
++coreLibraryDesugaringEnabled=false
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json b/node_modules/react-native-device-battery/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json
+new file mode 100644
+index 0000000..9e26dfe
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json
+@@ -0,0 +1 @@
++{}
+\ No newline at end of file
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar b/node_modules/react-native-device-battery/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar
+new file mode 100644
+index 0000000..4df0792
+Binary files /dev/null and b/node_modules/react-native-device-battery/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar differ
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/compile_symbol_list/debug/generateDebugRFile/R.txt b/node_modules/react-native-device-battery/android/build/intermediates/compile_symbol_list/debug/generateDebugRFile/R.txt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties b/node_modules/react-native-device-battery/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties
+new file mode 100644
+index 0000000..46d547e
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties
+@@ -0,0 +1 @@
++#Mon Feb 09 14:48:13 IST 2026
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml b/node_modules/react-native-device-battery/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml
+new file mode 100644
+index 0000000..a2ad486
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<merger version="3"><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main" generated-set="main$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\debug\res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug" generated-set="debug$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\debug\res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="D:\2026\driver-tracking\node_modules\react-native-device-battery\android\build\generated\res\resValues\debug"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated" generated-set="generated$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="D:\2026\driver-tracking\node_modules\react-native-device-battery\android\build\generated\res\resValues\debug"/></dataSet><mergedItems/></merger>
+\ No newline at end of file
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/com/robinpowered/react/battery/DeviceBatteryModule$PowerConnectionReceiver.class b/node_modules/react-native-device-battery/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/com/robinpowered/react/battery/DeviceBatteryModule$PowerConnectionReceiver.class
+new file mode 100644
+index 0000000..345a13e
+Binary files /dev/null and b/node_modules/react-native-device-battery/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/com/robinpowered/react/battery/DeviceBatteryModule$PowerConnectionReceiver.class differ
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/com/robinpowered/react/battery/DeviceBatteryModule.class b/node_modules/react-native-device-battery/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/com/robinpowered/react/battery/DeviceBatteryModule.class
+new file mode 100644
+index 0000000..0d664c7
+Binary files /dev/null and b/node_modules/react-native-device-battery/android/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/com/robinpowered/react/battery/DeviceBatteryModule.class differ
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt b/node_modules/react-native-device-battery/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt
+new file mode 100644
+index 0000000..78ac5b8
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt
+@@ -0,0 +1,2 @@
++R_DEF: Internal format may change without notice
++local
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt b/node_modules/react-native-device-battery/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt
+new file mode 100644
+index 0000000..88eff48
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt
+@@ -0,0 +1,7 @@
++1<?xml version="1.0" encoding="utf-8"?>
++2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++3    package="com.robinpowered.react.battery" >
++4
++5    <uses-sdk android:minSdkVersion="24" />
++6
++7</manifest>
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml b/node_modules/react-native-device-battery/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml
+new file mode 100644
+index 0000000..c84c4da
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="com.robinpowered.react.battery" >
++
++    <uses-sdk android:minSdkVersion="24" />
++
++</manifest>
+\ No newline at end of file
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json b/node_modules/react-native-device-battery/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json
+new file mode 100644
+index 0000000..0637a08
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json
+@@ -0,0 +1 @@
++[]
+\ No newline at end of file
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt b/node_modules/react-native-device-battery/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt
+new file mode 100644
+index 0000000..08f4ebe
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt
+@@ -0,0 +1 @@
++0 Warning/Error
+\ No newline at end of file
+diff --git a/node_modules/react-native-device-battery/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt b/node_modules/react-native-device-battery/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt
+new file mode 100644
+index 0000000..a036e33
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt
+@@ -0,0 +1 @@
++com.robinpowered.react.battery
+diff --git a/node_modules/react-native-device-battery/android/build/outputs/logs/manifest-merger-debug-report.txt b/node_modules/react-native-device-battery/android/build/outputs/logs/manifest-merger-debug-report.txt
+new file mode 100644
+index 0000000..0dcf217
+--- /dev/null
++++ b/node_modules/react-native-device-battery/android/build/outputs/logs/manifest-merger-debug-report.txt
+@@ -0,0 +1,17 @@
++-- Merging decision tree log ---
++manifest
++ADDED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml:2:1-4:12
++INJECTED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml:2:1-4:12
++	package
++		ADDED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml:3:5-45
++		INJECTED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml
++	xmlns:android
++		ADDED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml:2:11-69
++uses-sdk
++INJECTED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml reason: use-sdk injection requested
++INJECTED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml
++INJECTED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml
++	android:targetSdkVersion
++		INJECTED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml
++	android:minSdkVersion
++		INJECTED from D:\2026\driver-tracking\node_modules\react-native-device-battery\android\src\main\AndroidManifest.xml
+diff --git a/node_modules/react-native-device-battery/android/src/main/java/com/robinpowered/react/battery/DeviceBatteryPackage.java b/node_modules/react-native-device-battery/android/src/main/java/com/robinpowered/react/battery/DeviceBatteryPackage.java
+index e9d0b21..55c330d 100644
+--- a/node_modules/react-native-device-battery/android/src/main/java/com/robinpowered/react/battery/DeviceBatteryPackage.java
++++ b/node_modules/react-native-device-battery/android/src/main/java/com/robinpowered/react/battery/DeviceBatteryPackage.java
+@@ -3,14 +3,12 @@ package com.robinpowered.react.battery;
+ import android.app.Activity;
+ 
+ import com.facebook.react.ReactPackage;
+-import com.facebook.react.bridge.JavaScriptModule;
+ import com.facebook.react.bridge.NativeModule;
+ import com.facebook.react.bridge.ReactApplicationContext;
+ import com.facebook.react.uimanager.ViewManager;
+ 
+ import java.util.ArrayList;
+ import java.util.Arrays;
+-import java.util.Collections;
+ import java.util.List;
+ 
+ public class DeviceBatteryPackage implements ReactPackage {
+@@ -21,11 +19,6 @@ public class DeviceBatteryPackage implements ReactPackage {
+     return modules;
+   }
+ 
+-  @Override
+-  public List<Class<? extends JavaScriptModule>> createJSModules() {
+-    return Collections.emptyList();
+-  }
+-
+   @Override
+   public List<ViewManager> createViewManagers(ReactApplicationContext reactApplicationContext) {
+     return Arrays.<ViewManager>asList();

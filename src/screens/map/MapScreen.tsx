@@ -17,7 +17,7 @@ import MainLayout from '../../components/MainLayout';
 import { COLORS } from '../../theme/colors';
 import { useDriverModel } from '../../context/DriverModelContext';
 import { useAuth } from '../../context/AuthContext';
-import { MAPS_CONFIG } from '../../config/maps.config';
+import { MAPS_CONFIG, isMapsApiKeyValid } from '../../config/maps.config';
 
 interface MapScreenProps {
   navigation: any;
@@ -81,6 +81,42 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
           </Text>
           <View style={styles.positionCard}>
             <Text style={styles.positionTitle}>Your position (DriverModel)</Text>
+            {locationError ? (
+              <Text style={styles.positionError}>{locationError}</Text>
+            ) : lastLocation ? (
+              <Text style={styles.positionCoords}>
+                {lastLocation.latitude.toFixed(5)}, {lastLocation.longitude.toFixed(5)}
+              </Text>
+            ) : (
+              <Text style={styles.positionMuted}>Waiting for GPS…</Text>
+            )}
+          </View>
+        </View>
+      </MainLayout>
+    );
+  }
+
+  const hasMapsApiKey = isMapsApiKeyValid();
+  if (!hasMapsApiKey) {
+    return (
+      <MainLayout navigation={navigation}>
+        <View style={styles.container}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.navigate('Home')}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="arrow-back" size={28} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+          <View style={styles.mapPlaceholder}>
+            <Text style={styles.mapPlaceholderIcon}>🗺️</Text>
+            <Text style={styles.mapPlaceholderTitle}>Map view</Text>
+            <Text style={styles.mapPlaceholderText}>
+              Add a Google Maps API key to display the map.
+            </Text>
+          </View>
+          <View style={styles.positionCard}>
+            <Text style={styles.positionTitle}>Your position</Text>
             {locationError ? (
               <Text style={styles.positionError}>{locationError}</Text>
             ) : lastLocation ? (
@@ -229,6 +265,34 @@ const styles = StyleSheet.create({
   },
   map: {
     ...StyleSheet.absoluteFillObject,
+  },
+  mapPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.backgroundSecondary,
+    marginTop: 60,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  mapPlaceholderIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  mapPlaceholderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  mapPlaceholderText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: 24,
   },
   openPositionBtn: {
     position: 'absolute',
