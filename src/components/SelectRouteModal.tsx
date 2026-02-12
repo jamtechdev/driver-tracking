@@ -1,6 +1,6 @@
 /**
- * Select Route Modal - Choose route or Out of Service (centered, light style)
- * Routes are loaded once from the driver data API (same response that includes vehicles).
+ * Select Route Modal - Popover above "Out of Service" / Route tab with bottom pointer.
+ * Same design as Select Driver: white card, Cancel + title, list with checkmarks.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -14,7 +14,6 @@ import {
   useWindowDimensions,
   Platform,
   Pressable,
-  TextInput,
   ActivityIndicator,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -22,8 +21,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { getDriverData } from '../api/driverData.api';
+import { BOTTOM_BAR_HEIGHT } from '../utils/constants';
 
-const SIDEBAR_WIDTH = 120;
+const MIN_MODAL_WIDTH = 280;
+const MAX_MODAL_WIDTH = 440;
+const EDGE_PADDING_RATIO = 0.04;
+const MIN_EDGE_PADDING = 12;
+const MODAL_BG = '#FFFFFF';
 
 interface DriverRouteItem {
   routeID: string;
@@ -72,7 +76,6 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
   const [routes, setRoutes] = useState<DriverRouteItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
 
   const loadRoutes = useCallback(async () => {
     setLoading(true);
@@ -92,9 +95,6 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
   useEffect(() => {
     if (visible && !routes.length && !loading && !error) {
       loadRoutes();
-    }
-    if (visible) {
-      setSearch('');
     }
   }, [visible, loadRoutes, routes.length, loading, error]);
 
@@ -122,26 +122,6 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
     return { outOfService, enabled, disabled };
   }, [routes]);
 
-  const filteredRoutes = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return allOptions;
-
-    const match = (r: DriverRouteItem) => {
-      const shortName = (r.shortName || '').toString().toLowerCase();
-      const longName = (r.longName || '').toString().toLowerCase();
-      const desc = (r.description || '').toString().toLowerCase();
-      return shortName.includes(query) || longName.includes(query) || desc.includes(query);
-    };
-
-    return {
-      outOfService: allOptions.outOfService.filter((o) =>
-        'out of service'.includes(query)
-      ),
-      enabled: allOptions.enabled.filter((o) => match(o.route)),
-      disabled: allOptions.disabled.filter((o) => match(o.route)),
-    };
-  }, [allOptions, search]);
-
   const combinedList = useMemo(() => {
     type Row =
       | { type: 'fixed'; key: string; label: string }
@@ -149,11 +129,11 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
 
     const rows: Row[] = [];
 
-    filteredRoutes.outOfService.forEach((o) => {
+    allOptions.outOfService.forEach((o) => {
       rows.push({ type: 'fixed', key: 'out-of-service', label: o.label });
     });
 
-    filteredRoutes.enabled.forEach(({ route }) => {
+    allOptions.enabled.forEach(({ route }) => {
       rows.push({
         type: 'route',
         key: route.routeID,
@@ -162,7 +142,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
       });
     });
 
-    filteredRoutes.disabled.forEach(({ route }) => {
+    allOptions.disabled.forEach(({ route }) => {
       rows.push({
         type: 'route',
         key: `${route.routeID}-disabled`,
@@ -172,7 +152,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
     });
 
     return rows;
-  }, [filteredRoutes]);
+  }, [allOptions]);
 
   const getRouteLabel = (route: DriverRouteItem) => {
     if (route.shortName && route.longName && route.longName !== route.shortName) {
@@ -181,10 +161,22 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
     return route.shortName || route.longName || route.routeID;
   };
 
-  const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
-  const contentWidth = isTablet ? width - SIDEBAR_WIDTH : width;
-  const modalWidth = Math.min(contentWidth - 48, isTablet ? 380 : 460);
-  const maxModalHeight = height - insets.top - insets.bottom - 48;
+  const edgePadding = Math.max(MIN_EDGE_PADDING, Math.round(width * EDGE_PADDING_RATIO));
+  const bottomOffset = BOTTOM_BAR_HEIGHT + (insets.bottom || 0) + 12;
+  const modalWidth = Math.min(
+    Math.max(MIN_MODAL_WIDTH, Math.round(width * 0.88)),
+    MAX_MODAL_WIDTH
+  );
+  const maxModalHeight = Math.min(
+    height - insets.top - bottomOffset - 24,
+    Math.max(400, Math.round(height * 0.6))
+  );
+  // Route tab is 3rd of 4: center at 5/8 width
+  const routeTabCenterX = (5 / 8) * width;
+  const minLeft = 0;
+  const maxRight = width - modalWidth - edgePadding;
+  const baseLeft = routeTabCenterX - modalWidth / 2;
+  const modalLeft = Math.max(minLeft, Math.min(baseLeft, maxRight));
 
   return (
     <Modal
@@ -196,153 +188,110 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
       presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
     >
-      <View style={StyleSheet.absoluteFill}>
-        <View style={[styles.overlayWrapper, isTablet && styles.rootTablet]}>
-          {isTablet && (
-            <Pressable style={styles.sidebarBackdrop} onPress={onClose} />
-          )}
-          <View style={styles.overlay}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-            <View style={[
-              styles.modal,
-              { width: modalWidth, maxHeight: maxModalHeight },
-              isTablet && styles.modalCompact,
-            ]}>
-              <View>
-                <View style={styles.header}>
-                  <TouchableOpacity
-                    onPress={onClose}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                    style={styles.cancelBtn}
-                  >
-                    <Text style={styles.cancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.title}>Select Route</Text>
-                  <View style={styles.headerSpacer} />
-                </View>
-                <View style={styles.searchRow}>
-                  <MaterialIcons
-                    name="search"
-                    size={20}
-                    color={COLORS.textSecondary}
-                    style={styles.searchIcon}
-                  />
-                  <TextInput
-                    placeholder="Search by route name"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={search}
-                    onChangeText={setSearch}
-                    style={styles.searchInput}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                  />
-                </View>
+      <View style={styles.backdropRoot}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
+          style={[
+            styles.popoverWrap,
+            {
+              bottom: bottomOffset,
+              left: modalLeft,
+              width: modalWidth,
+            },
+          ]}
+        >
+          <View style={[styles.modal, { width: modalWidth, maxHeight: maxModalHeight }]}>
+            <View style={styles.header}>
+              <TouchableOpacity
+                onPress={onClose}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.title}>Select Route</Text>
+              <View style={styles.headerSpacer} />
+            </View>
+
+            {loading ? (
+              <View style={styles.loadingWrap}>
+                <ActivityIndicator size="large" color={COLORS.accentBlue} />
+                <Text style={styles.loadingText}>Loading routes…</Text>
               </View>
-
-              {loading ? (
-                <View style={styles.loadingWrap}>
-                  <ActivityIndicator size="large" color={COLORS.primary} />
-                  <Text style={styles.loadingText}>Loading routes…</Text>
-                </View>
-              ) : error ? (
-                <View style={styles.errorWrap}>
-                  <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
-                  <Text style={styles.errorText}>{error}</Text>
-                  <TouchableOpacity style={styles.retryBtn} onPress={loadRoutes}>
-                    <Text style={styles.retryText}>Retry</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : combinedList.length === 0 ? (
-                <View style={styles.emptyWrap}>
-                  <Text style={styles.emptyText}>No routes match your search</Text>
-                </View>
-              ) : (
-                <FlatList
-                  data={combinedList}
-                  keyExtractor={(row) => row.key}
-                  renderItem={({ item }) => {
-                    if (item.type === 'fixed') {
-                      const isSelected = selectedRoute === item.label;
-                      const isOutOfService = item.label === 'Out of Service';
-                      return (
-                        <TouchableOpacity
-                          style={[
-                            styles.routeItem,
-                            isSelected && styles.routeItemSelected,
-                            isOutOfService && styles.routeItemOutOfService,
-                          ]}
-                          onPress={() => handleSelect(item.label, null)}
-                          activeOpacity={0.7}
-                        >
-                          <Text
-                            style={[
-                              styles.routeName,
-                              isOutOfService && styles.routeNameOutOfService,
-                            ]}
-                          >
-                            {item.label}
-                          </Text>
-                          {isSelected && (
-                            <MaterialIcons
-                              name="check"
-                              size={22}
-                              color={isOutOfService ? COLORS.emergency : COLORS.accentBlue}
-                            />
-                          )}
-                        </TouchableOpacity>
-                      );
-                    }
-
-                    const label = getRouteLabel(item.route);
-                    const isSelected = selectedRoute === label;
-                    const disabled = item.disabled;
-
+            ) : error ? (
+              <View style={styles.errorWrap}>
+                <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity style={styles.retryBtn} onPress={loadRoutes}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : combinedList.length === 0 ? (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyText}>No routes available</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={combinedList}
+                keyExtractor={(row) => row.key}
+                renderItem={({ item }) => {
+                  if (item.type === 'fixed') {
+                    const isSelected = selectedRoute === item.label;
                     return (
                       <TouchableOpacity
                         style={[
                           styles.routeItem,
                           isSelected && styles.routeItemSelected,
-                          disabled && styles.routeItemDisabled,
                         ]}
-                        onPress={() => {
-                          if (disabled) return;
-                          handleSelect(label, item.route.routeID);
-                        }}
-                        activeOpacity={disabled ? 1 : 0.7}
-                        disabled={disabled}
+                        onPress={() => handleSelect(item.label, null)}
+                        activeOpacity={0.7}
                       >
-                        <View style={styles.routeLabelRow}>
-                          <Text
-                            style={[
-                              styles.routeName,
-                              disabled && styles.routeNameDisabled,
-                            ]}
-                          >
-                            {label}
-                          </Text>
-                        </View>
-                        {disabled && (
-                          <Text style={styles.disabledTag}>Disabled</Text>
-                        )}
-                        {isSelected && !disabled && (
-                          <MaterialIcons
-                            name="check"
-                            size={22}
-                            color={COLORS.accentBlue}
-                          />
+                        <Text style={styles.routeName}>{item.label}</Text>
+                        {isSelected && (
+                          <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
                         )}
                       </TouchableOpacity>
                     );
-                  }}
-                  style={[
-                    styles.list,
-                    isTablet ? styles.listCompact : { maxHeight: maxModalHeight - 80 },
-                  ]}
-                  showsVerticalScrollIndicator={false}
-                />
-              )}
-            </View>
+                  }
+
+                  const label = getRouteLabel(item.route);
+                  const isSelected = selectedRoute === label;
+                  const disabled = item.disabled;
+
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.routeItem,
+                        isSelected && styles.routeItemSelected,
+                        disabled && styles.routeItemDisabled,
+                      ]}
+                      onPress={() => {
+                        if (disabled) return;
+                        handleSelect(label, item.route.routeID);
+                      }}
+                      activeOpacity={disabled ? 1 : 0.7}
+                      disabled={disabled}
+                    >
+                      <Text
+                        style={[
+                          styles.routeName,
+                          disabled && styles.routeNameDisabled,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                      {isSelected && !disabled && (
+                        <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                style={[styles.list, { maxHeight: maxModalHeight - 56 }]}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
           </View>
+          <View style={styles.pointer} />
         </View>
       </View>
     </Modal>
@@ -350,55 +299,50 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
 };
 
 const styles = StyleSheet.create({
-  overlayWrapper: {
+  backdropRoot: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  rootTablet: {
-    flexDirection: 'row',
-  },
-  sidebarBackdrop: {
-    width: SIDEBAR_WIDTH,
-  },
-  modalCompact: {
-    maxHeight: 520,
-  },
-  listCompact: {
-    maxHeight: 420,
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
+  popoverWrap: {
+    position: 'absolute',
     alignItems: 'center',
-    padding: 24,
   },
   modal: {
-    backgroundColor: '#252A32',
-    borderRadius: 16,
-    maxHeight: 520,
+    backgroundColor: MODAL_BG,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(0,0,0,0.08)',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.25,
-        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.2,
+        shadowRadius: 16,
       },
       android: {
-        elevation: 24,
+        elevation: 16,
       },
     }),
+  },
+  pointer: {
+    width: 0,
+    height: 0,
+    marginTop: -1,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: MODAL_BG,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 18,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: 'rgba(0,0,0,0.08)',
   },
   cancelBtn: {
     minWidth: 60,
@@ -411,29 +355,10 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: COLORS.textPrimary,
+    color: '#1A1A1A',
   },
   headerSpacer: {
     width: 60,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    gap: 8,
-  },
-  searchIcon: {
-    marginTop: 1,
-  },
-  searchInput: {
-    flex: 1,
-    height: 36,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    backgroundColor: '#1F242C',
-    color: COLORS.textPrimary,
-    fontSize: 14,
   },
   list: {
     maxHeight: 440,
@@ -443,42 +368,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
   routeItemSelected: {
-    backgroundColor: 'rgba(37, 99, 235, 0.15)',
-  },
-  routeItemOutOfService: {
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.emergency,
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
   },
   routeItemDisabled: {
     opacity: 0.5,
   },
   routeName: {
     fontSize: 16,
-    color: COLORS.textPrimary,
+    color: '#1A1A1A',
     fontWeight: '500',
   },
-  routeNameOutOfService: {
-    color: COLORS.emergency,
-    fontWeight: '600',
-  },
-  routeLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
   routeNameDisabled: {
-    color: COLORS.textMuted,
-  },
-  disabledTag: {
-    marginLeft: 8,
-    fontSize: 12,
-    color: COLORS.textMuted,
-    fontStyle: 'italic',
+    color: '#8E8E93',
   },
   loadingWrap: {
     padding: 40,
@@ -487,7 +393,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 15,
-    color: COLORS.textSecondary,
+    color: '#64748B',
   },
   errorWrap: {
     padding: 40,
@@ -496,7 +402,7 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 12,
     fontSize: 15,
-    color: COLORS.textSecondary,
+    color: '#64748B',
     textAlign: 'center',
   },
   retryBtn: {
@@ -517,7 +423,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 15,
-    color: COLORS.textMuted,
+    color: '#64748B',
   },
 });
 

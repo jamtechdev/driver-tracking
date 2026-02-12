@@ -19,7 +19,11 @@ export const AuthNavigator: React.FC = () => {
       }}
     >
       <Stack.Screen name="Login" component={LoginScreen} />
-      <Stack.Screen name="PinEntry" component={PinEntryScreen} />
+      <Stack.Screen
+        name="PinEntry"
+        component={PinEntryScreen}
+        options={{ presentation: 'modal', gestureEnabled: true }}
+      />
       <Stack.Screen name="SupervisorLogin" component={SupervisorLoginScreen} />
     </Stack.Navigator>
   );

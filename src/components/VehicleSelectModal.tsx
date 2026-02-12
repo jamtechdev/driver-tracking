@@ -1,6 +1,6 @@
 /**
- * Vehicle Select Modal - Fetch vehicles from driver data API, list them, call select API on choose.
- * Uses agencyID 121 from config. Vehicle data from api.peaktransit.com controller=driver&action=data.
+ * Vehicle Select Modal - Popover above Vehicle tab with bottom pointer.
+ * Same design as Select Route / Select Driver: white card, Cancel + title, list with checkmarks.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -15,7 +15,6 @@ import {
   Platform,
   Pressable,
   ActivityIndicator,
-  TextInput,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,8 +24,13 @@ import Toast from 'react-native-toast-message';
 import { API_CONFIG, DRIVER_VEHICLE_SELECT_BASE_URL } from '../config/api.config';
 import { getDriverData } from '../api/driverData.api';
 import axios from 'axios';
+import { BOTTOM_BAR_HEIGHT } from '../utils/constants';
 
-const SIDEBAR_WIDTH = 120;
+const MIN_MODAL_WIDTH = 280;
+const MAX_MODAL_WIDTH = 440;
+const EDGE_PADDING_RATIO = 0.04;
+const MIN_EDGE_PADDING = 12;
+const MODAL_BG = '#FFFFFF';
 
 export interface VehicleItem {
   vehicleID?: string;
@@ -48,7 +52,6 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
   const [vehicles, setVehicles] = useState<VehicleItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
 
   const fetchVehicles = useCallback(async () => {
     setLoading(true);
@@ -71,7 +74,6 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
   useEffect(() => {
     if (visible) {
       fetchVehicles();
-      setSearch('');
     }
   }, [visible, fetchVehicles]);
 
@@ -109,10 +111,22 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
     onClose();
   };
 
-  const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
-  const contentWidth = isTablet ? width - SIDEBAR_WIDTH : width;
-  const modalWidth = Math.min(contentWidth - 48, isTablet ? 380 : 460);
-  const maxModalHeight = height - insets.top - insets.bottom - 48;
+  const edgePadding = Math.max(MIN_EDGE_PADDING, Math.round(width * EDGE_PADDING_RATIO));
+  const bottomOffset = BOTTOM_BAR_HEIGHT + (insets.bottom || 0) + 12;
+  const modalWidth = Math.min(
+    Math.max(MIN_MODAL_WIDTH, Math.round(width * 0.88)),
+    MAX_MODAL_WIDTH
+  );
+  const maxModalHeight = Math.min(
+    height - insets.top - bottomOffset - 24,
+    Math.max(400, Math.round(height * 0.6))
+  );
+  // Vehicle tab is 2nd of 4: center at 3/8 width
+  const vehicleTabCenterX = (3 / 8) * width;
+  const minLeft = 0;
+  const maxRight = width - modalWidth - edgePadding;
+  const baseLeft = vehicleTabCenterX - modalWidth / 2;
+  const modalLeft = Math.max(minLeft, Math.min(baseLeft, maxRight));
 
   const displayLabel = (item: VehicleItem) => {
     const name = item.vehicleName && String(item.vehicleName).trim().length > 0
@@ -125,18 +139,6 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
     return 'Vehicle';
   };
 
-  const filteredVehicles = vehicles.filter((item) => {
-    if (!search.trim()) return true;
-    const query = search.trim().toLowerCase();
-    const label = (
-      (item.vehicleName as string | undefined) ||
-      (item.vehicleNumber as string | undefined) ||
-      (item.vehicleID as string | undefined) ||
-      ''
-    ).toString().toLowerCase();
-    return label.includes(query);
-  });
-
   return (
     <Modal
       visible={visible}
@@ -147,111 +149,79 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
       presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
     >
-      <View style={StyleSheet.absoluteFill}>
-        <View style={[styles.overlayWrapper, isTablet && styles.rootTablet]}>
-          {isTablet && (
-            <Pressable style={styles.sidebarBackdrop} onPress={onClose} />
-          )}
-          <View style={styles.overlay}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-            <View
-              style={[
-                styles.modal,
-                { width: modalWidth, maxHeight: maxModalHeight },
-                isTablet && styles.modalCompact,
-              ]}
-            >
-              <View>
-                <View style={styles.header}>
-                  <TouchableOpacity
-                    onPress={onClose}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                    style={styles.cancelBtn}
-                  >
-                    <Text style={styles.cancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.title}>Select Vehicle</Text>
-                  <View style={styles.headerSpacer} />
-                </View>
-                <View style={styles.searchRow}>
-                  <MaterialIcons
-                    name="search"
-                    size={20}
-                    color={COLORS.textSecondary}
-                    style={styles.searchIcon}
-                  />
-                  <TextInput
-                    placeholder="Search by vehicle name or ID"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={search}
-                    onChangeText={setSearch}
-                    style={styles.searchInput}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                  />
-                </View>
-              </View>
-
-              {loading ? (
-                <View style={styles.loadingWrap}>
-                  <ActivityIndicator size="large" color={COLORS.primary} />
-                  <Text style={styles.loadingText}>Loading vehicles…</Text>
-                </View>
-              ) : error ? (
-                <View style={styles.errorWrap}>
-                  <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
-                  <Text style={styles.errorText}>{error}</Text>
-                  <TouchableOpacity style={styles.retryBtn} onPress={fetchVehicles}>
-                    <Text style={styles.retryText}>Retry</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : filteredVehicles.length === 0 ? (
-                <View style={styles.emptyWrap}>
-                  <Text style={styles.emptyText}>No vehicles match your search</Text>
-                </View>
-              ) : (
-                <FlatList
-                  data={filteredVehicles}
-                  keyExtractor={(item) =>
-                    String(item.vehicleID ?? item.vehicleNumber ?? Math.random())
-                  }
-                  renderItem={({ item }) => {
-                    const id = item.vehicleID ?? item.vehicleNumber ?? '';
-                    const isSelected = vehicleId === id;
-                    return (
-                      <TouchableOpacity
-                        style={[
-                          styles.vehicleItem,
-                          isSelected && styles.vehicleItemSelected,
-                        ]}
-                        onPress={() => handleSelect(item)}
-                        activeOpacity={0.7}
-                      >
-                        <MaterialIcons
-                          name="directions-bus"
-                          size={22}
-                          color={COLORS.textSecondary}
-                        />
-                        <Text style={styles.vehicleName}>{displayLabel(item)}</Text>
-                        {isSelected && (
-                          <MaterialIcons
-                            name="check"
-                            size={22}
-                            color={COLORS.accentBlue}
-                          />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  }}
-                  style={[
-                    styles.list,
-                    isTablet ? styles.listCompact : { maxHeight: maxModalHeight - 80 },
-                  ]}
-                  showsVerticalScrollIndicator={false}
-                />
-              )}
+      <View style={styles.backdropRoot}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
+          style={[
+            styles.popoverWrap,
+            {
+              bottom: bottomOffset,
+              left: modalLeft,
+              width: modalWidth,
+            },
+          ]}
+        >
+          <View style={[styles.modal, { width: modalWidth, maxHeight: maxModalHeight }]}>
+            <View style={styles.header}>
+              <TouchableOpacity
+                onPress={onClose}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.title}>Select Vehicle</Text>
+              <View style={styles.headerSpacer} />
             </View>
+
+            {loading ? (
+              <View style={styles.loadingWrap}>
+                <ActivityIndicator size="large" color={COLORS.accentBlue} />
+                <Text style={styles.loadingText}>Loading vehicles…</Text>
+              </View>
+            ) : error ? (
+              <View style={styles.errorWrap}>
+                <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity style={styles.retryBtn} onPress={fetchVehicles}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : vehicles.length === 0 ? (
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyText}>No vehicles available</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={vehicles}
+                keyExtractor={(item) =>
+                  String(item.vehicleID ?? item.vehicleNumber ?? Math.random())
+                }
+                renderItem={({ item }) => {
+                  const id = item.vehicleID ?? item.vehicleNumber ?? '';
+                  const isSelected = vehicleId === id;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.vehicleItem,
+                        isSelected && styles.vehicleItemSelected,
+                      ]}
+                      onPress={() => handleSelect(item)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.vehicleName}>{displayLabel(item)}</Text>
+                      {isSelected && (
+                        <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                style={[styles.list, { maxHeight: maxModalHeight - 56 }]}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
           </View>
+          <View style={styles.pointer} />
         </View>
       </View>
     </Modal>
@@ -259,55 +229,50 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
 };
 
 const styles = StyleSheet.create({
-  overlayWrapper: {
+  backdropRoot: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  rootTablet: {
-    flexDirection: 'row',
-  },
-  sidebarBackdrop: {
-    width: SIDEBAR_WIDTH,
-  },
-  modalCompact: {
-    maxHeight: 520,
-  },
-  listCompact: {
-    maxHeight: 420,
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
+  popoverWrap: {
+    position: 'absolute',
     alignItems: 'center',
-    padding: 24,
   },
   modal: {
-    backgroundColor: '#252A32',
-    borderRadius: 16,
-    maxHeight: 520,
+    backgroundColor: MODAL_BG,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(0,0,0,0.08)',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.25,
-        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.2,
+        shadowRadius: 16,
       },
       android: {
-        elevation: 24,
+        elevation: 16,
       },
     }),
+  },
+  pointer: {
+    width: 0,
+    height: 0,
+    marginTop: -1,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: MODAL_BG,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 18,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: 'rgba(0,0,0,0.08)',
   },
   cancelBtn: {
     minWidth: 60,
@@ -320,32 +285,31 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: COLORS.textPrimary,
+    color: '#1A1A1A',
   },
   headerSpacer: {
     width: 60,
   },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    gap: 8,
-  },
-  searchIcon: {
-    marginTop: 1,
-  },
-  searchInput: {
-    flex: 1,
-    height: 36,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    backgroundColor: '#1F242C',
-    color: COLORS.textPrimary,
-    fontSize: 14,
-  },
   list: {
     maxHeight: 440,
+  },
+  vehicleItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+  },
+  vehicleItemSelected: {
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+  },
+  vehicleName: {
+    flex: 1,
+    fontSize: 16,
+    color: '#1A1A1A',
+    fontWeight: '500',
   },
   loadingWrap: {
     padding: 40,
@@ -354,7 +318,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 15,
-    color: COLORS.textSecondary,
+    color: '#64748B',
   },
   errorWrap: {
     padding: 40,
@@ -363,7 +327,7 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 12,
     fontSize: 15,
-    color: COLORS.textSecondary,
+    color: '#64748B',
     textAlign: 'center',
   },
   retryBtn: {
@@ -384,25 +348,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 15,
-    color: COLORS.textMuted,
-  },
-  vehicleItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-    gap: 12,
-  },
-  vehicleItemSelected: {
-    backgroundColor: 'rgba(37, 99, 235, 0.15)',
-  },
-  vehicleName: {
-    flex: 1,
-    fontSize: 16,
-    color: COLORS.textPrimary,
-    fontWeight: '500',
+    color: '#64748B',
   },
 });
 

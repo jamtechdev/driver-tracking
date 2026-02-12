@@ -23,12 +23,14 @@ import { MapModalProvider } from './src/context/MapModalContext';
 import { ChecklistModalProvider } from './src/context/ChecklistModalContext';
 import { ReportIncidentModalProvider } from './src/context/ReportIncidentModalContext';
 import { IncomingMessagesProvider } from './src/context/IncomingMessagesContext';
+import { PinEntryModalProvider } from './src/context/PinEntryModalContext';
 import { COLORS } from './src/theme/colors';
 import SendMessageModal from './src/components/SendMessageModal';
 import SettingsModal from './src/components/SettingsModal';
 import MapModal from './src/components/MapModal';
 import ChecklistModal from './src/components/ChecklistModal';
 import ReportIncidentModal from './src/components/ReportIncidentModal';
+import PinEntryModal from './src/components/PinEntryModal';
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -99,6 +101,7 @@ import MessagingScreen from './src/screens/messaging/MessagingScreen';
 import SettingsScreen from './src/screens/settings/SettingsScreen';
 
 const Stack = createNativeStackNavigator();
+const navigationRef = { current: null as any };
 
 function App(): React.JSX.Element {
   useEffect(() => {
@@ -112,6 +115,7 @@ function App(): React.JSX.Element {
         <AuthProvider>
           <DriverModelProvider>
           <DriverModalProvider>
+            <PinEntryModalProvider>
             <IncomingMessagesProvider>
             <BrightnessProvider>
             <EmergencyProvider>
@@ -121,7 +125,7 @@ function App(): React.JSX.Element {
             <ChecklistModalProvider>
             <ReportIncidentModalProvider>
             <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-            <NavigationContainer>
+            <NavigationContainer ref={navigationRef}>
               <Suspense fallback={
                 <View style={[errorStyles.container, { padding: 24 }]}>
                   <ActivityIndicator size="large" color="#FFF" />
@@ -175,6 +179,7 @@ function App(): React.JSX.Element {
             <MapModal />
             <ChecklistModal />
             <ReportIncidentModal />
+            <PinEntryModal navigationRef={navigationRef} />
             <Toast />
             </ReportIncidentModalProvider>
             </ChecklistModalProvider>
@@ -184,6 +189,7 @@ function App(): React.JSX.Element {
             </EmergencyProvider>
             </BrightnessProvider>
             </IncomingMessagesProvider>
+            </PinEntryModalProvider>
           </DriverModalProvider>
           </DriverModelProvider>
           </AuthProvider>

@@ -45,7 +45,15 @@ export const MainNavigator: React.FC = () => {
       }}
     >
       <Stack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
-      <Stack.Screen name="PinEntry" component={PinEntryScreen} options={{ headerShown: false }} />
+      <Stack.Screen
+        name="PinEntry"
+        component={PinEntryScreen}
+        options={{
+          headerShown: false,
+          presentation: 'modal',
+          gestureEnabled: true,
+        }}
+      />
       <Stack.Screen name="RouteSelection" component={RouteSelectionScreen} />
       <Stack.Screen name="RouteDetails" component={RouteDetailsScreen} />
       <Stack.Screen name="PassengerFare" component={PassengerFareScreen} />

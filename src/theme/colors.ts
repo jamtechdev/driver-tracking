@@ -9,6 +9,21 @@ export const COLORS = {
   surface: '#363B42',
   surfaceLight: '#40464D',
 
+  // Sidebar & bottom bar
+  navBarBackground: '#545454',
+  navBarSeparator: '#535353',
+  navBarText: '#B0B0B0',
+  navBarIcon: '#F1F2F6',
+  navBarIconDisabled: 'rgba(241,242,246,0.35)',
+
+  // Sidebar only - exact from screenshot (header lighter, items darker, light separators)
+  sidebarHeaderBg: '#575757',
+  sidebarItemBg: '#484848',
+  sidebarSeparator: '#686868',
+  sidebarProceed: '#30AD4F',
+  sidebarBorder: '#282828',
+  sidebarTextIcon: '#FFFFFF',
+
   // Text
   textPrimary: '#FFFFFF',
   textSecondary: '#B8BCC4',

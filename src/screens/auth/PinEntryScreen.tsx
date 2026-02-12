@@ -1,6 +1,6 @@
 /**
  * PIN Entry Screen - Driver login passcode
- * Rich, polished design with premium styling
+ * Minimal design: prompt + 4 underscores, auto-verify on 4th digit, no verify button
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -14,13 +14,12 @@ import {
   StatusBar,
   Animated,
   Pressable,
-  ScrollView,
-  Alert,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import { COLORS } from '../../theme/colors';
 import { useAuth } from '../../context/AuthContext';
 import type { Driver } from '../../data/drivers';
+
+const PIN_LENGTH = 4;
 
 interface PinEntryScreenProps {
   navigation: any;
@@ -29,10 +28,12 @@ interface PinEntryScreenProps {
 
 const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) => {
   const { login } = useAuth();
-  const driver : any= route?.params?.driver;
+  const driver: any = route?.params?.driver;
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const verifyingRef = useRef(false);
+
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (navigation.canGoBack()) {
@@ -45,30 +46,10 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
     return () => backHandler.remove();
   }, [navigation]);
 
-  const animatePress = () => {
-    Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
-    ]).start();
-  };
-
-  const handleNumberPress = (num: string) => {
-    animatePress();
-    setPin((p) => p + num);
+  useEffect(() => {
+    if (pin.length !== PIN_LENGTH || !driver || verifyingRef.current) return;
+    verifyingRef.current = true;
     setError('');
-  };
-
-  const handleDelete = () => {
-    setPin((p) => p.slice(0, -1));
-    setError('');
-  };
-
-  const handlePinSubmit = () => {
-    if (!driver) {
-      navigation.goBack();
-      return;
-    }
-
     const success = login(driver, pin);
     if (success) {
       if (driver.role === 'supervisor') {
@@ -80,6 +61,32 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
       setError('Invalid PIN. Please try again.');
       setPin('');
     }
+    verifyingRef.current = false;
+  }, [pin, driver, login, navigation]);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(''), 3000);
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  const animatePress = () => {
+    Animated.sequence([
+      Animated.timing(scaleAnim, { toValue: 0.95, duration: 80, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const handleNumberPress = (num: string) => {
+    if (pin.length >= PIN_LENGTH) return;
+    animatePress();
+    setPin((p) => p + num);
+    setError('');
+  };
+
+  const handleDelete = () => {
+    setPin((p) => p.slice(0, -1));
+    setError('');
   };
 
   const handleBack = () => {
@@ -90,22 +97,16 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
     }
   };
 
-  const renderPinDots = () => {
-    const displayCount = Math.max(pin.length, 4);
-    return (
-      <View style={styles.pinContainer}>
-        {Array.from({ length: Math.min(displayCount, 8) }).map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.pinDot,
-              index < pin.length && styles.pinDotFilled,
-            ]}
-          />
-        ))}
-      </View>
-    );
-  };
+  const renderPinDots = () => (
+    <View style={styles.pinContainer}>
+      {Array.from({ length: PIN_LENGTH }).map((_, index) => (
+        <View
+          key={index}
+          style={[styles.pinDot, index < pin.length && styles.pinDotFilled]}
+        />
+      ))}
+    </View>
+  );
 
   if (!driver) {
     if (navigation.canGoBack()) navigation.goBack();
@@ -114,21 +115,10 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F0F4F8" />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.container}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
+      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <View style={styles.main}>
         <View style={styles.header}>
-          <View style={styles.avatarWrap}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>{driver.name.charAt(0)}</Text>
-            </View>
-          </View>
           <Text style={styles.title}>Please enter driver login passcode</Text>
-          <Text style={styles.subtitle}>for {driver.name}</Text>
         </View>
 
         {renderPinDots()}
@@ -139,7 +129,9 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
+      </View>
 
+      <View style={styles.keypadWrap}>
         <Animated.View style={[styles.keypad, { transform: [{ scale: scaleAnim }] }]}>
           {[['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['back', '0', 'del']].map(
             (row, rowIndex) => (
@@ -187,22 +179,7 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
             )
           )}
         </Animated.View>
-
-        {pin.length >= 1 && (
-          <Pressable
-            style={({ pressed }) => [
-              styles.submitButton,
-              pin.length >= 4 && styles.submitButtonReady,
-              pressed && styles.submitButtonPressed,
-            ]}
-            onPress={handlePinSubmit}
-          >
-            <Text style={styles.submitButtonText}>
-              {pin.length >= 4 ? 'Verify & Continue' : 'Verify PIN'}
-            </Text>
-          </Pressable>
-        )}
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };
@@ -210,84 +187,45 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F0F4F8',
+    backgroundColor: '#F8FAFC',
   },
-  scrollView: {
+  main: {
     flex: 1,
-  },
-  container: {
-    flexGrow: 1,
-    backgroundColor: '#F0F4F8',
+    backgroundColor: '#F8FAFC',
     paddingHorizontal: 28,
     paddingTop: Platform.OS === 'ios' ? 20 : 28,
-    paddingBottom: 24,
+    justifyContent: 'flex-start',
   },
   header: {
     alignItems: 'center',
-    marginBottom: 20,
-  },
-  avatarWrap: {
-    marginBottom: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#3B82F6',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.2,
-        shadowRadius: 16,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-  },
-  avatarCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#DBEAFE',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#93C5FD',
-  },
-  avatarText: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: '#2563EB',
-    letterSpacing: -0.5,
+    marginTop: 48,
+    marginBottom: 24,
   },
   title: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#1E293B',
-    marginBottom: 8,
+    fontWeight: '600',
+    color: '#475569',
     textAlign: 'center',
     lineHeight: 28,
-    letterSpacing: 0.2,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#64748B',
-    fontWeight: '600',
   },
   pinContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
     gap: 18,
   },
   pinDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2.5,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
     borderColor: '#CBD5E1',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
   },
   pinDotFilled: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
+    backgroundColor: '#475569',
+    borderColor: '#475569',
   },
   errorContainer: {
     flexDirection: 'row',
@@ -308,12 +246,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  keypadWrap: {
+    paddingHorizontal: 28,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 20,
+    paddingTop: 16,
+    backgroundColor: '#F8FAFC',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+  },
   keypad: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 20,
-    marginTop: 16,
-    marginBottom: 20,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
     ...Platform.select({
@@ -365,43 +309,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#64748B',
     marginTop: 2,
-  },
-  submitButton: {
-    backgroundColor: '#93C5FD',
-    paddingVertical: 16,
-    paddingHorizontal: 36,
-    borderRadius: 16,
-    alignSelf: 'center',
-    marginTop: 16,
-    marginBottom: 16,
-    minWidth: 220,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#3B82F6',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 6,
-      },
-    }),
-  },
-  submitButtonReady: {
-    backgroundColor: '#2563EB',
-    borderColor: '#1D4ED8',
-  },
-  submitButtonPressed: {
-    opacity: 0.9,
-  },
-  submitButtonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: 0.3,
   },
 });
 

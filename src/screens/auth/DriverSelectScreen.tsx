@@ -17,6 +17,7 @@ import {
 import { DRIVERS, type Driver } from '../../data/drivers';
 import { COLORS } from '../../theme/colors';
 import { useAuth } from '../../context/AuthContext';
+import { usePinEntryModal } from '../../context/PinEntryModalContext';
 
 interface DriverSelectScreenProps {
   navigation: any;
@@ -24,6 +25,7 @@ interface DriverSelectScreenProps {
 
 const DriverSelectScreen: React.FC<DriverSelectScreenProps> = ({ navigation }) => {
   const { login } = useAuth();
+  const { open: openPinEntry } = usePinEntryModal();
   const [showDriverModal, setShowDriverModal] = useState(true);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
 
@@ -37,7 +39,7 @@ const DriverSelectScreen: React.FC<DriverSelectScreenProps> = ({ navigation }) =
       return;
     }
     if (driver.requiresPin) {
-      navigation.replace('PinEntry', { driver });
+      openPinEntry(driver, { onSuccess: () => navigation.replace('Home') });
     } else {
       login(driver);
       navigation.replace('Home');

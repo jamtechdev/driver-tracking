@@ -26,6 +26,7 @@ import { APP_CONSTANTS } from '@/utils/constants';
 const HORIZ_ACCUR_UPPER_LIMIT = APP_CONSTANTS.LOCATION_ACCURACY_THRESHOLD ?? 50; // meters; above = "ACQUIRING SAT"
 const TIME_BETWEEN_SERVER_CALLS = APP_CONSTANTS.LOCATION_UPDATE_INTERVAL ?? 5000; // 5 seconds
 const MDT_INTERVAL_MS = 10000; // 10 seconds heartbeat
+const VEHICLE_UPDATE_BACKOFF_MS = 60000; // 1 min backoff after 5xx to avoid flooding
 
 export type TrackingMode = 'off' | 'auto' | 'on';
 
@@ -98,6 +99,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const lastMdtSendRef = useRef<number>(0);
   const lastVehicleSendRef = useRef<number>(0);
   const onLocationXmitRef = useRef<((location: LastLocation) => void) | null>(null);
+  const trySendVehicleUpdateRef = useRef<((position?: LastLocation | null) => Promise<void>) | null>(null);
 
   const setTrackingMode = useCallback((mode: TrackingMode) => {
     setTrackingModeState(mode);
@@ -177,7 +179,11 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (__DEV__) {
         console.log('[DriverModel] vehicle update sent', loc.latitude, loc.longitude);
       }
-    } catch (e) {
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status >= 500 && status < 600) {
+        lastVehicleSendRef.current = now + VEHICLE_UPDATE_BACKOFF_MS;
+      }
       if (__DEV__) {
         console.warn('[DriverModel] vehicle update failed', e);
       }
@@ -193,7 +199,9 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     batteryState,
   ]);
 
-  // Location updates from GPS
+  trySendVehicleUpdateRef.current = trySendVehicleUpdate;
+
+  // Location updates from GPS (effect does not depend on trySendVehicleUpdate to avoid re-subscribing on every location change)
   useEffect(() => {
     const onSuccess = (position: {
       latitude: number;
@@ -216,10 +224,10 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setIsAcquiringSat(acquiring);
       setLocationError(null);
 
-      if (!acquiring && shouldSendVehicle() && vehicleId && driver?.id) {
-        if (ts - lastVehicleSendRef.current >= TIME_BETWEEN_SERVER_CALLS) {
-          trySendVehicleUpdate(loc);
-        }
+      if (!acquiring && vehicleId && driver?.id && ts - lastVehicleSendRef.current >= TIME_BETWEEN_SERVER_CALLS) {
+        if (trackingMode === 'off') return;
+        if (trackingMode === 'auto' && !vehicleId) return;
+        trySendVehicleUpdateRef.current?.(loc);
       }
     };
 
@@ -238,7 +246,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
         watchIdRef.current = null;
       }
     };
-  }, [vehicleId, driver?.id, shouldSendVehicle, trySendVehicleUpdate]);
+  }, [vehicleId, driver?.id, trackingMode]);
 
   // MDT heartbeat every 10s (device + lat/lng)
   useEffect(() => {
