@@ -31,6 +31,7 @@ import { useReportIncidentModal } from '../../context/ReportIncidentModalContext
 import { deviceService } from '../../services/device.service';
 import { passengerApi } from '../../api/passenger.api';
 
+
 interface HomeScreenProps {
   navigation: any;
 }
@@ -285,7 +286,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             styles.emergencyBtnCircle,
             emergencyActivated && styles.emergencyBtnCircleActivated,
           ]}>
-            <Text style={styles.emergencyBtnArrow}>→</Text>
+        <MaterialIcons name="arrow-forward" size={25} color="#FFFFFF" />
           </View>
           <Text
             style={[

@@ -64,7 +64,7 @@ const defaultConfig: EnvConfig = {
   // Base only (no query) so paths like /passengers/history don't get concatenated into agencyID
   API_BASE_URL_STAGING: `https://api.peaktransit.com/v5/index.php`,
   API_BASE_URL_PROD: 'https://api.example.com/api',
-  GOOGLE_MAPS_API_KEY: '', // Set your Google Maps API key here
+  GOOGLE_MAPS_API_KEY: 'AIzaSyCFJfxZm2aZljV_kUbxRAIbf9E1jOXsnsY',
   APP_VERSION: '0.0.1',
   ENABLE_LOGGING: __DEV__,
 };

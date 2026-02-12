@@ -148,6 +148,8 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
         showsUserLocation={false}
         showsMyLocationButton={true}
         onMapReady={() => setMapReady(true)}
+        zoomControlEnabled
+        
       >
         {lastLocation && (
           <Marker
@@ -296,9 +298,8 @@ const styles = StyleSheet.create({
   },
   openPositionBtn: {
     position: 'absolute',
-    bottom: 24,
-    left: 16,
-    right: 16,
+    top: 44,
+    right: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -309,6 +310,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
+    alignSelf:'flex-end',
+    width:'30%'
   },
   openPositionBtnText: {
     fontSize: 16,
@@ -317,7 +320,7 @@ const styles = StyleSheet.create({
   },
   overlay: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 20,
     left: 0,
     right: 0,
     padding: 16,
