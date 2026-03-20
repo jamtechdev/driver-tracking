@@ -3,7 +3,7 @@
  * Same design as Select Route / Select Driver: white card, Cancel + title, list with checkmarks.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -22,15 +22,15 @@ import { COLORS } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import Toast from 'react-native-toast-message';
 import { API_CONFIG, DRIVER_VEHICLE_SELECT_BASE_URL } from '../config/api.config';
-import { getDriverData } from '../api/driverData.api';
 import axios from 'axios';
 import { BOTTOM_BAR_HEIGHT } from '../utils/constants';
+import { useDriverData } from '@/context/DriverDataContext';
 
 const MIN_MODAL_WIDTH = 280;
 const MAX_MODAL_WIDTH = 440;
 const EDGE_PADDING_RATIO = 0.04;
 const MIN_EDGE_PADDING = 12;
-const MODAL_BG = '#FFFFFF';
+const MODAL_BG = COLORS.background;
 
 export interface VehicleItem {
   vehicleID?: string;
@@ -49,33 +49,7 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const [vehicles, setVehicles] = useState<VehicleItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchVehicles = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getDriverData();
-      const list = data?.vehicle;
-      setVehicles(Array.isArray(list) ? list : []);
-      // Toast is shown inside getDriverData
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Failed to load vehicles';
-      setError(message);
-      setVehicles([]);
-      // Toast already shown in getDriverData
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (visible) {
-      fetchVehicles();
-    }
-  }, [visible, fetchVehicles]);
+  const { vehicles, isLoading: loading, error, refetch } = useDriverData();
 
   const handleSelect = async (item: VehicleItem) => {
     const id = item.vehicleID ?? item.vehicleNumber ?? String(item.vehicleID ?? '');
@@ -143,7 +117,7 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType='fade'
       onRequestClose={onClose}
       statusBarTranslucent={Platform.OS === 'android'}
       presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
@@ -174,16 +148,16 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
               <View style={styles.headerSpacer} />
             </View>
 
-            {loading ? (
+            {loading && vehicles.length === 0 ? (
               <View style={styles.loadingWrap}>
                 <ActivityIndicator size="large" color={COLORS.accentBlue} />
                 <Text style={styles.loadingText}>Loading vehicles…</Text>
               </View>
-            ) : error ? (
+            ) : error && vehicles.length === 0 ? (
               <View style={styles.errorWrap}>
                 <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
                 <Text style={styles.errorText}>{error}</Text>
-                <TouchableOpacity style={styles.retryBtn} onPress={fetchVehicles}>
+                <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
                   <Text style={styles.retryText}>Retry</Text>
                 </TouchableOpacity>
               </View>
@@ -194,8 +168,8 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
             ) : (
               <FlatList
                 data={vehicles}
-                keyExtractor={(item) =>
-                  String(item.vehicleID ?? item.vehicleNumber ?? Math.random())
+                keyExtractor={(item, index) =>
+                  String(item.vehicleID ?? item.vehicleNumber ?? index)
                 }
                 renderItem={({ item }) => {
                   const id = item.vehicleID ?? item.vehicleNumber ?? '';
@@ -218,6 +192,8 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
                 }}
                 style={[styles.list, { maxHeight: maxModalHeight - 56 }]}
                 showsVerticalScrollIndicator={false}
+                bounces={false}
+                overScrollMode="never"
               />
             )}
           </View>
@@ -272,7 +248,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
+    borderBottomColor: 'rgba(177, 174, 174, 0.08)',
   },
   cancelBtn: {
     minWidth: 60,
@@ -285,7 +261,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1A1A1A',
+    color: '#FFF',
   },
   headerSpacer: {
     width: 60,
@@ -300,15 +276,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
+    borderBottomColor: 'rgba(177, 174, 174, 0.08)',
   },
   vehicleItemSelected: {
-    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+    // backgroundColor: 'rgba(37, 99, 235, 0.1)',
   },
   vehicleName: {
     flex: 1,
     fontSize: 16,
-    color: '#1A1A1A',
+    color: '#FFF',
     fontWeight: '500',
   },
   loadingWrap: {

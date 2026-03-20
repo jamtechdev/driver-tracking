@@ -86,6 +86,7 @@ const ChecklistModal: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checklistType, setChecklistType] = useState<'pre' | 'post'>('pre');
   const { width } = Dimensions.get('window');
   const isTablet = width >= 600;
   const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
@@ -113,7 +114,7 @@ const ChecklistModal: React.FC = () => {
         setSubmissions([]);
       })
       .finally(() => setLoading(false));
-  }, [vehicleId, agencyID, driverName]);
+  }, [vehicleId, agencyID, driverName, checklistType]);
 
   // When modal opens, fetch checklist; when it closes, reset submissions view
   useEffect(() => {
@@ -156,7 +157,7 @@ const ChecklistModal: React.FC = () => {
     setSubmitting(true);
     try {
       await submitChecklist(vehicleId, driver.id, agencyID, hasFail as 0 | 1, payload);
-      Toast.show({ type: 'success', text1: 'Success', text2: 'Checklist submitted' });
+      Toast.show({ type: 'success', text1: 'Success', text2: `${checklistType === 'pre' ? 'Pre-Trip' : 'Post-Trip'} checklist submitted` });
       close();
     } catch (e) {
       Toast.show({
@@ -250,14 +251,32 @@ const ChecklistModal: React.FC = () => {
       <Pressable style={[StyleSheet.absoluteFill, styles.overlay]} onPress={close}>
         <Pressable
           style={[styles.modalContent, isTablet && styles.modalContentTablet]}
-          onPress={() => {}}
+          onPress={() => { }}
         >
           <View style={styles.modalInner}>
             <View style={styles.header}>
-              <Text style={styles.headerTitle}>Pre-Trip Checklist</Text>
-              <TouchableOpacity onPress={close} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                <MaterialIcons name="close" size={24} color={COLORS.textSecondary} />
-              </TouchableOpacity>
+              <View style={styles.headerTop}>
+                <Text style={styles.headerTitle}>Inspection Checklist</Text>
+                <TouchableOpacity onPress={close} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                  <MaterialIcons name="close" size={24} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.tabs}>
+                <TouchableOpacity
+                  style={[styles.tab, checklistType === 'pre' && styles.tabActive]}
+                  onPress={() => setChecklistType('pre')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.tabText, checklistType === 'pre' && styles.tabTextActive]}>Pre-Trip</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.tab, checklistType === 'post' && styles.tabActive]}
+                  onPress={() => setChecklistType('post')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.tabText, checklistType === 'post' && styles.tabTextActive]}>Post-Trip</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.statusBar}>
@@ -274,191 +293,191 @@ const ChecklistModal: React.FC = () => {
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled={true}
             >
-            {showSubmissionsView ? (
-              <View style={styles.submissionsView}>
-                <TouchableOpacity style={styles.submissionsBackRow} onPress={handleBackFromSubmissions}>
-                  <MaterialIcons name="arrow-back" size={22} color={COLORS.primary} />
-                  <Text style={styles.submissionsBackText}>Back to checklist</Text>
-                </TouchableOpacity>
-                <Text style={styles.submissionsTitle}>Previous submissions</Text>
-                {submissions.length === 0 ? (
-                  <View style={styles.emptySubmissionsWrap}>
-                    <MaterialIcons name="history" size={40} color={COLORS.textMuted} />
-                    <Text style={styles.emptySubmissionsText}>No previous submissions for this vehicle.</Text>
-                  </View>
-                ) : (
-                  <View style={styles.submissionsList}>
-                    {submissions.map((s, index) => (
-                      <View key={s.resultID ?? index} style={styles.submissionRow}>
-                        <View style={styles.submissionRowLeft}>
-                          <Text style={styles.submissionCode}>{s.code ?? `#${s.resultID ?? index + 1}`}</Text>
-                          <Text style={styles.submissionReceived}>{formatReceivedDate(s.received)}</Text>
-                        </View>
-                        {s.resultID ? (
-                          <Text style={styles.submissionId}>ID: {s.resultID}</Text>
-                        ) : null}
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            ) : loading ? (
-              <View style={styles.loadingWrap}>
-                <ActivityIndicator size="large" color={COLORS.primary} />
-                <Text style={styles.loadingText}>Loading checklist…</Text>
-              </View>
-            ) : error ? (
-              <View style={styles.errorWrap}>
-                <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
-                <Text style={styles.errorText}>{error}</Text>
-                <TouchableOpacity style={styles.retryBtn} onPress={fetchChecklist}>
-                  <Text style={styles.retryBtnText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            ) : items.length === 0 ? (
-              <View style={styles.emptyWrap}>
-                <MaterialIcons name="assignment" size={48} color={COLORS.textMuted} />
-                <Text style={styles.emptyTitle}>No checklist items</Text>
-                <Text style={styles.emptySubtext}>
-                  No items returned for this vehicle. Select a vehicle and retry.
-                </Text>
-                <TouchableOpacity style={styles.retryBtn} onPress={fetchChecklist}>
-                  <Text style={styles.retryBtnText}>Retry API</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.itemsList}>
-                <View style={styles.accordionToolbar}>
-                  <TouchableOpacity onPress={expandAll} style={styles.accordionToolbarBtn}>
-                    <Text style={styles.accordionToolbarText}>Expand all</Text>
+              {showSubmissionsView ? (
+                <View style={styles.submissionsView}>
+                  <TouchableOpacity style={styles.submissionsBackRow} onPress={handleBackFromSubmissions}>
+                    <MaterialIcons name="arrow-back" size={22} color={COLORS.primary} />
+                    <Text style={styles.submissionsBackText}>Back to checklist</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={collapseAll} style={styles.accordionToolbarBtn}>
-                    <Text style={styles.accordionToolbarText}>Collapse all</Text>
+                  <Text style={styles.submissionsTitle}>Previous submissions</Text>
+                  {submissions.length === 0 ? (
+                    <View style={styles.emptySubmissionsWrap}>
+                      <MaterialIcons name="history" size={40} color={COLORS.textMuted} />
+                      <Text style={styles.emptySubmissionsText}>No previous submissions for this vehicle.</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.submissionsList}>
+                      {submissions.map((s, index) => (
+                        <View key={s.resultID ?? index} style={styles.submissionRow}>
+                          <View style={styles.submissionRowLeft}>
+                            <Text style={styles.submissionCode}>{s.code ?? `#${s.resultID ?? index + 1}`}</Text>
+                            <Text style={styles.submissionReceived}>{formatReceivedDate(s.received)}</Text>
+                          </View>
+                          {s.resultID ? (
+                            <Text style={styles.submissionId}>ID: {s.resultID}</Text>
+                          ) : null}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ) : loading ? (
+                <View style={styles.loadingWrap}>
+                  <ActivityIndicator size="large" color={COLORS.primary} />
+                  <Text style={styles.loadingText}>Loading checklist…</Text>
+                </View>
+              ) : error ? (
+                <View style={styles.errorWrap}>
+                  <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
+                  <Text style={styles.errorText}>{error}</Text>
+                  <TouchableOpacity style={styles.retryBtn} onPress={fetchChecklist}>
+                    <Text style={styles.retryBtnText}>Retry</Text>
                   </TouchableOpacity>
                 </View>
-                {items.map((item) => {
-                  if (item.itemType === 'group') {
+              ) : items.length === 0 ? (
+                <View style={styles.emptyWrap}>
+                  <MaterialIcons name="assignment" size={48} color={COLORS.textMuted} />
+                  <Text style={styles.emptyTitle}>No checklist items</Text>
+                  <Text style={styles.emptySubtext}>
+                    No items returned for this vehicle. Select a vehicle and retry.
+                  </Text>
+                  <TouchableOpacity style={styles.retryBtn} onPress={fetchChecklist}>
+                    <Text style={styles.retryBtnText}>Retry API</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.itemsList}>
+                  <View style={styles.accordionToolbar}>
+                    <TouchableOpacity onPress={expandAll} style={styles.accordionToolbarBtn}>
+                      <Text style={styles.accordionToolbarText}>Expand all</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={collapseAll} style={styles.accordionToolbarBtn}>
+                      <Text style={styles.accordionToolbarText}>Collapse all</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {items.map((item) => {
+                    if (item.itemType === 'group') {
+                      return (
+                        <View key={item.id} style={styles.groupHeader}>
+                          <Text style={styles.groupHeaderText}>{item.name}</Text>
+                        </View>
+                      );
+                    }
+                    const expanded = expandedIds[item.id];
                     return (
-                      <View key={item.id} style={styles.groupHeader}>
-                        <Text style={styles.groupHeaderText}>{item.name}</Text>
+                      <View key={item.id} style={styles.accordionItem}>
+                        <TouchableOpacity
+                          style={styles.accordionHeader}
+                          onPress={() => toggleExpanded(item.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.accordionHeaderText} numberOfLines={1}>{item.name}</Text>
+                          <MaterialIcons
+                            name={expanded ? 'expand-less' : 'expand-more'}
+                            size={24}
+                            color={COLORS.textSecondary}
+                          />
+                        </TouchableOpacity>
+                        {expanded ? (
+                          <View style={styles.accordionBody}>
+                            {item.itemType === 'boolean' && (
+                              <View style={styles.itemActions}>
+                                <TouchableOpacity
+                                  style={[styles.statusBtn, item.status === 'pass' && styles.statusBtnPass]}
+                                  onPress={() => setItemStatus(item.id, 'pass')}
+                                >
+                                  <Text style={[styles.statusBtnText, item.status === 'pass' && styles.statusBtnTextActive]}>Pass</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[styles.statusBtn, item.status === 'fail' && styles.statusBtnFail]}
+                                  onPress={() => setItemStatus(item.id, 'fail')}
+                                >
+                                  <Text style={[styles.statusBtnText, item.status === 'fail' && styles.statusBtnTextActive]}>Fail</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[styles.statusBtn, item.status === 'na' && styles.statusBtnNa]}
+                                  onPress={() => setItemStatus(item.id, 'na')}
+                                >
+                                  <Text style={[styles.statusBtnText, item.status === 'na' && styles.statusBtnTextActive]}>N/A</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                            {item.itemType === 'number' && (
+                              <TextInput
+                                style={styles.input}
+                                value={item.value}
+                                onChangeText={(v) => setItemValue(item.id, v)}
+                                placeholder="0"
+                                placeholderTextColor={COLORS.textMuted}
+                                keyboardType="number-pad"
+                              />
+                            )}
+                            {item.itemType === 'date' && (
+                              <TextInput
+                                style={styles.input}
+                                value={item.value}
+                                onChangeText={(v) => setItemValue(item.id, v)}
+                                placeholder="YYYY-MM-DD"
+                                placeholderTextColor={COLORS.textMuted}
+                              />
+                            )}
+                            {item.itemType === 'string' && (
+                              <TextInput
+                                style={styles.input}
+                                value={item.value}
+                                onChangeText={(v) => setItemValue(item.id, v)}
+                                placeholder={`Enter ${item.name.toLowerCase()}`}
+                                placeholderTextColor={COLORS.textMuted}
+                              />
+                            )}
+                            {item.itemType === 'image' && (
+                              <>
+                                <TouchableOpacity style={styles.imageButton} onPress={() => pickImage(item.id)}>
+                                  <MaterialIcons name="add-a-photo" size={24} color={COLORS.textSecondary} />
+                                  <Text style={styles.imageButtonText}>{item.imageUri ? 'Change photo' : 'Add photo'}</Text>
+                                </TouchableOpacity>
+                                {item.imageUri ? (
+                                  <Image source={{ uri: item.imageUri }} style={styles.imageThumbnail} resizeMode="cover" />
+                                ) : null}
+                              </>
+                            )}
+                          </View>
+                        ) : null}
                       </View>
                     );
-                  }
-                  const expanded = expandedIds[item.id];
-                  return (
-                    <View key={item.id} style={styles.accordionItem}>
-                      <TouchableOpacity
-                        style={styles.accordionHeader}
-                        onPress={() => toggleExpanded(item.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.accordionHeaderText} numberOfLines={1}>{item.name}</Text>
-                        <MaterialIcons
-                          name={expanded ? 'expand-less' : 'expand-more'}
-                          size={24}
-                          color={COLORS.textSecondary}
-                        />
-                      </TouchableOpacity>
-                      {expanded ? (
-                        <View style={styles.accordionBody}>
-                          {item.itemType === 'boolean' && (
-                            <View style={styles.itemActions}>
-                              <TouchableOpacity
-                                style={[styles.statusBtn, item.status === 'pass' && styles.statusBtnPass]}
-                                onPress={() => setItemStatus(item.id, 'pass')}
-                              >
-                                <Text style={[styles.statusBtnText, item.status === 'pass' && styles.statusBtnTextActive]}>Pass</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[styles.statusBtn, item.status === 'fail' && styles.statusBtnFail]}
-                                onPress={() => setItemStatus(item.id, 'fail')}
-                              >
-                                <Text style={[styles.statusBtnText, item.status === 'fail' && styles.statusBtnTextActive]}>Fail</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[styles.statusBtn, item.status === 'na' && styles.statusBtnNa]}
-                                onPress={() => setItemStatus(item.id, 'na')}
-                              >
-                                <Text style={[styles.statusBtnText, item.status === 'na' && styles.statusBtnTextActive]}>N/A</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-                          {item.itemType === 'number' && (
-                            <TextInput
-                              style={styles.input}
-                              value={item.value}
-                              onChangeText={(v) => setItemValue(item.id, v)}
-                              placeholder="0"
-                              placeholderTextColor={COLORS.textMuted}
-                              keyboardType="number-pad"
-                            />
-                          )}
-                          {item.itemType === 'date' && (
-                            <TextInput
-                              style={styles.input}
-                              value={item.value}
-                              onChangeText={(v) => setItemValue(item.id, v)}
-                              placeholder="YYYY-MM-DD"
-                              placeholderTextColor={COLORS.textMuted}
-                            />
-                          )}
-                          {item.itemType === 'string' && (
-                            <TextInput
-                              style={styles.input}
-                              value={item.value}
-                              onChangeText={(v) => setItemValue(item.id, v)}
-                              placeholder={`Enter ${item.name.toLowerCase()}`}
-                              placeholderTextColor={COLORS.textMuted}
-                            />
-                          )}
-                          {item.itemType === 'image' && (
-                            <>
-                              <TouchableOpacity style={styles.imageButton} onPress={() => pickImage(item.id)}>
-                                <MaterialIcons name="add-a-photo" size={24} color={COLORS.textSecondary} />
-                                <Text style={styles.imageButtonText}>{item.imageUri ? 'Change photo' : 'Add photo'}</Text>
-                              </TouchableOpacity>
-                              {item.imageUri ? (
-                                <Image source={{ uri: item.imageUri }} style={styles.imageThumbnail} resizeMode="cover" />
-                              ) : null}
-                            </>
-                          )}
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
-              </View>
-            )}
+                  })}
+                </View>
+              )}
             </ScrollView>
 
             <View style={styles.modalBottomBar}>
-            <Pressable style={styles.modalBarItem} onPress={handleClear} disabled={loading || submitting}>
-              <MaterialIcons name="delete-outline" size={32} color="rgba(255,255,255,0.95)" />
-              <Text style={styles.modalBarLabel}>Clear</Text>
-            </Pressable>
-            <View style={styles.modalBarDivider} />
-            <Pressable
-              style={styles.modalBarItem}
-              onPress={handleSubmit}
-              disabled={loading || submitting || items.length === 0}
-            >
-              {submitting ? (
-                <ActivityIndicator size="small" color={COLORS.primary} />
-              ) : (
-                <MaterialIcons name="check-circle" size={32} color={COLORS.primary} />
-              )}
-              <Text style={[styles.modalBarLabel, styles.modalBarLabelPrimary]}>Submit</Text>
-            </Pressable>
-            <View style={styles.modalBarDivider} />
-            <Pressable style={styles.modalBarItem} onPress={handleSubmissions}>
-              <MaterialIcons name="list" size={32} color="rgba(255,255,255,0.95)" />
-              <Text style={styles.modalBarLabel}>Submissions</Text>
-            </Pressable>
-            <View style={styles.modalBarDivider} />
-            <Pressable style={styles.modalBarItem} onPress={handleDashboard}>
-              <MaterialIcons name="speed" size={32} color="rgba(255,255,255,0.95)" />
-              <Text style={styles.modalBarLabel}>Dashboard</Text>
-            </Pressable>
+              <Pressable style={styles.modalBarItem} onPress={handleClear} disabled={loading || submitting}>
+                <MaterialIcons name="delete-outline" size={32} color="rgba(255,255,255,0.95)" />
+                <Text style={styles.modalBarLabel}>Clear</Text>
+              </Pressable>
+              <View style={styles.modalBarDivider} />
+              <Pressable
+                style={styles.modalBarItem}
+                onPress={handleSubmit}
+                disabled={loading || submitting || items.length === 0}
+              >
+                {submitting ? (
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                ) : (
+                  <MaterialIcons name="check-circle" size={32} color={COLORS.primary} />
+                )}
+                <Text style={[styles.modalBarLabel, styles.modalBarLabelPrimary]}>Submit</Text>
+              </Pressable>
+              <View style={styles.modalBarDivider} />
+              <Pressable style={styles.modalBarItem} onPress={handleSubmissions}>
+                <MaterialIcons name="list" size={32} color="rgba(255,255,255,0.95)" />
+                <Text style={styles.modalBarLabel}>Submissions</Text>
+              </Pressable>
+              <View style={styles.modalBarDivider} />
+              <Pressable style={styles.modalBarItem} onPress={handleDashboard}>
+                <MaterialIcons name="speed" size={32} color="rgba(255,255,255,0.95)" />
+                <Text style={styles.modalBarLabel}>Dashboard</Text>
+              </Pressable>
             </View>
           </View>
         </Pressable>
@@ -493,13 +512,17 @@ const styles = StyleSheet.create({
     minHeight: 0, /* allow flex child to shrink so bottom bar stays visible */
   },
   header: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#1F242C',
+  },
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 8,
   },
   headerTitle: {
     fontSize: 20,

@@ -60,7 +60,7 @@ export async function mdtUpdate(params: MdtUpdateParams): Promise<void> {
     driverID: params.driverID,
     lat: params.lat,
     lng: params.lng,
-    course: params.course ?? 0,
+    // course: params.course ?? 0,
     speed: params.speed ?? 0,
     horizontalAccuracy: params.horizontalAccuracy ?? 0,
     verticalAccuracy: params.verticalAccuracy ?? 0,
@@ -69,7 +69,7 @@ export async function mdtUpdate(params: MdtUpdateParams): Promise<void> {
     batteryLevel: params.batteryLevel ?? 100,
     batteryState: params.batteryState ?? 2,
     d: params.d ?? 1,
-    screenBrightness: params.screenBrightness ?? 80,
+    screenBrightness: params.screenBrightness / 100 ?? 0,
     connectionType: params.connectionType ?? 'wifi',
     ssid: params.ssid ?? '',
     mdtUUID: params.mdtUUID ?? '',
@@ -80,7 +80,8 @@ export async function mdtUpdate(params: MdtUpdateParams): Promise<void> {
     isLocationServiceOn: params.isLocationServiceOn ?? 1,
     locationAuthStatus: params.locationAuthStatus ?? 'authorized',
   });
-  await axios.get(url, { timeout: TIMEOUT });
+  const resp = await axios.get(url, { timeout: TIMEOUT });
+  return resp.data;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,9 +125,13 @@ export async function vehicleUpdate(params: VehicleUpdateParams): Promise<void> 
     batteryState: params.batteryState ?? 2,
     source: params.source ?? 'MDT',
     d: params.d ?? 1,
-    minsLate: params.minsLate ?? 0,
+    minsLate: params.minsLate,
   });
-  await axios.get(url, { timeout: TIMEOUT });
+  // console.log('Vehicle Update Params:', params);
+  // console.log('Vehicle Update URL:', JSON.stringify(url));
+  const resp = await axios.get(url, { timeout: TIMEOUT });
+  console.log('Vehicle Update Response:', resp.data);
+  return resp.data;
 }
 
 /** Convert speed from m/s (Geolocation) to mph for vehicle update API. */

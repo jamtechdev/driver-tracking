@@ -47,6 +47,7 @@ export interface DriverDataResponse {
   driver?: DriverDataDriver[];
   messages?: DriverDataMessage[];
   stop?: unknown[];
+  fareCategory?: FareCategory[];
   [key: string]: unknown;
 }
 

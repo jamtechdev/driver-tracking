@@ -1,25 +1,52 @@
-/**
- * Settings Modal Context - Open Settings modal from anywhere
- */
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+const TIME_FORMAT_KEY = '@driver_tracking:time_format';
 
 interface SettingsModalContextType {
   visible: boolean;
-  open: () => void;
+  anchorY: number | null;
+  open: (anchorY?: number) => void;
   close: () => void;
+  use24HourClock: boolean;
+  setUse24HourClock: (use24Hour: boolean) => void;
 }
 
 const SettingsModalContext = createContext<SettingsModalContextType | null>(null);
 
 export const SettingsModalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [visible, setVisible] = useState(false);
+  const [anchorY, setAnchorY] = useState<number | null>(null);
+  const [use24HourClock, setUse24HourClockState] = useState(false);
 
-  const open = useCallback(() => setVisible(true), []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const storedFormat = await AsyncStorage.getItem(TIME_FORMAT_KEY);
+        setUse24HourClockState(storedFormat === '24h');
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
+  const setUse24HourClock = useCallback(async (value: boolean) => {
+    setUse24HourClockState(value);
+    try {
+      await AsyncStorage.setItem(TIME_FORMAT_KEY, value ? '24h' : '12h');
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const open = useCallback((y?: number) => {
+    setAnchorY(y ?? null);
+    setVisible(true);
+  }, []);
   const close = useCallback(() => setVisible(false), []);
 
   return (
-    <SettingsModalContext.Provider value={{ visible, open, close }}>
+    <SettingsModalContext.Provider value={{ visible, anchorY, open, close, use24HourClock, setUse24HourClock }}>
       {children}
     </SettingsModalContext.Provider>
   );

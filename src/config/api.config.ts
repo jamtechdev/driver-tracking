@@ -13,7 +13,7 @@ export const API_CONFIG = {
 };
 
 /** Full URL for driver data (agency, vehicles, routes, drivers, messages, stops). Use this for all “get everything” calls. */
-export { DRIVER_DATA_API_URL, INCOMING_MESSAGES_BASE_URL, CHECKLIST_GET_BASE_URL, CHECKLIST_SUBMIT_BASE_URL } from './env';
+export { DRIVER_DATA_API_URL, INCOMING_MESSAGES_BASE_URL, CHECKLIST_GET_BASE_URL, CHECKLIST_SUBMIT_BASE_URL, VEHICLE_LIST_URL, VEHICLE_ASSIGN_BASE_URL, VEHICLE_ASSIGNMENT_INFO_URL } from './env';
 
 /** Base URL for driver vehicle self-assign (Peak Transit: vehicleassignments/selfupdate). Append routeID, vehicleID, driverID. */
 export const DRIVER_VEHICLE_SELECT_BASE_URL =
@@ -37,7 +37,7 @@ export const API_ENDPOINTS = {
     DETAILS: (routeId: string) => `/routes/${routeId}`,
     SYNC: '/routes/sync',
   },
-  
+
   // Passengers & Fares
   PASSENGERS: {
     TALLY: '/passengers/tally',
@@ -51,7 +51,7 @@ export const API_ENDPOINTS = {
     CANNED: '/messages/canned',
     MARK_READ: (messageId: string) => `/messages/${messageId}/read`,
   },
-  
+
   // Inspections
   INSPECTIONS: {
     PRE_TRIP: '/inspections/pre-trip',

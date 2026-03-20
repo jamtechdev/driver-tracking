@@ -11,99 +11,240 @@ import {
   Pressable,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import Svg, { Path } from 'react-native-svg';
 import { COLORS } from '../theme/colors';
 import { useMapModal } from '../context/MapModalContext';
+import { useMapLocation } from '../context/MapLocationContext';
+import { MAPS_CONFIG } from '../config/maps.config';
+
+let MapView: any = null;
+let Marker: any = null;
+try {
+  const maps = require('react-native-maps');
+  MapView = maps.default;
+  Marker = maps.Marker;
+} catch (_e) { }
 
 const MapModal: React.FC = () => {
   const { visible, close } = useMapModal();
+  const { location, heading, error } = useMapLocation();
+  const [mapReady, setMapReady] = React.useState(false);
+
+  const initialRegion = location ? {
+    latitude: location.latitude,
+    longitude: location.longitude,
+    latitudeDelta: 0.005,
+    longitudeDelta: 0.005,
+  } : {
+    ...MAPS_CONFIG.DEFAULT_REGION,
+    latitudeDelta: 0.0922,
+    longitudeDelta: 0.0421,
+  };
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
       onRequestClose={close}
       statusBarTranslucent={Platform.OS === 'android'}
       presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
     >
-      <Pressable style={[StyleSheet.absoluteFill, styles.overlay]} onPress={close}>
-        <Pressable style={styles.modalContent} onPress={() => {}}>
+      <View style={styles.overlay}>
+        <View style={styles.modalContent}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Map</Text>
-            <TouchableOpacity onPress={close} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={styles.closeText}>Close</Text>
+            <Text style={styles.headerTitle}>Real-time Map</Text>
+            <TouchableOpacity onPress={close} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} style={styles.closeBtn}>
+              <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
             </TouchableOpacity>
           </View>
+
           <View style={styles.body}>
-            <Text style={styles.icon}>🗺️</Text>
-            <Text style={styles.subtitle}>Coming Soon</Text>
-            <Text style={styles.description}>
-              Interactive map with real-time tracking{'\n'}
-              and route navigation
-            </Text>
+            {!MapView || !Marker ? (
+              <View style={styles.fallback}>
+                <Text style={styles.icon}>🗺️</Text>
+                <Text style={styles.subtitle}>Map not available</Text>
+                <Text style={styles.description}>Please install react-native-maps</Text>
+              </View>
+            ) : (
+              <View style={styles.mapContainer}>
+                <MapView
+                  style={styles.map}
+                  initialRegion={initialRegion}
+                  onMapReady={() => setMapReady(true)}
+                  showsUserLocation={false}
+                >
+                  {location && (
+                    <Marker
+                      coordinate={{
+                        latitude: location.latitude,
+                        longitude: location.longitude,
+                      }}
+                      anchor={{ x: 0.5, y: 0.5 }}
+                      rotation={heading}
+                      flat
+                    >
+                      <View style={styles.markerContainer}>
+                        <Svg width={30} height={30} viewBox="0 0 24 24" fill="none">
+                          <Path
+                            d="M12 2L19 21L12 17L5 21L12 2Z"
+                            fill={COLORS.background}
+                            stroke="white"
+                            strokeWidth="2"
+                            strokeLinejoin="round"
+                          />
+                        </Svg>
+                      </View>
+                    </Marker>
+                  )}
+                </MapView>
+                {!mapReady && (
+                  <View style={styles.loadingOverlay}>
+                    <ActivityIndicator size="large" color={COLORS.primary} />
+                  </View>
+                )}
+                {error && (
+                  <View style={styles.errorOverlay}>
+                    <Text style={styles.errorText}>{error}</Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
-        </Pressable>
-      </Pressable>
+
+          {location && (
+            <View style={styles.footer}>
+              <MaterialIcons name="location-searching" size={16} color={COLORS.primary} />
+              <Text style={styles.coords}>
+                {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
+              </Text>
+              <Text style={styles.accuracy}>
+                ±{Math.round(location.accuracy)}m
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
   overlay: {
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 20,
   },
   modalContent: {
     width: '100%',
-    maxWidth: 360,
-    backgroundColor: '#252A32',
-    borderRadius: 16,
+    height: '80%',
+    maxWidth: 600,
+    backgroundColor: COLORS.background,
+    borderRadius: 20,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.1)',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 18,
+    paddingVertical: 15,
+    backgroundColor: COLORS.surface,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.08)',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-  closeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.accentBlue,
+  closeBtn: {
+    padding: 4,
   },
   body: {
-    padding: 32,
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  mapContainer: {
+    flex: 1,
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  markerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
     alignItems: 'center',
   },
+  errorOverlay: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    padding: 8,
+    borderRadius: 8,
+  },
+  errorText: {
+    color: '#FFF',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  fallback: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
   icon: {
-    fontSize: 48,
-    marginBottom: 12,
+    fontSize: 64,
+    marginBottom: 20,
   },
   subtitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    marginBottom: 8,
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 10,
   },
   description: {
     fontSize: 14,
-    color: COLORS.textMuted,
+    color: COLORS.textSecondary,
     textAlign: 'center',
   },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: COLORS.surface,
+    gap: 8,
+  },
+  coords: {
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  accuracy: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+  }
 });
 
 export default MapModal;

@@ -13,7 +13,7 @@ export const COLORS = {
   navBarBackground: '#545454',
   navBarSeparator: '#535353',
   navBarText: '#B0B0B0',
-  navBarIcon: '#F1F2F6',
+  navBarIcon: '#000',
   navBarIconDisabled: 'rgba(241,242,246,0.35)',
 
   // Sidebar only - exact from screenshot (header lighter, items darker, light separators)

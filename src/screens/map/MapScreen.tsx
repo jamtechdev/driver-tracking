@@ -3,7 +3,7 @@
  * Uses react-native-maps (Apple Maps on iOS, Google Maps on Android).
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,59 +11,254 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
+  useWindowDimensions,
+  Animated,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import Svg, { Path } from 'react-native-svg';
 import MainLayout from '../../components/MainLayout';
 import { COLORS } from '../../theme/colors';
 import { useDriverModel } from '../../context/DriverModelContext';
 import { useAuth } from '../../context/AuthContext';
+import { useMapLocation } from '../../context/MapLocationContext';
+import { useDriverData } from '../../context/DriverDataContext';
 import { MAPS_CONFIG, isMapsApiKeyValid } from '../../config/maps.config';
 
 interface MapScreenProps {
   navigation: any;
+  isTabView?: boolean;
 }
 
 let MapView: any = null;
 let Marker: any = null;
+let Polyline: any = null;
 try {
   const maps = require('react-native-maps');
   MapView = maps.default;
   Marker = maps.Marker;
+  Polyline = maps.Polyline;
 } catch (_e) {
   // react-native-maps not linked: show fallback UI
 }
 
+const DirectionalArrow = ({ color }: { color: string }) => {
+  const pulseAnim = useRef(new Animated.Value(0)).current;
 
-const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
-  const { lastLocation, isAcquiringSat, trackingMode, setTrackingMode, locationError } = useDriverModel();
+  useEffect(() => {
+    // Create a 'ping' animation: start from center, expand and fade out
+    Animated.loop(
+      Animated.timing(pulseAnim, {
+        toValue: 1,
+        duration: 2000,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [pulseAnim]);
+
+  const glowScale = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 2.5], // Larger expansion
+  });
+
+  const glowOpacity = pulseAnim.interpolate({
+    inputRange: [0, 0.1, 1],
+    outputRange: [0, 0.8, 0], // Quick fade in, slow fade out
+  });
+
+  return (
+    <View style={{ width: 60, height: 60, alignItems: 'center', justifyContent: 'center' }}>
+      {/* Pulsing Glow Effect */}
+      <Animated.View
+        style={{
+          position: 'absolute',
+          width: 30,
+          height: 30,
+          borderRadius: 15,
+          // backgroundColor: color,
+          // opacity: glowOpacity,
+          transform: [{ scale: glowScale }],
+        }}
+      />
+      {/* The Arrow */}
+      <Svg width={50} height={50} viewBox="0 0 24 24" fill="none">
+        <Path
+          d="M12 2L19 21L12 17L5 21L12 2Z"
+          fill={color}
+          stroke="white"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+      </Svg>
+    </View>
+  );
+};
+
+
+const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) => {
+  const { isAcquiringSat, trackingMode, setTrackingMode } = useDriverModel();
+  const { location, error: mapLocationError, heading } = useMapLocation();
   const { vehicleId, selectedRouteId } = useAuth();
+  const { routes, stops } = useDriverData();
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const [showPositionOverlay, setShowPositionOverlay] = useState(false);
+  const { width, height } = useWindowDimensions();
+  const isMobile = width < 600;
+  const isLandscape = width > height;
+  const [initialRegion, setInitialRegion] = useState({
+    ...MAPS_CONFIG.DEFAULT_REGION,
+    latitudeDelta: MAPS_CONFIG.DEFAULT_REGION.latitudeDelta ?? 0.0922,
+    longitudeDelta: MAPS_CONFIG.DEFAULT_REGION.longitudeDelta ?? 0.0421,
+  });
+  const [currentRegion, setCurrentRegion] = useState(initialRegion);
 
-  const region = lastLocation
-    ? {
-        latitude: lastLocation.latitude,
-        longitude: lastLocation.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
+  const parseRoutePoints = (pointsStr: any): { latitude: number, longitude: number }[] => {
+    if (!pointsStr || typeof pointsStr !== 'string') return [];
+    try {
+      const coords = pointsStr.match(/-?\d+\.\d+/g);
+      if (!coords || coords.length < 2) return [];
+
+      const result = [];
+      for (let i = 0; i < coords.length; i += 2) {
+        if (coords[i + 1]) {
+          result.push({
+            latitude: parseFloat(coords[i]),
+            longitude: parseFloat(coords[i + 1]),
+          });
+        }
       }
-    : {
-        ...MAPS_CONFIG.DEFAULT_REGION,
-        latitudeDelta: MAPS_CONFIG.DEFAULT_REGION.latitudeDelta ?? 0.0922,
-        longitudeDelta: MAPS_CONFIG.DEFAULT_REGION.longitudeDelta ?? 0.0421,
-      };
+      return result;
+    } catch (e) {
+      console.error('Error parsing points string:', e);
+      return [];
+    }
+  };
+
+  const selectedRoute = useMemo(() =>
+    routes.find(r => String(r.routeID) === String(selectedRouteId)),
+    [routes, selectedRouteId]
+  );
+
+  const routePoints = useMemo(() => {
+    if (!selectedRoute?.points) return [];
+    return parseRoutePoints(selectedRoute.points);
+  }, [selectedRoute]);
+
+  const routeStops = useMemo(() => {
+    // If no route is selected, we have nothing to show
+    if (!selectedRouteId || !stops || stops.length === 0) return [];
+
+    // Attempt to get stops from the current route object
+    const rStops = selectedRoute?.routeStops;
+    if (!rStops || !Array.isArray(rStops)) return [];
+
+    return stops.filter(stop =>
+      rStops.some(id => String(id) === String(stop.stopID))
+    );
+  }, [selectedRoute, stops, selectedRouteId]);
+
+  const routeColor = selectedRoute?.color ? `#${selectedRoute.color}` : COLORS.primary;
 
   useEffect(() => {
-    if (lastLocation && mapRef.current && mapReady) {
-      mapRef.current.animateToRegion(region, 500);
+    if (routePoints.length > 0 && mapReady && mapRef.current) {
+      // Use a small timeout to ensure map layout is complete before fitting
+      const timer = setTimeout(() => {
+        mapRef.current.fitToCoordinates(routePoints, {
+          edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+          animated: true,
+        });
+      }, 600);
+      return () => clearTimeout(timer);
     }
-  }, [lastLocation?.latitude, lastLocation?.longitude, mapReady]);
+  }, [routePoints, mapReady]);
+
+  // Fit to route when map first becomes ready if route already exists
+  useEffect(() => {
+    if (mapReady && routePoints.length > 0 && mapRef.current) {
+      mapRef.current.fitToCoordinates(routePoints, {
+        edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+        animated: true,
+      });
+    }
+  }, [mapReady]);
+
+  // Center on user location if no route is selected
+  useEffect(() => {
+    if (mapReady && routePoints.length === 0 && location && mapRef.current) {
+      const reg = {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      };
+      mapRef.current.animateToRegion(reg, 1000);
+    }
+  }, [mapReady, routePoints.length, location?.latitude, location?.longitude]);
+
+const calculatedRegion = useMemo(() => {
+  if (location && !mapReady) {
+    return {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      latitudeDelta: 0.005,
+      longitudeDelta: 0.005,
+    };
+  }
+  return null;
+}, [location, mapReady]);
+
+useEffect(() => {
+  if (calculatedRegion) {
+    setInitialRegion(calculatedRegion);
+    setCurrentRegion(calculatedRegion);
+  }
+}, [calculatedRegion, setInitialRegion, setCurrentRegion]);
+
+  const handleZoomIn = () => {
+    if (mapRef.current) {
+      const newRegion = {
+        ...currentRegion,
+        latitudeDelta: currentRegion.latitudeDelta * 0.5,
+        longitudeDelta: currentRegion.longitudeDelta * 0.5,
+      };
+      setCurrentRegion(newRegion);
+      mapRef.current.animateToRegion(newRegion, 300);
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (mapRef.current) {
+      const newRegion = {
+        ...currentRegion,
+        latitudeDelta: currentRegion.latitudeDelta * 2,
+        longitudeDelta: currentRegion.longitudeDelta * 2,
+      };
+      setCurrentRegion(newRegion);
+      mapRef.current.animateToRegion(newRegion, 300);
+    }
+  };
+
+  const hasCenteredRef = useRef(false);
+
+  useEffect(() => {
+    if (location && !hasCenteredRef.current && mapReady) {
+      const reg = {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      };
+      setInitialRegion(reg);
+      setCurrentRegion(reg);
+      mapRef.current?.animateToRegion(reg, 500);
+      hasCenteredRef.current = true;
+    }
+  }, [location, mapReady]);
 
   if (!MapView || !Marker) {
-    return (
-      <MainLayout navigation={navigation}>
-        <View style={styles.fallback}>
+    const fallbackContent = (
+      <View style={styles.fallback}>
+        {!isTabView && (
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.navigate('Home')}
@@ -71,36 +266,37 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
           >
             <MaterialIcons name="arrow-back" size={28} color={COLORS.textPrimary} />
           </TouchableOpacity>
-          <Text style={styles.fallbackIcon}>🗺️</Text>
-          <Text style={styles.fallbackTitle}>Map not loaded</Text>
-          <Text style={styles.fallbackText}>
-            Install the map library and rebuild:{'\n'}
-            npm install{'\n'}
-            cd ios && pod install && cd ..{'\n'}
-            Then rebuild the app.
-          </Text>
-          <View style={styles.positionCard}>
-            <Text style={styles.positionTitle}>Your position (DriverModel)</Text>
-            {locationError ? (
-              <Text style={styles.positionError}>{locationError}</Text>
-            ) : lastLocation ? (
-              <Text style={styles.positionCoords}>
-                {lastLocation.latitude.toFixed(5)}, {lastLocation.longitude.toFixed(5)}
-              </Text>
-            ) : (
-              <Text style={styles.positionMuted}>Waiting for GPS…</Text>
-            )}
-          </View>
+        )}
+        <Text style={styles.fallbackIcon}>🗺️</Text>
+        <Text style={styles.fallbackTitle}>Map not loaded</Text>
+        <Text style={styles.fallbackText}>
+          Install the map library and rebuild:{'\n'}
+          npm install{'\n'}
+          cd ios && pod install && cd ..{'\n'}
+          Then rebuild the app.
+        </Text>
+        <View style={styles.positionCard}>
+          <Text style={styles.positionTitle}>Your position (Map Context)</Text>
+          {mapLocationError ? (
+            <Text style={styles.positionError}>{mapLocationError}</Text>
+          ) : location ? (
+            <Text style={styles.positionCoords}>
+              {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
+            </Text>
+          ) : (
+            <Text style={styles.positionMuted}>Waiting for GPS…</Text>
+          )}
         </View>
-      </MainLayout>
+      </View>
     );
+    return isTabView ? fallbackContent : <MainLayout navigation={navigation}>{fallbackContent}</MainLayout>;
   }
 
   const hasMapsApiKey = isMapsApiKeyValid();
   if (!hasMapsApiKey) {
-    return (
-      <MainLayout navigation={navigation}>
-        <View style={styles.container}>
+    const noKeyContent = (
+      <View style={styles.container}>
+        {!isTabView && (
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.navigate('Home')}
@@ -108,66 +304,123 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
           >
             <MaterialIcons name="arrow-back" size={28} color={COLORS.textPrimary} />
           </TouchableOpacity>
-          <View style={styles.mapPlaceholder}>
-            <Text style={styles.mapPlaceholderIcon}>🗺️</Text>
-            <Text style={styles.mapPlaceholderTitle}>Map view</Text>
-            <Text style={styles.mapPlaceholderText}>
-              Add a Google Maps API key to display the map.
-            </Text>
-          </View>
-          <View style={styles.positionCard}>
-            <Text style={styles.positionTitle}>Your position</Text>
-            {locationError ? (
-              <Text style={styles.positionError}>{locationError}</Text>
-            ) : lastLocation ? (
-              <Text style={styles.positionCoords}>
-                {lastLocation.latitude.toFixed(5)}, {lastLocation.longitude.toFixed(5)}
-              </Text>
-            ) : (
-              <Text style={styles.positionMuted}>Waiting for GPS…</Text>
-            )}
-          </View>
+        )}
+        <View style={styles.mapPlaceholder}>
+          <Text style={styles.mapPlaceholderIcon}>🗺️</Text>
+          <Text style={styles.mapPlaceholderTitle}>Map view</Text>
+          <Text style={styles.mapPlaceholderText}>
+            Add a Google Maps API key to display the map.
+          </Text>
         </View>
-      </MainLayout>
+        <View style={styles.positionCard}>
+          <Text style={styles.positionTitle}>Your position</Text>
+          {mapLocationError ? (
+            <Text style={styles.positionError}>{mapLocationError}</Text>
+          ) : location ? (
+            <Text style={styles.positionCoords}>
+              {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
+            </Text>
+          ) : (
+            <Text style={styles.positionMuted}>Waiting for GPS…</Text>
+          )}
+        </View>
+      </View>
     );
+    return isTabView ? noKeyContent : <MainLayout navigation={navigation}>{noKeyContent}</MainLayout>;
   }
 
   const content = (
     <View style={styles.container}>
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => navigation.navigate('Home')}
-        activeOpacity={0.7}
-      >
-        <MaterialIcons name="arrow-back" size={28} color={COLORS.textPrimary} />
-      </TouchableOpacity>
+      {!isTabView && (
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.navigate('Home')}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="arrow-back" size={28} color={COLORS.textPrimary} />
+        </TouchableOpacity>
+      )}
       <MapView
         ref={mapRef}
-        style={styles.map}
-        initialRegion={region}
+        style={isTabView ? styles.mapWithHeader : styles.map}
+        initialRegion={initialRegion}
         showsUserLocation={false}
-        showsMyLocationButton={true}
+        showsMyLocationButton={!isTabView || isMobile}
         onMapReady={() => setMapReady(true)}
-        zoomControlEnabled
-        
+        onRegionChangeComplete={setCurrentRegion}
+        zoomControlEnabled={!isTabView || isMobile}
       >
-        {lastLocation && (
+        {routePoints.length > 0 && Polyline && (
+          <Polyline
+            coordinates={routePoints}
+            strokeColor={routeColor}
+            strokeWidth={4}
+            lineJoin="round"
+            lineCap="round"
+          />
+        )}
+
+        {routeStops.map((stop) => {
+          const lat = typeof stop.lat === 'number' ? stop.lat : parseFloat(stop.lat as string);
+          const lng = typeof stop.lng === 'number' ? stop.lng : parseFloat(stop.lng as string);
+          if (isNaN(lat) || isNaN(lng)) return null;
+          // return (
+          //   <Marker
+          //     key={`stop-${stop.stopID}`}
+          //     coordinate={{ latitude: lat, longitude: lng }}
+          //     anchor={{ x: 0.5, y: 1 }}
+          //     title={stop.longName || `Stop ${stop.stopID}`}
+          //     description={`Stop ID: ${stop.stopID}`}
+          //   >
+          //     <View style={styles.stopMarker}>
+          //       <MaterialIcons name="directions-bus" size={14} color="#FFF" />
+          //     </View>
+          //   </Marker>
+          // );
+        })}
+
+        {location && (
           <Marker
+            key="user-marker-map-context"
             coordinate={{
-              latitude: lastLocation.latitude,
-              longitude: lastLocation.longitude,
+              latitude: location.latitude,
+              longitude: location.longitude,
             }}
             title="You"
             description={
-              isAcquiringSat ? 'Acquiring GPS…' : `Accuracy: ${Math.round(lastLocation.accuracy)} m`
+              `Accuracy: ${Math.round(location.accuracy)} m`
             }
-            pinColor={COLORS.primary}
-          />
+            anchor={{ x: 0.5, y: 0.5 }}
+            rotation={heading}
+            flat
+          >
+            <DirectionalArrow color={COLORS.background} />
+          </Marker>
         )}
       </MapView>
 
+      {isTabView && !isMobile && isLandscape && (
+        <View style={styles.zoomControls}>
+          <TouchableOpacity
+            style={styles.zoomButton}
+            onPress={handleZoomIn}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="add" size={35} color="#FFFFFF" />
+          </TouchableOpacity>
+          <View style={styles.zoomDivider} />
+          <TouchableOpacity
+            style={styles.zoomButton}
+            onPress={handleZoomOut}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="remove" size={35} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Button to open position overlay (when closed) */}
-      {!showPositionOverlay && (
+      {/* {!showPositionOverlay && (
         <TouchableOpacity
           style={styles.openPositionBtn}
           onPress={() => setShowPositionOverlay(true)}
@@ -176,7 +429,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
           <MaterialIcons name="location-on" size={24} color="#FFF" />
           <Text style={styles.openPositionBtnText}>Your position</Text>
         </TouchableOpacity>
-      )}
+      )} */}
 
       {/* Overlay: tracking status and controls (shown when opened) */}
       {showPositionOverlay && (
@@ -192,17 +445,17 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
                 <MaterialIcons name="close" size={24} color={COLORS.textSecondary} />
               </TouchableOpacity>
             </View>
-            {locationError ? (
-              <Text style={styles.positionError}>{locationError}</Text>
-            ) : lastLocation ? (
+            {mapLocationError ? (
+              <Text style={styles.positionError}>{mapLocationError}</Text>
+            ) : location ? (
               <>
                 <Text style={styles.positionCoords}>
-                  {lastLocation.latitude.toFixed(5)}, {lastLocation.longitude.toFixed(5)}
+                  {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
                 </Text>
                 <Text style={styles.positionMeta}>
-                  Accuracy: {Math.round(lastLocation.accuracy)} m
-                  {lastLocation.heading != null ? ` · Heading: ${Math.round(lastLocation.heading)}°` : ''}
-                  {isAcquiringSat ? ' · Acquiring GPS…' : ' · Sending to server'}
+                  Accuracy: {Math.round(location.accuracy)} m
+                  {heading != null ? ` · Heading: ${Math.round(heading)}°` : ''}
+                  {' · Real-time'}
                 </Text>
               </>
             ) : (
@@ -234,22 +487,60 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
         </View>
       )}
 
-      {!mapReady && (
+      {/* {!mapReady && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Loading map…</Text>
         </View>
-      )}
+      )} */}
     </View>
   );
 
-  return <MainLayout navigation={navigation}>{content}</MainLayout>;
+  return isTabView ? content : <MainLayout navigation={navigation}>{content}</MainLayout>;
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  header: {
+    height: 120,
+    backgroundColor: COLORS.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  headerTime: {
+    fontSize: 28,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    letterSpacing: 0.5,
+  },
+  zoomControls: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#252A32',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    height: '100%',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    width: 120,
+  },
+  zoomButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#252A32',
+  },
+  zoomDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   backButton: {
     position: 'absolute',
@@ -267,6 +558,9 @@ const styles = StyleSheet.create({
   },
   map: {
     ...StyleSheet.absoluteFillObject,
+  },
+  mapWithHeader: {
+    flex: 1,
   },
   mapPlaceholder: {
     flex: 1,
@@ -310,8 +604,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    alignSelf:'flex-end',
-    width:'30%'
+    alignSelf: 'flex-end',
+    width: '30%'
   },
   openPositionBtnText: {
     fontSize: 16,
@@ -435,6 +729,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  markerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stopMarker: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: COLORS.headerBlue ?? '#1D4ED8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFF',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
 });
 

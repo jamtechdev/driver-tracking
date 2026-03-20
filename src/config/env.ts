@@ -44,9 +44,9 @@ export const PEAK_DEFAULT_PARAMS = {
 export const DRIVER_DATA_API_URL =
   `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=driver&action=data&agencyID=${constants.AGENCY_ID}`;
 
-/** Base URL for incoming messages (driver getMessages). Append &agencyID=...&vehicleID=... (and to=1). */
+/** Base URL for incoming messages (driver getMessages). Append &agencyID=... (and optionally &vehicleID=..., &to=1). */
 export const INCOMING_MESSAGES_BASE_URL =
-  `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=driver&action=getMessages&to=1`;
+  `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=driver&action=getMessages`;
 
 /** Base URL for get checklist. Append &vehicleID=...&agencyID=... */
 export const CHECKLIST_GET_BASE_URL =
@@ -56,14 +56,26 @@ export const CHECKLIST_GET_BASE_URL =
 export const CHECKLIST_SUBMIT_BASE_URL =
   `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=driver&action=submitchecklist`;
 
+/** Base URL for vehicle list. */
+export const VEHICLE_LIST_URL =
+  `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=Vehicle&action=list&agencyID=${constants.AGENCY_ID}&all=1`;
+
+/** Base URL for getting vehicle assignment info. Append &vehicleID=... */
+export const VEHICLE_ASSIGNMENT_INFO_URL =
+  `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=driver&action=assignment&agencyID=${constants.AGENCY_ID}`;
+
+/** Base URL for supervisor vehicle assignment. Append &routeID=...&driverID=...&vehicleID=...&end=...&source=MDT */
+export const VEHICLE_ASSIGN_BASE_URL =
+  `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=driver&action=assignvehicle&agencyID=${constants.AGENCY_ID}&source=MDT`;
+
 // Default values - Update these with your actual values
 // In production, use react-native-config to load from .env
 const defaultConfig: EnvConfig = {
-  API_BASE_URL: __DEV__ ? 'http://localhost:3000/api' : 'https://api.example.com/api',
-  API_BASE_URL_DEV: 'http://dev-api.example.com/api',
-  // Base only (no query) so paths like /passengers/history don't get concatenated into agencyID
-  API_BASE_URL_STAGING: `https://api.peaktransit.com/v5/index.php`,
-  API_BASE_URL_PROD: 'https://api.example.com/api',
+  // Base only (no query string) — controller/action/params are appended per-call
+  API_BASE_URL: 'https://api.peaktransit.com/v5/index.php',
+  API_BASE_URL_DEV: 'https://api.peaktransit.com/v5/index.php',
+  API_BASE_URL_STAGING: 'https://api.peaktransit.com/v5/index.php',
+  API_BASE_URL_PROD: 'https://api.peaktransit.com/v5/index.php',
   GOOGLE_MAPS_API_KEY: 'AIzaSyCFJfxZm2aZljV_kUbxRAIbf9E1jOXsnsY',
   APP_VERSION: '0.0.1',
   ENABLE_LOGGING: __DEV__,

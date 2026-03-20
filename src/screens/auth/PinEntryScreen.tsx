@@ -48,20 +48,21 @@ const PinEntryScreen: React.FC<PinEntryScreenProps> = ({ navigation, route }) =>
 
   useEffect(() => {
     if (pin.length !== PIN_LENGTH || !driver || verifyingRef.current) return;
-    verifyingRef.current = true;
-    setError('');
-    const success = login(driver, pin);
-    if (success) {
-      if (driver.role === 'supervisor') {
-        navigation.navigate('SupervisorHome');
+
+    const performLogin = async () => {
+      verifyingRef.current = true;
+      setError('');
+      const success = login(driver, pin);
+      if (success) {
+        navigation.navigate('Home');
       } else {
-        navigation.goBack();
+        setError('Invalid PIN. Please try again.');
+        setPin('');
       }
-    } else {
-      setError('Invalid PIN. Please try again.');
-      setPin('');
-    }
-    verifyingRef.current = false;
+      verifyingRef.current = false;
+    };
+
+    performLogin();
   }, [pin, driver, login, navigation]);
 
   useEffect(() => {

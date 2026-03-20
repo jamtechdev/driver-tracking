@@ -31,12 +31,16 @@ interface MainLayoutProps {
   children: React.ReactNode;
   navigation: any;
   showSidebar?: boolean;
+  currentTab?: 'home' | 'map';
+  onTabChange?: (tab: 'home' | 'map') => void;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
   children,
   navigation,
   showSidebar = true,
+  currentTab = 'home',
+  onTabChange,
 }) => {
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-280)).current;
@@ -47,6 +51,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   // Use Platform.isPad for iPad (iPad Mini portrait = 744px, would fail width >= 768)
   const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
   const isMobile = !isTablet;
+  const isLandscape = width > height;
 
   useEffect(() => {
     if (sidebarVisible) {
@@ -72,6 +77,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({
         setSidebarVisible(false);
         navigation.navigate('RouteSelection');
       }}
+      currentTab={currentTab}
+      onTabChange={onTabChange}
     />
   );
 
@@ -88,7 +95,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
       {children}
       {isMobile && showSidebar && (
         <TouchableOpacity
-          style={styles.menuButton}
+          style={[styles.menuButton, isLandscape && styles.menuButtonLandscape]}
           onPress={() => setSidebarVisible(true)}
           activeOpacity={0.7}
         >
@@ -311,18 +318,21 @@ const styles = StyleSheet.create({
   },
   menuButton: {
     position: 'absolute',
-    top: 12,
-    left: 16,
+    top: 90,
+    // left: 10,
     zIndex: 9999,
     elevation: 9999,
     width: 52,
     height: 52,
     borderRadius: 12,
-    backgroundColor: '#252A32',
+    // backgroundColor: '#252A32',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
+    // borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+  },
+  menuButtonLandscape: {
+    top: 12,
   },
   drawerOverlay: {
     flexDirection: 'row',

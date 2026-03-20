@@ -2,7 +2,7 @@
  * Select Driver Modal - Popover on left with pointer to bottom bar driver button
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,17 +10,19 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
+  ActivityIndicator,
   useWindowDimensions,
   Platform,
   Pressable,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { DRIVERS, type Driver } from '../data/drivers';
+import { type Driver } from '../data/drivers';
 import { COLORS } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { usePinEntryModal } from '../context/PinEntryModalContext';
 import { BOTTOM_BAR_HEIGHT } from '../utils/constants';
+import { useDriverData } from '@/context/DriverDataContext';
 
 const SIDEBAR_WIDTH = 120;
 const MIN_MODAL_WIDTH = 280;
@@ -43,8 +45,24 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
   const { open: openPinEntry } = usePinEntryModal();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { drivers: rawDrivers, isLoading } = useDriverData();
 
-  const handleSelectDriver = (driver: Driver) => {
+  // Map raw API drivers → Driver shape and prepend Unassigned
+  const drivers: Driver[] = useMemo(() => {
+    const mapped: Driver[] = rawDrivers.map((d) => ({
+      id: String(d.driverID),
+      name: d.driverName || 'Unknown Driver',
+      role: (d.supervisor === 1 || d.supervisor === '1') ? 'supervisor' : 'driver',
+      requiresPin: !!d.code,
+      pin: d.code ?? undefined,
+    }));
+    return [
+      { id: 'unassigned', name: 'Unassigned', role: 'unassigned', requiresPin: false },
+      ...mapped,
+    ];
+  }, [rawDrivers]);
+
+  const handleSelectDriver = async (driver: Driver) => {
     onClose();
     if (driver.role === 'unassigned') {
       login(driver);
@@ -59,7 +77,7 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
 
   const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
   const edgePadding = Math.max(MIN_EDGE_PADDING, Math.round(width * EDGE_PADDING_RATIO));
-  const bottomOffset = BOTTOM_BAR_HEIGHT + (insets.bottom || 0) + 12;
+  const bottomOffset = BOTTOM_BAR_HEIGHT + (insets.bottom || 0) ;
   const modalWidth = Math.min(
     Math.max(MIN_MODAL_WIDTH, Math.round(width * 0.88)),
     MAX_MODAL_WIDTH
@@ -113,30 +131,39 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
               <Text style={styles.title}>Select Driver</Text>
               <View style={styles.headerSpacer} />
             </View>
-            <FlatList
-              data={DRIVERS}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => {
-                const isSelected = currentDriver?.id === item.id;
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.driverItem,
-                      isSelected && styles.driverItemSelected,
-                    ]}
-                    onPress={() => handleSelectDriver(item)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.driverName}>{item.name}</Text>
-                    {isSelected && (
-                      <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-              style={[styles.list, { maxHeight: maxModalHeight - 56 }]}
-              showsVerticalScrollIndicator={false}
-            />
+
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={styles.loadingText}>Loading drivers...</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={drivers}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => {
+                  const isSelected = currentDriver?.id === item.id;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.driverItem,
+                        isSelected && styles.driverItemSelected,
+                      ]}
+                      onPress={() => handleSelectDriver(item)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.driverName}>{item.name}</Text>
+                      {isSelected && (
+                        <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                style={[styles.list, { maxHeight: maxModalHeight - 56 }]}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
+
           </View>
           <View style={styles.pointer} />
         </View>
@@ -157,7 +184,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modal: {
-    backgroundColor: MODAL_BG,
+    backgroundColor: COLORS.background,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.08)',
@@ -182,7 +209,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 10,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: MODAL_BG,
+    borderTopColor: COLORS.background,
   },
   header: {
     flexDirection: 'row',
@@ -191,7 +218,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.08)',
+    borderBottomColor: 'rgba(177, 174, 174, 0.08)',
   },
   cancelBtn: {
     minWidth: 60,
@@ -204,7 +231,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1A1A1A',
+    color: '#FFF',
   },
   headerSpacer: {
     width: 60,
@@ -219,15 +246,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.06)',
+    borderBottomColor: 'rgba(177, 174, 174, 0.08)',
   },
   driverItemSelected: {
-    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+    // backgroundColor: 'rgba(37, 99, 235, 0.1)',
   },
   driverName: {
     fontSize: 16,
-    color: '#1A1A1A',
+    color: '#FFF',
     fontWeight: '500',
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 100,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+    fontSize: 14,
   },
 });
 

@@ -67,7 +67,8 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const activateEmergency = useCallback(() => {
     setEmergencyActivated(true);
     setMessageSent(true);
-    sendMessage(EMERGENCY_ACTIVATED).catch(() => {
+    sendMessage(EMERGENCY_ACTIVATED).catch((err) => {
+      console.log('Emergency activation failed', err);
       setEmergencyActivated(false);
       setMessageSent(false);
     });
@@ -78,7 +79,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setEmergencyActivated(false);
       setMessageSent(false);
       const message = reason?.trim() ? `${EMERGENCY_CLEARED} - ${reason}` : EMERGENCY_CLEARED;
-      sendMessage(message).catch(() => {});
+      sendMessage(message).catch(() => { });
     },
     [sendMessage]
   );
@@ -86,7 +87,24 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const sendCannedMessage = useCallback(
     (message: string) => {
       setMessageSent(true);
-      sendMessage(message).catch(() => setMessageSent(false));
+      sendMessage(message).
+        then((res) => {
+          console.log('Message sent successfully', res);
+          setMessageSent(false);
+          Toast.show({
+            type: 'success',
+            text1: 'Message sent successfully',
+
+          });
+        }).catch((err) => {
+          console.log('Message failed', err);
+          setMessageSent(false);
+          Toast.show({
+            type: 'error',
+            text1: 'Message failed',
+            text2: 'Could not send to server. Try again.',
+          });
+        });
     },
     [sendMessage]
   );

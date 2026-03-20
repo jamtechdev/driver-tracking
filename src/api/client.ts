@@ -34,6 +34,8 @@ apiClient.interceptors.request.use(
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
       }
+      // console.log('Request Config:', config);
+
     } catch (error) {
       console.error('Error getting token from storage:', error);
     }
@@ -50,12 +52,12 @@ apiClient.interceptors.response.use(
     const method = response.config.method?.toUpperCase() ?? 'Request';
     const url = typeof response.config.url === 'string' ? response.config.url : '';
     const label = url.split('?')[0].split('/').filter(Boolean).pop() || 'API';
-    Toast.show({
-      type: 'success',
-      text1: 'Success',
-      text2: `${method} ${label} completed`,
-      visibilityTime: 2000,
-    });
+    // Toast.show({
+    //   type: 'success',
+    //   text1: 'Success',
+    //   text2: `${method} ${label} completed`,
+    //   visibilityTime: 2000,
+    // });
     return response;
   },
   async (error: AxiosError) => {

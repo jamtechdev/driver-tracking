@@ -29,7 +29,7 @@ const DriverSelectScreen: React.FC<DriverSelectScreenProps> = ({ navigation }) =
   const [showDriverModal, setShowDriverModal] = useState(true);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
 
-  const handleSelectDriver = (driver: Driver) => {
+  const handleSelectDriver = async (driver: Driver) => {
     setSelectedDriver(driver);
     setShowDriverModal(false);
 
@@ -78,6 +78,7 @@ const DriverSelectScreen: React.FC<DriverSelectScreenProps> = ({ navigation }) =
         animationType="fade"
         onRequestClose={handleCancel}
         presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+        supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
       >
         <TouchableOpacity
           style={styles.modalOverlay}

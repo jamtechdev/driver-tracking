@@ -19,7 +19,7 @@ interface IncomingMessagesContextType {
 const IncomingMessagesContext = createContext<IncomingMessagesContextType | null>(null);
 
 export const IncomingMessagesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { vehicleId } = useAuth();
+  const { vehicleId, isSupervisorMode } = useAuth();
   const [messages, setMessages] = useState<IncomingMessageItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,11 +28,15 @@ export const IncomingMessagesProvider: React.FC<{ children: React.ReactNode }> =
   const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
 
   const fetchMessages = useCallback(async () => {
-    if (!vehicleId || vehicleId === '') return;
+    // For normal drivers, we need a vehicleId. 
+    // For supervisors, we want all messages for the agency.
+    if (!isSupervisorMode && (!vehicleId || vehicleId === '')) return;
+
     setLoading(true);
     setError(null);
     try {
-      const list = await getIncomingMessages(agencyID, vehicleId);
+      const vId = isSupervisorMode ? null : vehicleId;
+      const list = await getIncomingMessages(agencyID, vId);
       setMessages(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load messages');
@@ -40,10 +44,10 @@ export const IncomingMessagesProvider: React.FC<{ children: React.ReactNode }> =
     } finally {
       setLoading(false);
     }
-  }, [agencyID, vehicleId]);
+  }, [agencyID, vehicleId, isSupervisorMode]);
 
   useEffect(() => {
-    if (!vehicleId || vehicleId === '') {
+    if (!isSupervisorMode && (!vehicleId || vehicleId === '')) {
       setMessages([]);
       setError(null);
       if (intervalRef.current) {
@@ -62,7 +66,7 @@ export const IncomingMessagesProvider: React.FC<{ children: React.ReactNode }> =
         intervalRef.current = null;
       }
     };
-  }, [vehicleId, fetchMessages]);
+  }, [vehicleId, isSupervisorMode, fetchMessages]);
 
   const value: IncomingMessagesContextType = {
     messages,

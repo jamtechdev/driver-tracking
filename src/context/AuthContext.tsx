@@ -8,6 +8,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Driver } from '../data/drivers';
 import { DRIVERS } from '../data/drivers';
 import { getDriverData } from '@/api/driverData.api';
+import { getVehiclesByDriver, getVehicleAssignment } from '@/api/vehicle.api';
+import { reportMdtStatusAfterLogin } from '@/api/mdt.api';
+import { deviceService } from '@/services/device.service';
+import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 
 const AUTH_STORAGE_KEY = '@driver_tracking:auth_state';
 
@@ -20,18 +24,23 @@ interface AuthState {
   serviceStatus: 'in_service' | 'out_of_service';
   selectedRoute: string;
   selectedRouteId: string | null;
+  selectedManifestId: number | null;
   passengerCount: number;
+  apcCount: number;
+  hasShownSupervisorModal: boolean;
 }
 
 interface AuthContextType extends AuthState {
-  login: (driver: Driver, pin?: string) => boolean;
+  login: (driver: Driver, pin?: string) => Promise<boolean>;
   logout: () => void;
-  selectDriver: (driver: Driver) => void;
+  selectDriver: (driver: Driver) => Promise<void>;
   setVehicleId: (id: string | null) => void;
   setVehicleName: (name: string | null) => void;
   setServiceStatus: (status: 'in_service' | 'out_of_service') => void;
   selectRouteOrStatus: (value: string, routeId?: string | null) => void;
+  setSelectedManifestId: (id: number | null) => void;
   setPassengerCount: (count: number | ((prev: number) => number)) => void;
+  setHasShownSupervisorModal: (shown: boolean) => void;
 }
 
 const unassignedDriver = DRIVERS.find((d) => d.role === 'unassigned') || DRIVERS[0];
@@ -45,7 +54,10 @@ const initialState: AuthState = {
   serviceStatus: 'out_of_service',
   selectedRoute: 'Out of Service',
   selectedRouteId: null,
+  selectedManifestId: null,
   passengerCount: 0,
+  apcCount: 0,
+  hasShownSupervisorModal: false,
 };
 
 function isDriverLike(obj: unknown): obj is Driver {
@@ -73,7 +85,10 @@ function parseStoredState(raw: string | null): AuthState | null {
       serviceStatus: parsed.serviceStatus === 'in_service' || parsed.serviceStatus === 'out_of_service' ? parsed.serviceStatus : initialState.serviceStatus,
       selectedRoute: typeof parsed.selectedRoute === 'string' ? parsed.selectedRoute : initialState.selectedRoute,
       selectedRouteId: typeof parsed.selectedRouteId === 'string' || parsed.selectedRouteId === null ? parsed.selectedRouteId : initialState.selectedRouteId,
+      selectedManifestId: typeof parsed.selectedManifestId === 'number' || parsed.selectedManifestId === null ? parsed.selectedManifestId : initialState.selectedManifestId,
       passengerCount: typeof parsed.passengerCount === 'number' ? parsed.passengerCount : initialState.passengerCount,
+      apcCount: typeof parsed.apcCount === 'number' ? parsed.apcCount : (typeof parsed.passengerCount === 'number' ? parsed.passengerCount : initialState.apcCount),
+      hasShownSupervisorModal: typeof parsed.hasShownSupervisorModal === 'boolean' ? parsed.hasShownSupervisorModal : initialState.hasShownSupervisorModal,
     };
   } catch {
     return null;
@@ -116,34 +131,129 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       serviceStatus: state.serviceStatus,
       selectedRoute: state.selectedRoute,
       selectedRouteId: state.selectedRouteId,
+      selectedManifestId: state.selectedManifestId,
       passengerCount: state.passengerCount,
+      apcCount: state.apcCount,
+      hasShownSupervisorModal: state.hasShownSupervisorModal,
     };
-    AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(toStore)).catch(() => {});
+    AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(toStore)).catch(() => { });
   }, [state]);
 
-  const login = useCallback((driver: Driver, pin?: string): boolean => {
+  const fetchAndSetVehicle = async (driverId: string) => {
+    try {
+      const vehicles = await getVehiclesByDriver(driverId);
+      if (vehicles.length > 0) {
+        const lastVehicle = vehicles[vehicles.length - 1];
+        const vId = lastVehicle.vehicleID || lastVehicle.vehicleNumber;
+        if (vId) {
+          const updates: any = {
+            vehicleId: String(vId),
+            vehicleName: lastVehicle.vehicleName || String(vId),
+            passengerCount: Number(lastVehicle.APCCount) || 0,
+            apcCount: Number(lastVehicle.APCCount) || 0,
+          };
+
+          // Fetch current assignment for this vehicle
+          const assignment = await getVehicleAssignment(String(vId));
+          if (assignment.success && assignment.routeID) {
+            updates.selectedRouteId = assignment.routeID;
+
+            // Try to find the route name
+            try {
+              const driverData = await getDriverData();
+              const routes = Array.isArray(driverData?.route) ? driverData.route : [];
+              const match = routes.find((r: any) => String(r.routeID) === String(assignment.routeID));
+              if (match) {
+                updates.selectedRoute = match.shortName || String(assignment.routeID);
+                updates.serviceStatus = 'in_service';
+              }
+            } catch (e) {
+              console.error('[AuthContext] Error finding route name:', e);
+            }
+          }
+
+          return updates;
+        }
+      }
+    } catch (e) {
+      console.error('[AuthContext] Error fetching vehicle/assignment for driver:', driverId, e);
+    }
+    return null;
+  };
+
+  const login = useCallback(async (driver: Driver, pin?: string): Promise<boolean> => {
     if (driver.role === 'unassigned') {
       setState((s) => ({ ...s, driver, isAuthenticated: true, isSupervisorMode: false }));
       return true;
     }
-    if (driver.requiresPin && pin !== undefined) {
-      const isValid = driver.pin === pin;
+
+    // Attempt to resolve driver from API for the most up-to-date ID/Role
+    let resolvedDriver = driver;
+    try {
+      const data = await getDriverData();
+      const driverList = Array.isArray(data?.driver) ? data.driver : [];
+      const match = driverList.find((d: any) => String(d.driverID) === String(driver.id) || d.driverName === driver.name);
+
+      if (match) {
+        resolvedDriver = {
+          ...driver,
+          id: String(match.driverID),
+          name: match.driverName || driver.name,
+          role: (match.supervisor === 1 || match.supervisor === '1') ? 'supervisor' : 'driver',
+          requiresPin: !!match.code,
+          pin: match.code ?? driver.pin,
+        };
+      }
+    } catch (e) {
+      console.warn('[AuthContext] Driver lookup failed during login, using provided driver object.', e);
+    }
+    // Now verify PIN with the resolved driver if needed
+    if (resolvedDriver.requiresPin && pin !== undefined) {
+      const isValid = resolvedDriver.pin === pin;
       if (!isValid) return false;
-    } else if (driver.requiresPin) {
+    } else if (resolvedDriver.requiresPin) {
       return false;
     }
+
+    // Now fetch vehicle/assignment info using the resolved ID
+    const vehicleUpdates = resolvedDriver?.role !== 'supervisor' && await fetchAndSetVehicle(resolvedDriver.id);
+    const deviceBrightness = await deviceService.getBrightness();
+    // Call MDT status update after login (proactively)
+    if (resolvedDriver?.role !== 'supervisor') {
+      const vId = vehicleUpdates ? vehicleUpdates.vehicleId : initialState.vehicleId;
+      if (vId) {
+        reportMdtStatusAfterLogin({
+          agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+          vehicleID: String(vId),
+          driverID: String(resolvedDriver.id),
+          screenBrightness: deviceBrightness / 100,
+        }).catch((e: Error) => {
+          console.error('[AuthContext] Failed to report MDT status after login:', e);
+        });
+      }
+    }
+
     setState((s) => ({
       ...s,
-      driver,
+      driver: resolvedDriver,
       isAuthenticated: true,
-      isSupervisorMode: driver.role === 'supervisor',
+      isSupervisorMode: resolvedDriver.role === 'supervisor',
+      hasShownSupervisorModal: false, // Reset on every login
+      // Reset to defaults first to prevent leaking previous session data
+      vehicleId: initialState.vehicleId,
+      vehicleName: initialState.vehicleName,
+      serviceStatus: initialState.serviceStatus,
+      selectedRoute: initialState.selectedRoute,
+      selectedRouteId: initialState.selectedRouteId,
+      passengerCount: 0,
+      ...(vehicleUpdates || {}),
     }));
     return true;
   }, []);
 
   const logout = useCallback(() => {
     setState(initialState);
-    AsyncStorage.removeItem(AUTH_STORAGE_KEY).catch(() => {});
+    AsyncStorage.removeItem(AUTH_STORAGE_KEY).catch(() => { });
   }, []);
 
   const selectDriver = useCallback(async (driver: Driver) => {
@@ -152,20 +262,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const driverList = data?.driver;
       const list = Array.isArray(driverList) ? driverList : [];
       const match = list.find((d) => String(d.driverID) === String(driver.id));
+
+      let mapped: Driver = driver;
       if (match) {
-        const mapped: Driver = {
+        mapped = {
           id: match.driverID,
           name: match.driverName ?? driver.name,
           role: (match.supervisor === 1 || match.supervisor === '1') ? 'supervisor' : 'driver',
           requiresPin: !!match.code,
           pin: match.code ?? driver.pin,
         };
-        setState((s) => ({ ...s, driver: mapped, isSupervisorMode: mapped.role === 'supervisor' }));
-      } else {
-        setState((s) => ({ ...s, driver, isSupervisorMode: driver.role === 'supervisor' }));
       }
+
+      // Fetch vehicles for the selected driver and pick the last one
+      const vehicleUpdates = await fetchAndSetVehicle(driver.id);
+
+      setState((s) => ({
+        ...s,
+        driver: mapped,
+        isSupervisorMode: mapped.role === 'supervisor',
+        hasShownSupervisorModal: false,
+        // Reset to defaults first
+        vehicleId: initialState.vehicleId,
+        vehicleName: initialState.vehicleName,
+        serviceStatus: initialState.serviceStatus,
+        selectedRoute: initialState.selectedRoute,
+        selectedRouteId: initialState.selectedRouteId,
+        passengerCount: 0,
+        ...(vehicleUpdates || {}),
+      }));
     } catch (_error) {
-      setState((s) => ({ ...s, driver, isSupervisorMode: driver.role === 'supervisor' }));
+      const vehicleUpdates = await fetchAndSetVehicle(driver.id);
+      setState((s) => ({
+        ...s,
+        driver,
+        isSupervisorMode: driver.role === 'supervisor',
+        hasShownSupervisorModal: false,
+        // Reset to defaults first
+        vehicleId: initialState.vehicleId,
+        vehicleName: initialState.vehicleName,
+        serviceStatus: initialState.serviceStatus,
+        selectedRoute: initialState.selectedRoute,
+        selectedRouteId: initialState.selectedRouteId,
+        passengerCount: 0,
+        ...(vehicleUpdates || {}),
+      }));
     }
   }, []);
 
@@ -187,9 +328,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...s,
       selectedRoute: value,
       selectedRouteId: isOutOfService ? null : (routeId ?? s.selectedRouteId),
+      selectedManifestId: isOutOfService ? null : s.selectedManifestId,
       serviceStatus: isOutOfService ? 'out_of_service' : 'in_service',
-      ...(isOutOfService ? { passengerCount: 0 } : {}),
+      ...(isOutOfService ? {
+        passengerCount: 0,
+        driver: unassignedDriver,
+        vehicleId: initialState.vehicleId,
+        vehicleName: initialState.vehicleName,
+      } : {}),
     }));
+  }, []);
+
+  const setSelectedManifestId = useCallback((selectedManifestId: number | null) => {
+    setState((s) => ({ ...s, selectedManifestId }));
   }, []);
 
   const setPassengerCount = useCallback((countOrUpdater: number | ((prev: number) => number)) => {
@@ -211,6 +362,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setServiceStatus,
         selectRouteOrStatus,
         setPassengerCount,
+        setSelectedManifestId,
+        setHasShownSupervisorModal: (shown: boolean) => setState((s) => ({ ...s, hasShownSupervisorModal: shown })),
       }}
     >
       {children}

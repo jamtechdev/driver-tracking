@@ -13,11 +13,13 @@ import {
   Animated,
   BackHandler,
   Dimensions,
+  Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { usePinEntryModal } from '../context/PinEntryModalContext';
+
 
 const PIN_LENGTH = 4;
 
@@ -52,21 +54,26 @@ export default function PinEntryModal({ navigationRef }: PinEntryModalProps) {
 
   useEffect(() => {
     if (pin.length !== PIN_LENGTH || !driver || verifyingRef.current) return;
-    verifyingRef.current = true;
-    setError('');
-    const success = login(driver, pin);
-    if (success) {
-      const onSuccess = onSuccessRef.current ?? null;
-      close();
-      if (driver.role === 'supervisor' && navigationRef?.current) {
-        navigationRef.current.navigate('SupervisorHome');
+
+    const performLogin = async () => {
+      verifyingRef.current = true;
+      setError('');
+      const success = await login(driver, pin);
+      console.log('Login success====>>>>>>', success);
+      if (success) {
+        const onSuccess = onSuccessRef.current ?? null;
+        close();
+        onSuccess?.();
+      } else {
+        close();
+        // setError('Invalid PIN. Please try again.');
+        setPin('');
+        Alert.alert('Invalid Passcode', 'Passcode is incorrect. Please contact your agency if you have forgotten your passcode.');
       }
-      onSuccess?.();
-    } else {
-      setError('Invalid PIN. Please try again.');
-      setPin('');
-    }
-    verifyingRef.current = false;
+      verifyingRef.current = false;
+    };
+
+    performLogin();
   }, [pin, driver, login, close]);
 
   useEffect(() => {
@@ -84,7 +91,7 @@ export default function PinEntryModal({ navigationRef }: PinEntryModalProps) {
 
   const handleNumberPress = (num: string) => {
     if (pin.length >= PIN_LENGTH) return;
-    animatePress();
+    // animatePress();
     setPin((p) => p + num);
     setError('');
   };

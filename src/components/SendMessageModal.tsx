@@ -20,29 +20,31 @@ import { COLORS } from '../theme/colors';
 import { useEmergency } from '../context/EmergencyContext';
 import { useMessagingModal } from '../context/MessagingModalContext';
 import { getDriverData, type DriverDataMessage } from '../api/driverData.api';
+import { useDriverData } from '@/context/DriverDataContext';
 
 const SendMessageModal: React.FC = () => {
-  const [messages, setMessages] = useState<DriverDataMessage[]>([]);
+  // const [messages, setMessages] = useState<DriverDataMessage[]>([]);
+  const { messages } = useDriverData();
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
   const { sendCannedMessage } = useEmergency();
   const { visible, close } = useMessagingModal();
 
-  useEffect(() => {
-    if (!visible) return;
-    setLoading(true);
-    setMessages([]);
-    setSearch('');
-    setSelectedMessage(null);
-    getDriverData()
-      .then((data) => {
-        const list = data?.messages;
-        setMessages(Array.isArray(list) ? list : []);
-      })
-      .catch(() => setMessages([]))
-      .finally(() => setLoading(false));
-  }, [visible]);
+  // useEffect(() => {
+  //   if (!visible) return;
+  //   setLoading(true);
+  //   setMessages([]);
+  //   setSearch('');
+  //   setSelectedMessage(null);
+  //   getDriverData()
+  //     .then((data) => {
+  //       const list = data?.messages;
+  //       setMessages(Array.isArray(list) ? list : []);
+  //     })
+  //     .catch(() => setMessages([]))
+  //     .finally(() => setLoading(false));
+  // }, [visible]);
 
   const filteredMessages = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -54,13 +56,13 @@ const SendMessageModal: React.FC = () => {
     setSelectedMessage(message);
   }, []);
 
-  const handleSendMessage = useCallback(() => {
+  const handleSendMessage = useCallback((selectedMessage: string) => {
     if (selectedMessage) {
       sendCannedMessage(selectedMessage);
       close();
       setSelectedMessage(null);
     }
-  }, [selectedMessage, sendCannedMessage, close]);
+  }, [sendCannedMessage, close]);
 
   const handleCancel = useCallback(() => {
     close();
@@ -78,7 +80,7 @@ const SendMessageModal: React.FC = () => {
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
     >
       <Pressable style={[StyleSheet.absoluteFill, styles.modalOverlay]} onPress={handleCancel}>
-        <Pressable style={styles.modalContent} onPress={() => {}}>
+        <Pressable style={styles.modalContent} onPress={() => { }}>
           <View style={styles.modalHeader}>
             <TouchableOpacity
               onPress={handleCancel}
@@ -121,33 +123,33 @@ const SendMessageModal: React.FC = () => {
               </Text>
             </View>
           ) : (
-          <ScrollView
-            style={styles.messageList}
-            showsVerticalScrollIndicator={false}
-          >
-            {filteredMessages.map((item) => (
-              <TouchableOpacity
-                key={item.messageID}
-                style={[
-                  styles.messageItem,
-                  selectedMessage === item.message && styles.messageItemSelected,
-                ]}
-                onPress={() => handleSelectMessage(item.message)}
-                activeOpacity={0.7}
-              >
-                <Text
+            <ScrollView
+              style={styles.messageList}
+              showsVerticalScrollIndicator={false}
+            >
+              {filteredMessages.map((item) => (
+                <TouchableOpacity
+                  key={item.messageID}
                   style={[
-                    styles.messageText,
-                    selectedMessage === item.message && styles.messageTextSelected,
+                    styles.messageItem,
+                    // selectedMessage === item.message && styles.messageItemSelected,
                   ]}
+                  onPress={() => handleSendMessage(item.message)}
+                  activeOpacity={0.7}
                 >
-                  {item.message}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+                  <Text
+                    style={[
+                      styles.messageText,
+                      selectedMessage === item.message && styles.messageTextSelected,
+                    ]}
+                  >
+                    {item.message}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           )}
-          {selectedMessage && !loading && (
+          {/* {selectedMessage && !loading && (
             <TouchableOpacity
               style={styles.sendConfirmButton}
               onPress={handleSendMessage}
@@ -155,7 +157,7 @@ const SendMessageModal: React.FC = () => {
             >
               <Text style={styles.sendConfirmText}>Send</Text>
             </TouchableOpacity>
-          )}
+          )} */}
         </Pressable>
       </Pressable>
     </Modal>
@@ -171,9 +173,9 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '100%',
-    maxWidth: 360,
+    maxWidth: '70%',
     maxHeight: '80%',
-    backgroundColor: '#252A32',
+    backgroundColor: COLORS.background,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
@@ -262,7 +264,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   messageText: {
-    fontSize: 16,
+    fontSize: 22,
     color: COLORS.textPrimary,
     fontWeight: '500',
   },

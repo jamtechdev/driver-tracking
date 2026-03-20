@@ -17,20 +17,14 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DeviceInfo from 'react-native-device-info';
 import { COLORS } from '../../theme/colors';
 
 const MDT_ID_KEY = '@driver_tracking:mdt_id';
 const TIME_FORMAT_KEY = '@driver_tracking:time_format';
 
-const generateMdtId = () => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const segment = (len: number) =>
-    Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  return `BPT-${segment(4)}-${segment(6)}`;
-};
-
 const { version } = require('../../../package.json');
-const APP_VERSION = `${version} (746)`;
+const APP_VERSION = `${version}`;
 
 const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [mdtId, setMdtId] = useState<string>('');
@@ -43,10 +37,25 @@ const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           AsyncStorage.getItem(MDT_ID_KEY),
           AsyncStorage.getItem(TIME_FORMAT_KEY),
         ]);
-        setMdtId(storedId || generateMdtId());
+
+        if (storedId) {
+          setMdtId(storedId);
+        } else {
+          const uniqueId = await DeviceInfo.getUniqueId();
+          const cleanId = uniqueId.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+          // Format as BPT-XXXXXXXX-XXXX-XXXX-XXXX
+          const formattedId = `BPT-${cleanId.slice(0, 8)}-${cleanId.slice(8, 12)}-${cleanId.slice(12, 16)}-${cleanId.slice(16, 20)}`;
+          setMdtId(formattedId);
+          await AsyncStorage.setItem(MDT_ID_KEY, formattedId);
+        }
         setUse24HourClock(storedFormat === '24h');
-      } catch {
-        setMdtId(generateMdtId());
+      } catch (error) {
+        console.error('Error getting MDT ID in SettingsScreen:', error);
+        // Fallback to random if device info fails
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        const segment = (len: number) =>
+          Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        setMdtId(`BPT-${segment(8)}-${segment(4)}-${segment(4)}-${segment(4)}`);
       }
     })();
   }, []);
@@ -76,14 +85,14 @@ const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     <SafeAreaView style={styles.wrapper} edges={['left']}>
       <View style={styles.container}>
         <View style={styles.panel}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>MDT Settings</Text>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Text style={styles.doneText}>Done</Text>
-          </TouchableOpacity>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>MDT Settings</Text>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Text style={styles.doneText}>Done</Text>
+            </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>

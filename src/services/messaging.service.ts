@@ -12,11 +12,17 @@ export const messagingService = {
    */
   initializeTTS: async () => {
     try {
+      await Tts.getInitStatus();
       await Tts.setDefaultLanguage('en-US');
       await Tts.setDefaultRate(0.5);
       await Tts.setDefaultPitch(1.0);
-    } catch (error) {
-      console.error('TTS initialization error:', error);
+
+      // Ignore errors if already initialized
+    } catch (error: any) {
+      if (error.code === 'no_engine') {
+        Tts.requestInstallEngine();
+      }
+      console.warn('TTS initialization warning:', error);
     }
   },
 
@@ -24,7 +30,7 @@ export const messagingService = {
    * Speak text
    */
   speak: (text: string) => {
-    Tts.speak(text);
+    Tts.speak('Hello how are you');
   },
 
   /**
@@ -33,5 +39,24 @@ export const messagingService = {
   stop: () => {
     Tts.stop();
   },
-};
 
+  /**
+   * Register a callback for when TTS finishes
+   */
+  onFinish: (callback: () => void) => {
+    const subscription = Tts.addListener('tts-finish', (event) => {
+      callback();
+    });
+    return () => subscription.remove();
+  },
+
+  /**
+   * Register a callback for TTS errors
+   */
+  onError: (callback: (error: any) => void) => {
+    const subscription = Tts.addListener('tts-error', (event) => {
+      callback(event);
+    });
+    return () => subscription.remove();
+  }
+};

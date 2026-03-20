@@ -25,7 +25,7 @@ export const deviceService = {
       const subscription = DeviceBattery.addListener(callback);
       return () => subscription?.remove?.();
     } catch {
-      return () => {};
+      return () => { };
     }
   },
 
@@ -56,6 +56,33 @@ export const deviceService = {
       return Math.round(value * 100);
     } catch {
       return 100;
+    }
+  },
+  /**
+   * Get current volume (0-100)
+   */
+  getVolume: async (): Promise<number> => {
+    try {
+      const { VolumeManager } = require('react-native-volume-manager');
+      const { volume } = await VolumeManager.getVolume();
+      return Math.round(volume * 100);
+    } catch {
+      return 50;
+    }
+  },
+
+  /**
+   * Add listener for volume changes
+   */
+  addVolumeListener: (callback: (volume: number) => void): (() => void) => {
+    try {
+      const { VolumeManager } = require('react-native-volume-manager');
+      const subscription = VolumeManager.addVolumeListener((result: { volume: number }) => {
+        callback(Math.round(result.volume * 100));
+      });
+      return () => subscription?.remove?.();
+    } catch {
+      return () => { };
     }
   },
 };
