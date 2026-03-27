@@ -83,17 +83,17 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
   const handleTabChange = useCallback((tab: Tab) => {
     setActiveTab(tab);
     if (tab === 'block' && blocks.length === 0 && !blocksLoading) {
-     
+
     }
   }, [blocks.length, blocksLoading]);
 
   // Reset tab when modal opens
   React.useEffect(() => {
-    if (visible) {
-      setActiveTab('route');
-      fetchBlocks();
-      setBlocksError(null);
-    }
+
+    setActiveTab('route');
+    fetchBlocks();
+    setBlocksError(null);
+
   }, [visible]);
 
   const handleSelectRoute = (value: string, routeId?: string | null) => {
@@ -102,9 +102,9 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
   };
 
   const handleSelectBlock = async (block: BlockManifest) => {
-    if (!vehicleId || vehicleId === '110'){
- Toast.show({ type: 'error', text1: 'Error', text2: 'Please select a vehicle' });
-     return
+    if (!vehicleId || vehicleId === '110') {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Please select a vehicle' });
+      return
     }
     setAssigningID(block.manifestID);
     try {
@@ -215,7 +215,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
           ? <ActivityIndicator size="small" color={COLORS.accentBlue} />
           // : isSelected
           //   ? <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
-            : null}
+          : null}
       </TouchableOpacity>
     );
   };

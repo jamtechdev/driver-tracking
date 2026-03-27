@@ -349,7 +349,7 @@ import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import { locationService } from '@/services/location.service';
 import { requestLocationPermission } from '@/utils/permissions';
 import { deviceService } from '@/services/device.service';
-import { mdtUpdate, vehicleUpdate, speedMpsToMph, type MdtUpdateParams, type VehicleUpdateParams } from '@/api/position.api';
+import { mdtUpdate, vehicleUpdate, speedMpsToMph, selfUpdateAssignment, type MdtUpdateParams, type VehicleUpdateParams } from '@/api/position.api';
 import { APP_CONSTANTS } from '@/utils/constants';
 import { useDriverData } from './DriverDataContext';
 import DeviceInfo from 'react-native-device-info';
@@ -357,6 +357,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { getRouteSchedule } from '@/api/schedule.api';
 import { calculateDistance } from '@/utils/helpers';
 import { notificationService } from '@/services/notification.service';
+import BackgroundService from 'react-native-background-actions';
 
 const HORIZ_ACCUR_UPPER_LIMIT = APP_CONSTANTS.LOCATION_ACCURACY_THRESHOLD ?? 50; // meters; above = "ACQUIRING SAT"
 const TIME_BETWEEN_SERVER_CALLS = APP_CONSTANTS.LOCATION_UPDATE_INTERVAL ?? 5000; // 5 seconds
@@ -443,6 +444,20 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [nextStop, setNextStop] = useState<ScheduleStop | null>(null);
   const [visitedLinks, setVisitedLinks] = useState<Set<number>>(new Set());
   const [linkAverages, setLinkAverages] = useState<number[]>([]);
+
+  // Self-dispatch when a valid vehicle and route are selected
+  useEffect(() => {
+    if (vehicleId && vehicleId !== '110' && selectedRouteId && selectedRouteId !== 'Out of Service') {
+      selfUpdateAssignment({
+        agencyID,
+        vehicleID: vehicleId,
+        routeID: selectedRouteId,
+        driverID: driver?.id || 0,
+      }).catch((err: any) => {
+        console.warn('[DriverModel] Self-dispatch auto-assignment failed:', err);
+      });
+    }
+  }, [vehicleId, selectedRouteId, driver?.id, agencyID]);
 
   const watchIdRef = useRef<number | null>(null);
   const mdtIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -643,6 +658,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     try {
 
       const resp: any = await vehicleUpdate(params);
+      console.log('[DriverModel] vehicle update response--==--===>>>>', resp);
       if (resp && typeof resp.minsLate !== 'undefined') {
         setMinsLate(Number(resp.minsLate));
       }
@@ -679,9 +695,55 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     notificationInitializedRef.current = true;
   }, []);
 
-  // 2. AppState Listener for Background tracking indicator
+
+
+  const sleep = (time: any) => new Promise(resolve => setTimeout(resolve, time));
+
+  const backgroundHeartbeatTask = async (taskDataArguments: any) => {
+    const { delay } = taskDataArguments;
+
+    while (BackgroundService.isRunning()) {
+      const start = Date.now();
+
+      try {
+        const pos = await locationService.getCurrentLocation();
+
+        if (pos) {
+          const ts = Date.now();
+
+          const loc = {
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            accuracy: pos.accuracy,
+            heading: pos.heading ?? 0,
+            speed: pos.speed ?? 0,
+            altitude: pos.altitude ?? 0,
+            timestamp: ts,
+          };
+
+          setLastLocation(loc);
+          await trySendVehicleUpdateRef.current?.(loc);
+
+          if (__DEV__) {
+            console.log('[BackgroundHeartbeat] Sent update at', new Date(ts).toLocaleTimeString());
+          }
+        }
+      } catch (err) {
+        if (__DEV__) {
+          console.warn('[BackgroundHeartbeat] Fix failed:', err);
+        }
+      }
+
+      // ✅ Maintain ~5 sec interval including execution time
+      const elapsed = Date.now() - start;
+      const remaining = Math.max(0, delay - elapsed);
+
+      await sleep(remaining);
+    }
+  };
+
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+    const sub = AppState.addEventListener('change', async (nextState) => {
       const prevState = appStateRef.current;
       appStateRef.current = nextState;
 
@@ -689,27 +751,166 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
         console.log('[DriverModel] AppState changed ->', nextState);
       }
 
-      // Handle background tracking indicator
-      const isTrackingActive = trackingMode !== 'off' && vehicleId && vehicleId !== '110';
-      const isReadyForNotify = notificationInitializedRef.current && driver?.id && driver?.id !== 'unassigned';
+      const isTrackingActive =
+        trackingMode !== 'off' && vehicleId && vehicleId !== '110';
 
-      if (isTrackingActive && isReadyForNotify) {
-        if (nextState === 'background' || nextState === 'inactive') {
-          notificationService.startTrackingIndicator(
-            'GPS Tracking Active',
-            'Broadcasting location to Peak Transit server'
-          ).catch(err => console.warn('[DriverModel] Background notify failed:', err));
-        } else if (nextState === 'active' && (prevState === 'background' || prevState === 'inactive')) {
-          notificationService.stopTrackingIndicator().catch(() => { });
+      const isReadyForNotify =
+        notificationInitializedRef.current &&
+        driver?.id &&
+        driver?.id !== 'unassigned';
+
+      const options = {
+        taskName: 'DriverTracking',
+        taskTitle: 'GPS Tracking Active',
+        taskDesc: 'Broadcasting location to server',
+        taskIcon: {
+          name: 'ic_launcher',
+          type: 'mipmap',
+        },
+        color: '#000000',
+        parameters: {
+          delay: 5000, // ✅ 5 seconds
+        },
+      };
+
+      try {
+        if (isTrackingActive && isReadyForNotify) {
+          if (
+            (nextState === 'background' || nextState === 'inactive') &&
+            !BackgroundService.isRunning()
+          ) {
+            await BackgroundService.start(backgroundHeartbeatTask, options);
+
+            if (__DEV__) {
+              console.log('[DriverModel] Background service started');
+            }
+          } else if (
+            nextState === 'active' &&
+            (prevState === 'background' || prevState === 'inactive')
+          ) {
+            if (BackgroundService.isRunning()) {
+              await BackgroundService.stop();
+
+              if (__DEV__) {
+                console.log('[DriverModel] Background service stopped (app active)');
+              }
+            }
+          }
+        } else {
+          if (BackgroundService.isRunning()) {
+            await BackgroundService.stop();
+
+            if (__DEV__) {
+              console.log('[DriverModel] Background service stopped (conditions false)');
+            }
+          }
         }
+      } catch (err) {
+        console.warn('[DriverModel] Background service error:', err);
       }
     });
 
     return () => {
       sub.remove();
-      notificationService.stopTrackingIndicator().catch(() => { });
+      if (BackgroundService.isRunning()) {
+        BackgroundService.stop().catch(() => { });
+      }
     };
   }, [trackingMode, vehicleId, driver?.id]);
+
+
+
+  // // 2. AppState Listener for Background tracking indicator
+  // useEffect(() => {
+  //   const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+  //     const prevState = appStateRef.current;
+  //     appStateRef.current = nextState;
+
+  //     if (__DEV__) {
+  //       console.log('[DriverModel] AppState changed ->', nextState);
+  //     }
+
+  //     // Handle background tracking indicator & persistent background task
+  //     const isTrackingActive = trackingMode !== 'off' && vehicleId && vehicleId !== '110';
+  //     const isReadyForNotify = notificationInitializedRef.current && driver?.id && driver?.id !== 'unassigned';
+
+  //     if (isTrackingActive && isReadyForNotify) {
+  //       if (nextState === 'background' || nextState === 'inactive') {
+  //         // 1. Android/iOS background task to keep JS loop alive
+  //         const options = {
+  //           taskName: 'DriverTracking',
+  //           taskTitle: 'GPS Tracking Active',
+  //           taskDesc: 'Broadcasting location to Peak Transit server',
+  //           taskIcon: {
+  //             name: 'ic_launcher',
+  //             type: 'mipmap',
+  //           },
+  //           color: '#000000',
+  //           parameters: {
+  //             delay: 5000,
+  //           },
+  //         };
+
+  //         BackgroundService.start(backgroundHeartbeatTask, options).catch(err =>
+  //           console.warn('[DriverModel] Background service failed to start:', err)
+  //         );
+  //       } else if (nextState === 'active' && (prevState === 'background' || prevState === 'inactive')) {
+  //         // Restore to foreground
+  //         BackgroundService.stop().catch(() => { });
+  //       }
+  //     } else {
+  //       BackgroundService.stop().catch(() => { });
+  //     }
+  //   });
+
+  //   return () => {
+  //     sub.remove();
+  //     BackgroundService.stop().catch(() => { });
+  //   };
+  // }, [trackingMode, vehicleId, driver?.id]);
+
+  // const backgroundHeartbeatTask = async (taskDataArguments: any) => {
+  //   const { delay } = taskDataArguments;
+
+  //   // We run an infinite loop as long as the service is active
+  //   await new Promise(async (resolve) => {
+  //     while (BackgroundService.isRunning()) {
+  //       try {
+  //         // Manually request a fresh GPS fix to keep hardware active in background
+  //         const pos = await locationService.getCurrentLocation();
+
+  //         if (pos) {
+  //           // Map GeolocationResponse to LastLocation format expected by the API
+  //           const ts = Date.now();
+  //           const loc: LastLocation = {
+  //             latitude: pos.latitude,
+  //             longitude: pos.longitude,
+  //             accuracy: pos.accuracy,
+  //             heading: pos.heading ?? 0,
+  //             speed: pos.speed ?? 0,
+  //             altitude: pos.altitude ?? 0,
+  //             timestamp: ts,
+  //           };
+
+  //           // Sync the main app state if possible (though it's usually throttled)
+  //           setLastLocation(loc);
+
+  //           // Send the update to the server immediately
+  //           await trySendVehicleUpdateRef.current?.(loc);
+
+  //           if (__DEV__) {
+  //             console.log('[BackgroundHeartbeat] Sent update at', new Date(ts).toLocaleTimeString());
+  //           }
+  //         }
+  //       } catch (err) {
+  //         if (__DEV__) console.warn('[BackgroundHeartbeat] Fix failed:', err);
+  //       }
+
+  //       // Wait for the next 5-second interval
+  //       await new Promise((r) => setTimeout(r, delay));
+  //     }
+  //   });
+  // };
 
   const magnetometerHeadingRef = useRef<number>(0);
 

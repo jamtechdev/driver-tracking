@@ -12,7 +12,7 @@ import {
   Platform,
   Animated,
   BackHandler,
-  Dimensions,
+  useWindowDimensions,
   Alert
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -101,9 +101,12 @@ export default function PinEntryModal({ navigationRef }: PinEntryModalProps) {
     setError('');
   };
 
-  if (!driver) return null;
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const isTablet = Math.max(width, height) >= 900;
+  const isMobileLandscape = isLandscape && !isTablet;
 
-  const { width: winWidth, height: winHeight } = Dimensions.get('window');
+  if (!driver) return null;
 
   return (
     <Modal
@@ -116,83 +119,89 @@ export default function PinEntryModal({ navigationRef }: PinEntryModalProps) {
     >
       <View
         style={[
-          styles.fullScreen,
-          styles.absoluteFill,
+          styles.container,
           {
-            width: winWidth,
-            height: winHeight,
             paddingTop: insets.top,
             paddingBottom: insets.bottom,
+            paddingLeft: insets.left,
+            paddingRight: insets.right,
           },
         ]}
       >
-        <View style={styles.main}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Please enter driver login passcode</Text>
-          </View>
-          <View style={styles.pinContainer}>
-            {Array.from({ length: PIN_LENGTH }).map((_, i) => (
-              <View
-                key={i}
-                style={[styles.pinDot, i < pin.length && styles.pinDotFilled]}
-              />
-            ))}
-          </View>
-          {error ? (
-            <View style={styles.errorContainer}>
-              <MaterialIcons name="error-outline" size={22} color="#DC2626" />
-              <Text style={styles.errorText}>{error}</Text>
+        <View style={[
+          styles.contentWrapper,
+          isMobileLandscape && styles.contentWrapperLandscape,
+          isTablet && styles.contentWrapperTablet
+        ]}>
+          <View style={[styles.main, isMobileLandscape && styles.mainLandscape]}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Please enter driver login passcode</Text>
             </View>
-          ) : null}
-        </View>
-        <View style={styles.keypadWrap}>
-          <Animated.View style={[styles.keypad, { transform: [{ scale: scaleAnim }] }]}>
-            {[['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['back', '0', 'del']].map(
-              (row, ri) => (
-                <View key={ri} style={styles.keypadRow}>
-                  {row.map((key) =>
-                    key === 'back' ? (
-                      <Pressable
-                        key="back"
-                        style={({ pressed }) => [
-                          styles.keyButton,
-                          styles.backKeyButton,
-                          pressed && styles.keyButtonPressed,
-                        ]}
-                        onPress={close}
-                      >
-                        <MaterialIcons name="arrow-back" size={24} color="#64748B" />
-                        <Text style={styles.backKeyText}>Back</Text>
-                      </Pressable>
-                    ) : key === 'del' ? (
-                      <Pressable
-                        key="del"
-                        style={({ pressed }) => [
-                          styles.keyButton,
-                          styles.deleteButton,
-                          pressed && styles.keyButtonPressed,
-                        ]}
-                        onPress={handleDelete}
-                      >
-                        <MaterialIcons name="backspace" size={26} color="#DC2626" />
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        key={key}
-                        style={({ pressed }) => [
-                          styles.keyButton,
-                          pressed && styles.keyButtonPressed,
-                        ]}
-                        onPress={() => handleNumberPress(key)}
-                      >
-                        <Text style={styles.keyText}>{key}</Text>
-                      </Pressable>
-                    )
-                  )}
-                </View>
-              )
-            )}
-          </Animated.View>
+            <View style={styles.pinContainer}>
+              {Array.from({ length: PIN_LENGTH }).map((_, i) => (
+                <View
+                  key={i}
+                  style={[styles.pinDot, i < pin.length && styles.pinDotFilled]}
+                />
+              ))}
+            </View>
+            {error ? (
+              <View style={styles.errorContainer}>
+                <MaterialIcons name="error-outline" size={22} color="#DC2626" />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={[styles.keypadWrap, isMobileLandscape && styles.keypadWrapLandscape]}>
+            <Animated.View style={[styles.keypad, { transform: [{ scale: scaleAnim }] }, isMobileLandscape && styles.keypadLandscape]}>
+              {[['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['back', '0', 'del']].map(
+                (row, ri) => (
+                  <View key={ri} style={styles.keypadRow}>
+                    {row.map((key) =>
+                      key === 'back' ? (
+                        <Pressable
+                          key="back"
+                          style={({ pressed }) => [
+                            styles.keyButton,
+                            styles.backKeyButton,
+                            pressed && styles.keyButtonPressed,
+                          ]}
+                          onPress={close}
+                        >
+                          <MaterialIcons name="arrow-back" size={24} color="#64748B" />
+                          <Text style={styles.backKeyText}>Back</Text>
+                        </Pressable>
+                      ) : key === 'del' ? (
+                        <Pressable
+                          key="del"
+                          style={({ pressed }) => [
+                            styles.keyButton,
+                            styles.deleteButton,
+                            pressed && styles.keyButtonPressed,
+                          ]}
+                          onPress={handleDelete}
+                        >
+                          <MaterialIcons name="backspace" size={26} color="#DC2626" />
+                        </Pressable>
+                      ) : (
+                        <Pressable
+                          key={key}
+                          style={({ pressed }) => [
+                            styles.keyButton,
+                            pressed && styles.keyButtonPressed,
+                          ]}
+                          onPress={() => handleNumberPress(key)}
+                        >
+                          <Text style={styles.keyText}>{key}</Text>
+                        </Pressable>
+                      )
+                    )}
+                  </View>
+                )
+              )}
+            </Animated.View>
+          </View>
         </View>
       </View>
     </Modal>
@@ -200,24 +209,31 @@ export default function PinEntryModal({ navigationRef }: PinEntryModalProps) {
 }
 
 const styles = StyleSheet.create({
-  absoluteFill: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-  },
-  fullScreen: {
+  container: {
     flex: 1,
-    width: '100%',
-    height: '100%',
     backgroundColor: '#F8FAFC',
+  },
+  contentWrapper: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  contentWrapperLandscape: {
+    flexDirection: 'row',
+  },
+  contentWrapperTablet: {
+    width: '100%',
   },
   main: {
     flex: 1,
     paddingHorizontal: 28,
     paddingTop: 28,
     paddingBottom: 16,
+    justifyContent: 'center',
+  },
+  mainLandscape: {
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingRight: 14,
   },
   header: {
     alignItems: 'center',
@@ -273,6 +289,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.06)',
+    justifyContent: 'center',
+  },
+  keypadWrapLandscape: {
+    flex: 1,
+    borderTopWidth: 0,
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(0,0,0,0.06)',
+    paddingHorizontal: 14,
   },
   keypad: {
     backgroundColor: '#FFFFFF',
@@ -280,6 +304,10 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
+    width: '100%',
+  },
+  keypadLandscape: {
+    padding: 12,
   },
   keypadRow: {
     flexDirection: 'row',

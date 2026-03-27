@@ -9,6 +9,8 @@ import {
     Platform,
     FlatList,
     ActivityIndicator,
+    useWindowDimensions,
+    ScrollView,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../theme/colors';
@@ -38,6 +40,9 @@ const PassengerCountModal: React.FC<PassengerCountModalProps> = ({
     const { fareCategories } = useDriverData();
     const { vehicleId, setPassengerCount } = useAuth();
     const { location, heading } = useMapLocation();
+    const { width, height } = useWindowDimensions();
+    const isLandscape = width > height;
+    const rs = Math.min(width, height) / 400;
 
     // Numpad state
     const [numpadVisible, setNumpadVisible] = useState(false);
@@ -144,160 +149,169 @@ const PassengerCountModal: React.FC<PassengerCountModalProps> = ({
             statusBarTranslucent
             supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
         >
-            <View style={styles.modalOverlay}>
-                <View style={styles.modalContent}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <View>
-                            <Text style={styles.headerTitle}>Passenger Count</Text>
-
+            <Pressable style={styles.modalOverlay} onPress={onClose}>
+                <Pressable
+                    style={[
+                        styles.modalContent,
+                        { maxHeight: height * 0.95 },
+                        isLandscape && styles.modalContentLandscape
+                    ]}
+                    onPress={(e) => e.stopPropagation()}
+                >
+                    <ScrollView
+                        bounces={false}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={isLandscape ? { paddingBottom: 10 } : null}
+                    >
+                        {/* Header */}
+                        <View style={[styles.header, isLandscape && styles.headerLandscape]}>
+                            <View>
+                                <Text style={[styles.headerTitle, isLandscape && { fontSize: 20 }]}>Passenger Count</Text>
+                            </View>
+                            <TouchableOpacity
+                                style={styles.closeBtn}
+                                onPress={onClose}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                activeOpacity={0.7}
+                            >
+                                <MaterialIcons name="close" size={isLandscape ? 24 : 28} color="#FFF" />
+                            </TouchableOpacity>
                         </View>
-                        <TouchableOpacity
-                            style={styles.closeBtn}
-                            onPress={onClose}
-                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                            activeOpacity={0.7}
-                        >
-                            <MaterialIcons name="close" size={28} color="#FFF" />
-                        </TouchableOpacity>
 
-
-                        {/* Fare Categories */}
-
-                    </View>
-                    {fareCategories.length > 0 && (
-                        <View style={styles.fareCategorySection}>
-                            <Text style={styles.fareCategoryLabel}>Fare Category</Text>
-                            <FlatList
-                                data={fareCategories}
-                                keyExtractor={(item) => String(item.fareCategoryID)}
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                contentContainerStyle={styles.fareCategoryList}
-                                renderItem={({ item }) => {
-                                    const isSelected = selectedFareCategoryId === item.fareCategoryID;
-                                    return (
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.fareChip,
-                                                isSelected && styles.fareChipSelected,
-                                            ]}
-                                            onPress={() =>
-                                                setSelectedFareCategoryId(
-                                                    isSelected ? null : item.fareCategoryID
-                                                )
-                                            }
-                                            activeOpacity={0.75}
-                                        >
-                                            <Text
+                        {fareCategories.length > 0 && (
+                            <View style={[styles.fareCategorySection, isLandscape && { marginTop: 4, paddingBottom: 4 }]}>
+                                <Text style={styles.fareCategoryLabel}>Fare Category</Text>
+                                <FlatList
+                                    data={fareCategories}
+                                    keyExtractor={(item) => String(item.fareCategoryID)}
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    contentContainerStyle={styles.fareCategoryList}
+                                    renderItem={({ item }) => {
+                                        const isSelected = selectedFareCategoryId === item.fareCategoryID;
+                                        return (
+                                            <TouchableOpacity
                                                 style={[
-                                                    styles.fareChipText,
-                                                    isSelected && styles.fareChipTextSelected,
+                                                    styles.fareChip,
+                                                    isSelected && styles.fareChipSelected,
+                                                    isLandscape && { paddingVertical: 6, paddingHorizontal: 12 }
                                                 ]}
-                                                numberOfLines={1}
+                                                onPress={() =>
+                                                    setSelectedFareCategoryId(
+                                                        isSelected ? null : item.fareCategoryID
+                                                    )
+                                                }
+                                                activeOpacity={0.75}
                                             >
-                                                {item.title}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                }}
-                            />
-                        </View>
-                    )}
-
-                    {/* Body */}
-                    <View style={styles.body}>
-                        {/* Embarking Row (Green) */}
-                        <View style={styles.countRow}>
-                            <View style={[styles.mainButton, styles.mainButtonGreen]}>
-                                <View style={styles.mainButtonLeft}>
-                                    <MaterialIcons name="person-add" size={24} color="#000" />
-                                    <Text style={styles.mainButtonText}>Embarking</Text>
-                                </View>
-                                <TouchableOpacity
-                                    style={styles.touchableArea}
-                                    onPress={incrementEmbarking}
-                                    onLongPress={handleLongPressEmbarking}
-                                    delayLongPress={600}
-                                    activeOpacity={0.7}
+                                                <Text
+                                                    style={[
+                                                        styles.fareChipText,
+                                                        isSelected && styles.fareChipTextSelected,
+                                                        isLandscape && { fontSize: 13 }
+                                                    ]}
+                                                    numberOfLines={1}
+                                                >
+                                                    {item.title}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    }}
                                 />
                             </View>
+                        )}
 
-                            <View style={styles.controlsRight}>
-                                <View style={styles.countDisplay}>
-                                    <Text style={[styles.countText, { color: '#4ADE80' }]}>{embarking}</Text>
+                        {/* Body */}
+                        <View style={[styles.body, isLandscape && { gap: 8, paddingVertical: 8 }]}>
+                            {/* Embarking Row (Green) */}
+                            <View style={[styles.countRow, isLandscape && { height: 48 }]}>
+                                <View style={[styles.mainButton, styles.mainButtonGreen]}>
+                                    <View style={styles.mainButtonLeft}>
+                                        <MaterialIcons name="person-add" size={isLandscape ? 20 : 24} color="#000" />
+                                        <Text style={[styles.mainButtonText, isLandscape && { fontSize: 15 }]}>Embarking</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={styles.touchableArea}
+                                        onPress={incrementEmbarking}
+                                        onLongPress={handleLongPressEmbarking}
+                                        delayLongPress={600}
+                                        activeOpacity={0.7}
+                                    />
                                 </View>
-                                <TouchableOpacity
-                                    style={[styles.smallButton, styles.borderGreen]}
-                                    onPress={decrementEmbarking}
-                                    activeOpacity={0.7}
-                                >
-                                    <MaterialIcons name="person-remove" size={24} color="#4ADE80" />
-                                </TouchableOpacity>
+
+                                <View style={styles.controlsRight}>
+                                    <View style={[styles.countDisplay, isLandscape && { width: 48 }]}>
+                                        <Text style={[styles.countText, isLandscape && { fontSize: 20 }, { color: '#4ADE80' }]}>{embarking}</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={[styles.smallButton, styles.borderGreen, isLandscape && { width: 48 }]}
+                                        onPress={decrementEmbarking}
+                                        activeOpacity={0.7}
+                                    >
+                                        <MaterialIcons name="person-remove" size={isLandscape ? 20 : 24} color="#4ADE80" />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+
+                            {/* Disembarking Row (Yellow) */}
+                            <View style={[styles.countRow, isLandscape && { height: 48 }]}>
+                                <View style={[styles.mainButton, styles.mainButtonYellow]}>
+                                    <View style={styles.mainButtonLeft}>
+                                        <MaterialIcons name="person-add" size={isLandscape ? 20 : 24} color="#000" />
+                                        <Text style={[styles.mainButtonText, isLandscape && { fontSize: 15 }]}>Disembarking</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={styles.touchableArea}
+                                        onPress={incrementDisembarking}
+                                        onLongPress={handleLongPressDisembarking}
+                                        delayLongPress={600}
+                                        activeOpacity={0.7}
+                                    />
+                                </View>
+
+                                <View style={styles.controlsRight}>
+                                    <View style={[styles.countDisplay, isLandscape && { width: 48 }]}>
+                                        <Text style={[styles.countText, isLandscape && { fontSize: 20 }, { color: '#FACC15' }]}>{disembarking}</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={[styles.smallButton, styles.borderYellow, isLandscape && { width: 48 }]}
+                                        onPress={decrementDisembarking}
+                                        activeOpacity={0.7}
+                                    >
+                                        <MaterialIcons name="person-remove" size={isLandscape ? 20 : 24} color="#FACC15" />
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         </View>
 
-                        {/* Disembarking Row (Yellow) */}
-                        <View style={styles.countRow}>
-                            <View style={[styles.mainButton, styles.mainButtonYellow]}>
-                                <View style={styles.mainButtonLeft}>
-                                    <MaterialIcons name="person-add" size={24} color="#000" />
-                                    <Text style={styles.mainButtonText}>Disembarking</Text>
-                                </View>
-                                <TouchableOpacity
-                                    style={styles.touchableArea}
-                                    onPress={incrementDisembarking}
-                                    onLongPress={handleLongPressDisembarking}
-                                    delayLongPress={600}
-                                    activeOpacity={0.7}
-                                />
-                            </View>
+                        {/* Footer */}
+                        <View style={[styles.footer, isLandscape && { paddingVertical: 8 }]}>
+                            <TouchableOpacity
+                                style={[styles.submitButton, !canSubmit && styles.submitButtonDisabled, isLandscape && { paddingVertical: 8, minWidth: 100 }]}
+                                onPress={handleSubmit}
+                                activeOpacity={canSubmit ? 0.8 : 1}
+                                disabled={!canSubmit}
+                            >
+                                {isSubmitting
+                                    ? <ActivityIndicator size="small" color="#FFF" />
+                                    : <Text style={[styles.submitButtonText, isLandscape && { fontSize: 16 }]}>Submit</Text>
+                                }
+                            </TouchableOpacity>
 
-                            <View style={styles.controlsRight}>
-                                <View style={styles.countDisplay}>
-                                    <Text style={[styles.countText, { color: '#FACC15' }]}>{disembarking}</Text>
+                            <View style={[styles.summaryContainer, isLandscape && { minWidth: 150 }]}>
+                                <View style={[styles.summaryRow, { backgroundColor: '#4ADE80' }, isLandscape && { paddingVertical: 4 }]}>
+                                    <Text style={[styles.summaryCount, isLandscape && { fontSize: 16 }]}>{embarking}</Text>
+                                    <Text style={[styles.summaryLabel, isLandscape && { fontSize: 14 }]}>EMBARKING</Text>
                                 </View>
-                                <TouchableOpacity
-                                    style={[styles.smallButton, styles.borderYellow]}
-                                    onPress={decrementDisembarking}
-                                    activeOpacity={0.7}
-                                >
-                                    <MaterialIcons name="person-remove" size={24} color="#FACC15" />
-                                </TouchableOpacity>
+
+                                <View style={[styles.summaryRow, { backgroundColor: '#FACC15', marginTop: 8 }, isLandscape && { paddingVertical: 4 }]}>
+                                    <Text style={[styles.summaryCount, isLandscape && { fontSize: 16 }]}>{disembarking}</Text>
+                                    <Text style={[styles.summaryLabel, isLandscape && { fontSize: 14 }]}>DISEMBARKING</Text>
+                                </View>
                             </View>
                         </View>
-                    </View>
-
-
-
-                    {/* Footer */}
-                    <View style={styles.footer}>
-                        <TouchableOpacity
-                            style={[styles.submitButton, !canSubmit && styles.submitButtonDisabled]}
-                            onPress={handleSubmit}
-                            activeOpacity={canSubmit ? 0.8 : 1}
-                            disabled={!canSubmit}
-                        >
-                            {isSubmitting
-                                ? <ActivityIndicator size="small" color="#FFF" />
-                                : <Text style={styles.submitButtonText}>Submit</Text>
-                            }
-                        </TouchableOpacity>
-
-                        <View style={styles.summaryContainer}>
-                            <View style={[styles.summaryRow, { backgroundColor: '#4ADE80' }]}>
-                                <Text style={styles.summaryCount}>{embarking}</Text>
-                                <Text style={styles.summaryLabel}>EMBARKING</Text>
-                            </View>
-
-                            <View style={[styles.summaryRow, { backgroundColor: '#FACC15', marginTop: 8 }]}>
-                                <Text style={styles.summaryCount}>{disembarking}</Text>
-                                <Text style={styles.summaryLabel}>DISEMBARKING</Text>
-                            </View>
-                        </View>
-                    </View>
-                </View>
-            </View>
+                    </ScrollView>
+                </Pressable>
+            </Pressable>
 
             <BulkPassengerNumpad
                 visible={numpadVisible}
@@ -325,6 +339,12 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         borderWidth: 1,
         borderColor: '#6B7280',
+    },
+    modalContentLandscape: {
+        maxWidth: '90%',
+    },
+    headerLandscape: {
+        paddingVertical: 8,
     },
     header: {
         flexDirection: 'row',
@@ -456,9 +476,10 @@ const styles = StyleSheet.create({
     },
     footer: {
         flexDirection: 'row',
-        padding: 16,
+        padding: 12,
         alignItems: 'flex-end',
         justifyContent: 'space-between',
+        gap: 10
     },
     submitButton: {
         backgroundColor: '#3B82F6', // Blue-500

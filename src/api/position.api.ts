@@ -69,7 +69,7 @@ export async function mdtUpdate(params: MdtUpdateParams): Promise<void> {
     batteryLevel: params.batteryLevel ?? 100,
     batteryState: params.batteryState ?? 2,
     d: params.d ?? 1,
-    screenBrightness: params.screenBrightness / 100 ?? 0,
+    screenBrightness: (params.screenBrightness ?? 100) / 100,
     connectionType: params.connectionType ?? 'wifi',
     ssid: params.ssid ?? '',
     mdtUUID: params.mdtUUID ?? '',
@@ -188,4 +188,28 @@ export async function getRouteForDriver(
   });
   const { data } = await axios.get<RouteForDriverResponse>(url, { timeout: TIMEOUT });
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// C) Self-dispatch / Self-update assignment
+// ---------------------------------------------------------------------------
+
+export async function selfUpdateAssignment(params: {
+  agencyID: string | number;
+  vehicleID: string | number;
+  routeID: string | number;
+  driverID: string | number;
+}): Promise<any> {
+  const url = buildUrl({
+    controller: 'vehicleassignments',
+    action: 'selfupdate',
+    source: 'MDT',
+    agencyID: params.agencyID,
+    vehicleID: params.vehicleID,
+    routeID: params.routeID,
+    driverID: params.driverID,
+  });
+  const resp = await axios.get(url, { timeout: TIMEOUT });
+  console.log('Self Update Assignment Response:', resp.data);
+  return resp.data;
 }

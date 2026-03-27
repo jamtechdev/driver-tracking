@@ -23,6 +23,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useMapLocation } from '../../context/MapLocationContext';
 import { useDriverData } from '../../context/DriverDataContext';
 import { MAPS_CONFIG, isMapsApiKeyValid } from '../../config/maps.config';
+import { getAllVehicles } from '../../api/vehicle.api';
 
 interface MapScreenProps {
   navigation: any;
@@ -44,16 +45,16 @@ try {
 const DirectionalArrow = ({ color }: { color: string }) => {
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    // Create a 'ping' animation: start from center, expand and fade out
-    Animated.loop(
-      Animated.timing(pulseAnim, {
-        toValue: 1,
-        duration: 2000,
-        useNativeDriver: true,
-      })
-    ).start();
-  }, [pulseAnim]);
+  // useEffect(() => {
+  //   // Create a 'ping' animation: start from center, expand and fade out
+  //   Animated.loop(
+  //     Animated.timing(pulseAnim, {
+  //       toValue: 1,
+  //       duration: 2000,
+  //       useNativeDriver: true,
+  //     })
+  //   ).start();
+  // }, [pulseAnim]);
 
   const glowScale = pulseAnim.interpolate({
     inputRange: [0, 1],
@@ -76,7 +77,7 @@ const DirectionalArrow = ({ color }: { color: string }) => {
           borderRadius: 15,
           // backgroundColor: color,
           // opacity: glowOpacity,
-          transform: [{ scale: glowScale }],
+          // transform: [{ scale: glowScale }],
         }}
       />
       {/* The Arrow */}
@@ -99,6 +100,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   const { location, error: mapLocationError, heading } = useMapLocation();
   const { vehicleId, selectedRouteId } = useAuth();
   const { routes, stops } = useDriverData();
+  const [vehiclesPosition, setVehiclesPosition] = useState<any[]>([]);
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const [showPositionOverlay, setShowPositionOverlay] = useState(false);
@@ -111,6 +113,28 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     longitudeDelta: MAPS_CONFIG.DEFAULT_REGION.longitudeDelta ?? 0.0421,
   });
   const [currentRegion, setCurrentRegion] = useState(initialRegion);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    const fetchOtherVehicles = async () => {
+      try {
+        const data = await getAllVehicles();
+        if (data && Array.isArray(data)) {
+          setVehiclesPosition(data);
+        }
+      } catch (err) {
+        console.warn('[MapScreen] Failed to fetch other vehicles:', err);
+      }
+    };
+
+    fetchOtherVehicles();
+    interval = setInterval(fetchOtherVehicles, 5000);
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, []);
 
   const parseRoutePoints = (pointsStr: any): { latitude: number, longitude: number }[] => {
     if (!pointsStr || typeof pointsStr !== 'string') return [];
@@ -159,6 +183,18 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
 
   const routeColor = selectedRoute?.color ? `#${selectedRoute.color}` : COLORS.primary;
 
+  const otherVehiclesOnSameRoute = useMemo(() => {
+    if (!selectedRouteId || !vehiclesPosition.length) return [];
+
+    const vehicles = vehiclesPosition.filter(v =>
+      String(v.routeID) === String(selectedRouteId)
+      // String(v.vehicleID) !== String(vehicleId)
+    );
+    console.log('otherVehiclesOnSameRoute', vehicles);
+    return vehicles;
+  }, [selectedRouteId, vehiclesPosition, vehicleId]);
+
+
   useEffect(() => {
     if (routePoints.length > 0 && mapReady && mapRef.current) {
       // Use a small timeout to ensure map layout is complete before fitting
@@ -195,24 +231,24 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     }
   }, [mapReady, routePoints.length, location?.latitude, location?.longitude]);
 
-const calculatedRegion = useMemo(() => {
-  if (location && !mapReady) {
-    return {
-      latitude: location.latitude,
-      longitude: location.longitude,
-      latitudeDelta: 0.005,
-      longitudeDelta: 0.005,
-    };
-  }
-  return null;
-}, [location, mapReady]);
+  const calculatedRegion = useMemo(() => {
+    if (location && !mapReady) {
+      return {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      };
+    }
+    return null;
+  }, [location, mapReady]);
 
-useEffect(() => {
-  if (calculatedRegion) {
-    setInitialRegion(calculatedRegion);
-    setCurrentRegion(calculatedRegion);
-  }
-}, [calculatedRegion, setInitialRegion, setCurrentRegion]);
+  useEffect(() => {
+    if (calculatedRegion) {
+      setInitialRegion(calculatedRegion);
+      setCurrentRegion(calculatedRegion);
+    }
+  }, [calculatedRegion, setInitialRegion, setCurrentRegion]);
 
   const handleZoomIn = () => {
     if (mapRef.current) {
@@ -397,6 +433,28 @@ useEffect(() => {
             <DirectionalArrow color={COLORS.background} />
           </Marker>
         )}
+
+        {otherVehiclesOnSameRoute?.map((v) => {
+          const lat = typeof v.lat === 'number' ? v.lat : parseFloat(v.lat);
+          const lng = typeof v.lng === 'number' ? v.lng : parseFloat(v.lng);
+          const bear = typeof v.bearing === 'number' ? v.bearing : parseFloat(v.bearing || v.heading || '0');
+
+          if (isNaN(lat) || isNaN(lng)) return null;
+
+          return (
+            <Marker
+              key={`vehicle-${v.vehicleID}`}
+              coordinate={{ latitude: lat, longitude: lng }}
+              title={v.vehicleName || v.vehicleNumber || `Vehicle ${v.vehicleID}`}
+              description={`Route: ${v.routeShortName || selectedRouteId}`}
+              anchor={{ x: 0.5, y: 0.5 }}
+              rotation={isNaN(bear) ? 0 : bear}
+              flat
+            >
+              <DirectionalArrow color={COLORS.background} />
+            </Marker>
+          );
+        })}
       </MapView>
 
       {isTabView && !isMobile && isLandscape && (

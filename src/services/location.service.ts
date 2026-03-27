@@ -152,7 +152,7 @@ let _geolocation: typeof import('@react-native-community/geolocation').default |
 
 function getGeolocation(): typeof import('@react-native-community/geolocation').default | null {
   if (_geolocation === 'failed') return null;
-  if (_geolocation !== null) return _geolocation;
+  if (typeof _geolocation === 'object' && _geolocation !== null) return _geolocation;
   try {
     const mod = require('@react-native-community/geolocation');
     if (!mod) {
@@ -165,7 +165,7 @@ function getGeolocation(): typeof import('@react-native-community/geolocation').
       return null;
     }
     _geolocation = Default;
-    return _geolocation;
+    return _geolocation as typeof import('@react-native-community/geolocation').default | null;
   } catch (_e) {
     _geolocation = 'failed';
     return null;
@@ -221,7 +221,7 @@ export const locationService = {
         },
         {
           enableHighAccuracy: true,
-          timeout: 20000, // Reduced from 30s to trigger fallback sooner
+          timeout: 20000,
           maximumAge: 60000,
         }
       );
@@ -262,7 +262,7 @@ export const locationService = {
         {
           enableHighAccuracy: true,
           distanceFilter: 5,
-          interval: 1000,
+          interval: 5000,
           fastestInterval: 1000,
         }
       );
@@ -287,4 +287,3 @@ export const locationService = {
     }
   },
 };
-

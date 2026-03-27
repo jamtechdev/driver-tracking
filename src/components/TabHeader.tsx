@@ -13,6 +13,7 @@ const TabHeader: React.FC = () => {
   const { use24HourClock } = useSettingsModal();
   const sliderAnim = useRef(new Animated.Value(0)).current;
   const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   const isMobile = width < 600;
   const isPortrait = height > width;
   const sliderWidth = 200;
@@ -87,7 +88,7 @@ const TabHeader: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.header}>
+    <SafeAreaView style={[styles.header, isLandscape && styles.headerLandscape]} edges={['top']}>
       <View style={[styles.headerCenter, isPortrait && styles.headerStart]}>
         <Text style={styles.headerTime}>
           {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: !use24HourClock })}
@@ -164,6 +165,11 @@ const styles = StyleSheet.create({
     paddingTop: 30,
     paddingBottom: 40
   },
+  headerLandscape: {
+    paddingTop: 15,
+    marginTop: 10,
+    paddingBottom: 10,
+  },
   headerCenter: {
     position: 'absolute',
     left: 0,
@@ -185,14 +191,14 @@ const styles = StyleSheet.create({
   emergencyContainer: {
     position: 'absolute',
     right: 24,
-    marginTop:7
+    marginTop: 12
   },
   emergencyContainerMobile: {
     right: 12,
   },
   sliderTrack: {
     width: 200,
-    height: 52,
+    height: 42,
     backgroundColor: '#3A3A3C',
     borderRadius: 26,
     justifyContent: 'center',
@@ -211,8 +217,8 @@ const styles = StyleSheet.create({
     pointerEvents: 'none',
   },
   sliderThumb: {
-    width: 52,
-    height: 44,
+    width: 42,
+    height: 38,
     backgroundColor: COLORS.emergency,
     borderRadius: 22,
     justifyContent: 'center',

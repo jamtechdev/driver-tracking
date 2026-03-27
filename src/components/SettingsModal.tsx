@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import DeviceInfo from 'react-native-device-info';
+import DeviceInfo, { isTablet } from 'react-native-device-info';
 import NetInfo from '@react-native-community/netinfo';
 import { COLORS } from '../theme/colors';
 import { useSettingsModal } from '../context/SettingsModalContext';
@@ -515,10 +515,10 @@ const SettingsModal: React.FC = () => {
 
   const SIDEBAR_WIDTH = 88;
   const MODAL_WIDTH = Math.min(400, width - SIDEBAR_WIDTH - 16);
-  const MODAL_HEIGHT = height * 0.9;
+  const MODAL_HEIGHT = height * 0.85;
   const computedTop =
     anchorY !== null
-      ? Math.max(8, Math.min(anchorY - 60, height - MODAL_HEIGHT - 8))
+      ? Math.max(8, Math.min(anchorY - 30, height - MODAL_HEIGHT - 8))
       : height * 0.08;
 
   useEffect(() => {
@@ -589,7 +589,7 @@ const SettingsModal: React.FC = () => {
             styles.modalContent,
             {
               top: computedTop,
-              left: SIDEBAR_WIDTH + 14,
+              left: isTablet() ? SIDEBAR_WIDTH + 14 : 15,
               width: MODAL_WIDTH,
               height: MODAL_HEIGHT,
             },

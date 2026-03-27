@@ -34,7 +34,18 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+       
+         <intent-filter>
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="drivertracking" />
+  </intent-filter>
       </activity>
+       <service
+        android:name="com.asterinet.react.bgactions.RNBackgroundActionsTask"
+        android:foregroundServiceType="location"
+        android:exported="false" />
       <service android:name="app.notifee.core.ForegroundService" android:foregroundServiceType="location" />
     </application>
 </manifest>

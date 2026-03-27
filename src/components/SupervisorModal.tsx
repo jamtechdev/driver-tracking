@@ -854,18 +854,18 @@ import Toast from 'react-native-toast-message';
 const DirectionalArrow = ({ color }: { color: string }) => {
     const heartbeat = useRef(new Animated.Value(1)).current;
 
-    useEffect(() => {
-        Animated.loop(
-            Animated.sequence([
-                Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
-                Animated.timing(heartbeat, { toValue: 0.15, duration: 400, useNativeDriver: true }),
-                Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
-                Animated.timing(heartbeat, { toValue: 0.15, duration: 400, useNativeDriver: true }),
-                Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
-                Animated.delay(700),
-            ])
-        ).start();
-    }, [heartbeat]);
+    // useEffect(() => {
+    //     Animated.loop(
+    //         Animated.sequence([
+    //             Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
+    //             Animated.timing(heartbeat, { toValue: 0.15, duration: 400, useNativeDriver: true }),
+    //             Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
+    //             Animated.timing(heartbeat, { toValue: 0.15, duration: 400, useNativeDriver: true }),
+    //             Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
+    //             Animated.delay(700),
+    //         ])
+    //     ).start();
+    // }, [heartbeat]);
 
     return (
         <Animated.View style={{ width: 50, height: 50, alignItems: 'center', justifyContent: 'center', opacity: heartbeat }}>
@@ -1479,7 +1479,7 @@ const styles = StyleSheet.create({
     },
     modalCard: {
         width: '100%',
-        maxWidth: 900,
+        maxWidth: '90%',
         height: '95%',
         maxHeight: 650,
         backgroundColor: '#FFF',
@@ -1646,6 +1646,7 @@ const styles = StyleSheet.create({
         fontSize: 13,
         marginTop: 6,
         fontWeight: '500',
+        textAlign: 'center'
     },
     // Assignment Form Styles
     formContainer: {

@@ -49,7 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const dynamicIconColor = isDarkMode ? '#000000' : '#ffffff';
-  const isLandscape = width <= 768;
+  const isLandscape = height < width;
   const { driver, serviceStatus } = useAuth();
   const { setBrightnessVisible, brightnessVisible } = useBrightness();
   const { open: openMessagingModal, visible: messagingModalVisible } = useMessagingModal();
@@ -103,11 +103,13 @@ const Sidebar: React.FC<SidebarProps> = ({
     // Power / device control placeholder
   };
 
-  const isMobile = width < 600;
+  const isMobile = width < 600 || height < 600;
+  const isTabletDevice = Math.max(width, height) >= 900;
+  const isCompact = variant === 'compact' || isTabletDevice;
   const topInset = insets.top + (isMobile ? 20 : 0);
   const scale = Math.min(width / 380, 1.3);
   const itemIconSize = Math.max(24, Math.round(28 * scale));
-  const itemFontSize = Math.max(12, Math.round(12 * scale));
+  const itemFontSize = Math.max(12, Math.round(10 * scale));
   const proceedFontSize = Math.max(12, Math.round(16 * scale));
   const powerIconSize = Math.max(26, Math.round(28 * scale));
 
@@ -116,66 +118,38 @@ const Sidebar: React.FC<SidebarProps> = ({
       <View style={[styles.abovePower]}>
 
         <View style={[styles.itemsWrap, { paddingTop: topInset }]}>
-          {/* <TouchableOpacity style={{
-        backgroundColor: COLORS.sidebarItemBg,
-        alignItems: 'center',
-        justifyContent: 'center',
-          paddingBottom: 10,
-          borderRadius: 5,
-          borderBottomWidth:1,
-          borderBottomColor: COLORS.sidebarSeparator,
-          minHeight: 0,
-          }} onPress={() => {
-    openSettingsModal();
-        }}>
-          <Text style={styles.itemLabel}>Settings</Text>
-        </TouchableOpacity> */}
-
-        { isLandscape  ? 
-            <ScrollView showsVerticalScrollIndicator={false}>
-          {SIDEBAR_ITEMS.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              ref={item.id === 'Settings' ? settingsItemRef : undefined}
-              style={[styles.itemBlock,{paddingVertical:isLandscape && isMobile ? 12 :20}]}
-              onPress={() => handleNav(item.id)}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons
-                name={item.icon as any}
-                size={itemIconSize}
-                color={dynamicIconColor}
-                style={styles.itemIcon}
-              />
-              <Text style={[styles.itemLabel, { fontSize: itemFontSize }]}>{item.label}</Text>
-            </TouchableOpacity>
-          ))}
+          <ScrollView
+            scrollEnabled={!isTabletDevice}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={isTabletDevice ? { flexGrow: 1, justifyContent: 'space-around' } : { flexGrow: 1 }}
+          >
+            {SIDEBAR_ITEMS.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                ref={item.id === 'Settings' ? settingsItemRef : undefined}
+                style={[
+                  styles.itemBlock,
+                  isTabletDevice ? styles.itemBlockTablet : styles.itemBlockMobile,
+                ]}
+                onPress={() => handleNav(item.id)}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons
+                  name={item.icon as any}
+                  size={isTabletDevice ? 24 : itemIconSize}
+                  color={dynamicIconColor}
+                  style={[styles.itemIcon, isTabletDevice && { marginBottom: 4 }]}
+                />
+                <Text style={[styles.itemLabel, { fontSize: isTabletDevice ? 11 : itemFontSize }]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </ScrollView>
-:
-<>
-        {SIDEBAR_ITEMS.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              ref={item.id === 'Settings' ? settingsItemRef : undefined}
-              style={styles.itemBlock}
-              onPress={() => handleNav(item.id)}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons
-                name={item.icon as any}
-                size={itemIconSize}
-                color={dynamicIconColor}
-                style={styles.itemIcon}
-              />
-              <Text style={[styles.itemLabel, { fontSize: itemFontSize }]}>{item.label}</Text>
-            </TouchableOpacity>
-          ))}
-          </>
-        }
         </View>
 
         <View style={styles.proceedSeparator} />
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={[styles.proceedBar, isLoggedOut && styles.proceedBarDisabled]}
           onPress={handleProceed}
           activeOpacity={0.85}
@@ -184,7 +158,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Text style={[styles.proceedBarText, { fontSize: proceedFontSize, lineHeight: proceedFontSize + 3 }]}>
             Proceed{'\n'}if Safe
           </Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
 
       <View style={styles.powerSeparator} />
@@ -212,11 +186,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   );
 
   if (isDrawer) {
-    return <View style={styles.drawer}>{content}</View>;
+    return <View style={[styles.drawer, { paddingLeft: insets.left }]}>{content}</View>;
   }
 
   return (
-    <View style={[styles.sidebar, isTablet && styles.sidebarTablet, isLandscape && styles.sidebarLandscape]}>
+    <View style={[styles.sidebar, isTablet && styles.sidebarTablet, isLandscape && styles.sidebarLandscape, { paddingLeft: insets.left + 10, paddingHorizontal: 8 }]}>
       {content}
     </View>
   );
@@ -254,13 +228,20 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   itemBlock: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.sidebarItemBg,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.sidebarSeparator,
+  },
+  itemBlockTablet: {
+    flex: 1,
     minHeight: 0,
+    paddingVertical: 10,
+  },
+  itemBlockMobile: {
+    flex: 1,
+    paddingVertical: 15,
   },
   itemIcon: {
     marginBottom: 8,
