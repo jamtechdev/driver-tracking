@@ -10,7 +10,8 @@ const BRIGHTNESS_KEY = '@driver_tracking:brightness';
 
 interface BrightnessContextType {
   brightnessVisible: boolean;
-  setBrightnessVisible: (visible: boolean) => void;
+  setBrightnessVisible: (visible: boolean, anchorY?: number) => void;
+  anchorY: number | null;
   brightness: number;
   setBrightness: (value: number) => void;
   brightnessSupported: boolean | null;
@@ -19,10 +20,18 @@ interface BrightnessContextType {
 const BrightnessContext = createContext<BrightnessContextType | null>(null);
 
 export const BrightnessProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [brightnessVisible, setBrightnessVisible] = useState(false);
+  const [brightnessVisible, setBrightnessVisibleInternal] = useState(false);
+  const [anchorY, setAnchorY] = useState<number | null>(null);
   const [brightness, setBrightnessState] = useState(100);
   const [brightnessSupported, setBrightnessSupported] = useState<boolean | null>(null);
   const hasShownUnsupportedToast = useRef(false);
+
+  const setBrightnessVisible = useCallback((visible: boolean, y?: number) => {
+    setBrightnessVisibleInternal(visible);
+    if (y !== undefined) {
+      setAnchorY(y);
+    }
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -78,6 +87,7 @@ export const BrightnessProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       value={{
         brightnessVisible,
         setBrightnessVisible,
+        anchorY,
         brightness,
         setBrightness,
         brightnessSupported,

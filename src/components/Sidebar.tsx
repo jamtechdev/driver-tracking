@@ -60,6 +60,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isLoggedOut = !driver || driver.role === 'unassigned';
   // Ref to measure the Settings icon position for anchoring the modal
   const settingsItemRef = useRef<View>(null);
+  const brightnessItemRef = useRef<View>(null);
 
   const currentRoute = useNavigationState((state) => {
     const route = state?.routes?.[state.index];
@@ -69,7 +70,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   const handleNav = (screen: string) => {
     onNavPress?.();
     if (screen === 'Brightness') {
-      setBrightnessVisible(!brightnessVisible);
+      brightnessItemRef.current?.measureInWindow((_x, y, _w, h) => {
+        setBrightnessVisible(!brightnessVisible, y + h / 2);
+      });
       return;
     }
     if (screen === 'Messaging') {
@@ -107,11 +110,50 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isTabletDevice = Math.max(width, height) >= 900;
   const isCompact = variant === 'compact' || isTabletDevice;
   const topInset = insets.top + (isMobile ? 20 : 0);
-  const scale = Math.min(width / 380, 1.3);
-  const itemIconSize = Math.max(24, Math.round(28 * scale));
-  const itemFontSize = Math.max(12, Math.round(10 * scale));
-  const proceedFontSize = Math.max(12, Math.round(16 * scale));
-  const powerIconSize = Math.max(26, Math.round(28 * scale));
+
+  // ── Responsive icon & text sizing ──
+  // Available height for sidebar items (subtract top inset, power button, separators)
+  const sidebarAvailableHeight = height - topInset - BOTTOM_BAR_HEIGHT - 20;
+  const itemCount = SIDEBAR_ITEMS.length;
+  const perItemHeight = sidebarAvailableHeight / Math.max(itemCount, 1);
+
+  // Scale based on per-item available height AND sidebar width
+  const sidebarWidth = isTabletDevice ? 120 : (isMobile ? 280 : 88);
+  const heightScale = Math.min(perItemHeight / 80, 1.6);   // 80px = baseline per-item height
+  const widthScale = Math.min(sidebarWidth / 100, 1.4);     // 100px = baseline width
+  const combinedScale = Math.min(heightScale, widthScale);
+
+  let itemIconSize: number;
+  let itemFontSize: number;
+  let proceedFontSize: number;
+  let powerIconSize: number;
+
+  if (isTabletDevice) {
+    if (isLandscape) {
+      // Tablet landscape: generous width, less height
+      itemIconSize = Math.round(Math.min(Math.max(20, 26 * combinedScale), 36));
+      itemFontSize = Math.round(Math.min(Math.max(10, 11 * combinedScale), 15));
+    } else {
+      // Tablet portrait: lots of vertical space
+      itemIconSize = Math.round(Math.min(Math.max(22, 28 * combinedScale), 40));
+      itemFontSize = Math.round(Math.min(Math.max(11, 12 * combinedScale), 16));
+    }
+    proceedFontSize = Math.round(Math.min(Math.max(12, 14 * combinedScale), 18));
+    powerIconSize = Math.round(Math.min(Math.max(24, 28 * combinedScale), 36));
+  } else {
+    // Phone
+    if (isLandscape) {
+      // Phone landscape: very limited height
+      itemIconSize = Math.round(Math.min(Math.max(18, 24 * combinedScale), 30));
+      itemFontSize = Math.round(Math.min(Math.max(9, 10 * combinedScale), 13));
+    } else {
+      // Phone portrait: standard
+      itemIconSize = Math.round(Math.min(Math.max(22, 28 * combinedScale), 34));
+      itemFontSize = Math.round(Math.min(Math.max(11, 12 * combinedScale), 15));
+    }
+    proceedFontSize = Math.round(Math.min(Math.max(12, 16 * combinedScale), 18));
+    powerIconSize = Math.round(Math.min(Math.max(22, 28 * combinedScale), 32));
+  }
 
   const content = (
     <>
@@ -123,28 +165,44 @@ const Sidebar: React.FC<SidebarProps> = ({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={isTabletDevice ? { flexGrow: 1, justifyContent: 'space-around' } : { flexGrow: 1 }}
           >
-            {SIDEBAR_ITEMS.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                ref={item.id === 'Settings' ? settingsItemRef : undefined}
-                style={[
-                  styles.itemBlock,
-                  isTabletDevice ? styles.itemBlockTablet : styles.itemBlockMobile,
-                ]}
-                onPress={() => handleNav(item.id)}
-                activeOpacity={0.7}
-              >
-                <MaterialIcons
-                  name={item.icon as any}
-                  size={isTabletDevice ? 24 : itemIconSize}
-                  color={dynamicIconColor}
-                  style={[styles.itemIcon, isTabletDevice && { marginBottom: 4 }]}
-                />
-                <Text style={[styles.itemLabel, { fontSize: isTabletDevice ? 11 : itemFontSize }]}>
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            {SIDEBAR_ITEMS.map((item) => {
+              const iconMarginBottom = isLandscape
+                ? Math.max(2, Math.round(4 * combinedScale))
+                : Math.max(4, Math.round(8 * combinedScale));
+              const itemPaddingVertical = isLandscape
+                ? Math.max(4, Math.round(8 * combinedScale))
+                : (isTabletDevice ? Math.max(8, Math.round(10 * combinedScale)) : Math.max(10, Math.round(15 * combinedScale)));
+
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  ref={
+                    item.id === 'Settings'
+                      ? settingsItemRef
+                      : item.id === 'Brightness'
+                      ? brightnessItemRef
+                      : undefined
+                  }
+                  style={[
+                    styles.itemBlock,
+                    isTabletDevice ? styles.itemBlockTablet : styles.itemBlockMobile,
+                    { paddingVertical: itemPaddingVertical },
+                  ]}
+                  onPress={() => handleNav(item.id)}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons
+                    name={item.icon as any}
+                    size={itemIconSize}
+                    color={dynamicIconColor}
+                    style={[styles.itemIcon, { marginBottom: iconMarginBottom }]}
+                  />
+                  <Text style={[styles.itemLabel, { fontSize: itemFontSize }]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
         </View>
 
@@ -190,7 +248,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   }
 
   return (
-    <View style={[styles.sidebar, isTablet && styles.sidebarTablet, isLandscape && styles.sidebarLandscape, { paddingLeft: insets.left + 10, paddingHorizontal: 8 }]}>
+    <View style={[styles.sidebar, isTablet && styles.sidebarTablet, isLandscape && styles.sidebarLandscape, { padding: insets.left, paddingHorizontal: 8 }]}>
       {content}
     </View>
   );
@@ -214,9 +272,7 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 0,
   },
-  sidebarLandscape: {
-    height: '40%',
-  },
+  sidebarLandscape: {},
   abovePower: {
     flex: 1,
     minHeight: 0,
@@ -237,15 +293,11 @@ const styles = StyleSheet.create({
   itemBlockTablet: {
     flex: 1,
     minHeight: 0,
-    paddingVertical: 10,
   },
   itemBlockMobile: {
     flex: 1,
-    paddingVertical: 15,
   },
-  itemIcon: {
-    marginBottom: 8,
-  },
+  itemIcon: {},
   itemLabel: {
     fontSize: 15,
     fontWeight: '400',

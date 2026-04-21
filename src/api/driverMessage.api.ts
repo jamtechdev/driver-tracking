@@ -13,7 +13,7 @@ const TIMEOUT = API_CONFIG.TIMEOUT;
 export interface SendDriverMessageParams {
   agencyID: string | number;
   vehicleID: string | number;
-  driverID: string | number;
+  driverID: string | number | undefined;
   lat: number;
   lng: number;
   message: string;

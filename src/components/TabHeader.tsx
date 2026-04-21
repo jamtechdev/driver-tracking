@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Animated, Pressable, PanResponder, useWindowDimensions, Modal, TextInput, TouchableOpacity } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../theme/colors';
@@ -14,10 +14,12 @@ const TabHeader: React.FC = () => {
   const sliderAnim = useRef(new Animated.Value(0)).current;
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
-  const isMobile = width < 600;
-  const isPortrait = height > width;
-  const sliderWidth = 200;
+  const isPortrait = !isLandscape;
+  const isMobile = width < 768;
+  const isSmallDevice = width < 600;
+  const sliderWidth = isSmallDevice ? (isPortrait ? 80 : 150) : 160;
   const thumbSize = 52;
+  const timeFontSize = isSmallDevice ? (isPortrait ? 16 : 24) : 28;
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
@@ -37,42 +39,44 @@ const TabHeader: React.FC = () => {
     }
   }, [emergencyActivated, sliderAnim]);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => !emergencyActivated,
-      onMoveShouldSetPanResponder: () => !emergencyActivated,
-      onPanResponderMove: (_, gestureState) => {
-        if (emergencyActivated) return;
-        const newValue = Math.max(0, Math.min(sliderWidth - thumbSize, gestureState.dx));
-        sliderAnim.setValue(newValue);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (emergencyActivated) return;
-        const threshold = (sliderWidth - thumbSize) * 0.8;
-        if (gestureState.dx >= threshold) {
-          Animated.spring(sliderAnim, {
-            toValue: sliderWidth - thumbSize,
-            useNativeDriver: false,
-          }).start((result) => {
-            if (result.finished) {
-              try {
-                activateEmergency();
-              } catch (error) {
-                sliderAnim.setValue(0);
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => !emergencyActivated,
+        onMoveShouldSetPanResponder: () => !emergencyActivated,
+        onPanResponderMove: (_, gestureState) => {
+          if (emergencyActivated) return;
+          const newValue = Math.max(0, Math.min(sliderWidth - thumbSize, gestureState.dx));
+          sliderAnim.setValue(newValue);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (emergencyActivated) return;
+          const threshold = (sliderWidth - thumbSize) * 0.8;
+          if (gestureState.dx >= threshold) {
+            Animated.spring(sliderAnim, {
+              toValue: sliderWidth - thumbSize,
+              useNativeDriver: false,
+            }).start((result) => {
+              if (result.finished) {
+                try {
+                  activateEmergency();
+                } catch (error) {
+                  sliderAnim.setValue(0);
+                }
               }
-            }
-          });
-        } else {
-          Animated.spring(sliderAnim, {
-            toValue: 0,
-            tension: 50,
-            friction: 7,
-            useNativeDriver: false,
-          }).start();
-        }
-      },
-    })
-  ).current;
+            });
+          } else {
+            Animated.spring(sliderAnim, {
+              toValue: 0,
+              tension: 50,
+              friction: 7,
+              useNativeDriver: false,
+            }).start();
+          }
+        },
+      }),
+    [emergencyActivated, activateEmergency, sliderWidth, thumbSize, sliderAnim]
+  );
 
   const [isDeactivateModalVisible, setIsDeactivateModalVisible] = useState(false);
   const [deactivateReason, setDeactivateReason] = useState('');
@@ -89,12 +93,15 @@ const TabHeader: React.FC = () => {
 
   return (
     <SafeAreaView style={[styles.header, isLandscape && styles.headerLandscape]} edges={['top']}>
-      <View style={[styles.headerCenter, isPortrait && styles.headerStart]}>
-        <Text style={styles.headerTime}>
+      <View style={styles.headerTimeAbsolute} pointerEvents="none">
+        <Text style={[styles.headerTime, { fontSize: timeFontSize }]}>
           {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: !use24HourClock })}
         </Text>
       </View>
-      <View style={[styles.emergencyContainer, isMobile && styles.emergencyContainerMobile]}>
+
+      <View style={{ flex: 1 }} />
+
+      <View style={[styles.emergencyContainerNew, { width: sliderWidth + (isMobile ? 12 : 24), paddingRight: isMobile ? 12 : 24, marginBottom: isPortrait ? 10 : 0 }]}>
         {emergencyActivated ? (
           <TouchableOpacity
             style={styles.emergencyActivatedBtn}
@@ -104,7 +111,7 @@ const TabHeader: React.FC = () => {
             <Text style={styles.emergencyActivatedText}>Activated</Text>
           </TouchableOpacity>
         ) : (
-          <View style={styles.sliderTrack}>
+          <View style={[styles.sliderTrack, { width: sliderWidth }]}>
             <Text style={styles.sliderLabel}>Emergency</Text>
             <Animated.View
               {...panResponder.panHandlers}
@@ -160,41 +167,38 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    justifyContent: 'space-between',
+    paddingHorizontal: 0, // Controlled by flex columns
     position: 'relative',
     paddingTop: 30,
-    paddingBottom: 40
+    paddingBottom: 40,
   },
   headerLandscape: {
     paddingTop: 15,
     marginTop: 10,
-    paddingBottom: 10,
+    paddingBottom: 35,
   },
-  headerCenter: {
+  headerTimeAbsolute: {
     position: 'absolute',
     left: 0,
     right: 0,
-    alignItems: 'center',
+    top: 0,
+    bottom: 0,
     justifyContent: 'center',
-  },
-  headerStart: {
-    alignItems: 'flex-start',
-    left: 24,
+    alignItems: 'center',
+    zIndex: -1,
+
   },
   headerTime: {
-    fontSize: 28,
     fontWeight: '600',
     color: COLORS.textPrimary,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
-  emergencyContainer: {
-    position: 'absolute',
-    right: 24,
-    marginTop: 12
-  },
-  emergencyContainerMobile: {
-    right: 12,
+  emergencyContainerNew: {
+    alignItems: 'flex-end',
+    alignSelf: 'center',
+    // marginBottom: 10,
   },
   sliderTrack: {
     width: 200,
@@ -211,7 +215,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     textAlign: 'center',
-    fontSize: 14,
+    fontSize: 13,
+    marginLeft: 10,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.5)',
     pointerEvents: 'none',

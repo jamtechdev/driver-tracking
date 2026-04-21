@@ -48,4 +48,9 @@
         android:exported="false" />
       <service android:name="app.notifee.core.ForegroundService" android:foregroundServiceType="location" />
     </application>
+    <queries>
+    <intent>
+      <action android:name="android.media.action.IMAGE_CAPTURE" />
+    </intent>
+  </queries>
 </manifest>

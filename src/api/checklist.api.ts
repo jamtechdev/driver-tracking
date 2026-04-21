@@ -75,6 +75,7 @@ export const getChecklist = async (
     timeout: API_CONFIG.TIMEOUT,
   });
   const data = response.data;
+  console.log('[Checklist API] GET getchecklist', data);
   let items: ChecklistItemApi[] = [];
   if (Array.isArray(data)) {
     items = data;

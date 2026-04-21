@@ -9,6 +9,7 @@ import type { Driver } from '../data/drivers';
 import { DRIVERS } from '../data/drivers';
 import { getDriverData } from '@/api/driverData.api';
 import { getVehiclesByDriver, getVehicleAssignment } from '@/api/vehicle.api';
+import { getManifestAssignmentsByVehicle, getManifestsForToday } from '@/api/manifests.api';
 import { reportMdtStatusAfterLogin } from '@/api/mdt.api';
 import { deviceService } from '@/services/device.service';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
@@ -37,7 +38,7 @@ interface AuthContextType extends AuthState {
   setVehicleId: (id: string | null) => void;
   setVehicleName: (name: string | null) => void;
   setServiceStatus: (status: 'in_service' | 'out_of_service') => void;
-  selectRouteOrStatus: (value: string, routeId?: string | null) => void;
+  selectRouteOrStatus: (value: string, routeId?: string | null, manifestId?: number | null) => void;
   setSelectedManifestId: (id: number | null) => void;
   setPassengerCount: (count: number | ((prev: number) => number)) => void;
   setHasShownSupervisorModal: (shown: boolean) => void;
@@ -75,6 +76,7 @@ function parseStoredState(raw: string | null): AuthState | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<AuthState> & { driver?: unknown };
+    console.log('parsed', parsed);
     if (!parsed || !isDriverLike(parsed.driver)) return null;
     return {
       driver: parsed.driver as Driver,
@@ -86,7 +88,7 @@ function parseStoredState(raw: string | null): AuthState | null {
       selectedRoute: typeof parsed.selectedRoute === 'string' ? parsed.selectedRoute : initialState.selectedRoute,
       selectedRouteId: typeof parsed.selectedRouteId === 'string' || parsed.selectedRouteId === null ? parsed.selectedRouteId : initialState.selectedRouteId,
       selectedManifestId: typeof parsed.selectedManifestId === 'number' || parsed.selectedManifestId === null ? parsed.selectedManifestId : initialState.selectedManifestId,
-      passengerCount: typeof parsed.passengerCount === 'number' ? parsed.passengerCount : initialState.passengerCount,
+      passengerCount: typeof parsed.passengerCount === 'number' || typeof parsed.passengerCount === 'string' ? parsed.passengerCount : initialState.passengerCount,
       apcCount: typeof parsed.apcCount === 'number' ? parsed.apcCount : (typeof parsed.passengerCount === 'number' ? parsed.passengerCount : initialState.apcCount),
       hasShownSupervisorModal: typeof parsed.hasShownSupervisorModal === 'boolean' ? parsed.hasShownSupervisorModal : initialState.hasShownSupervisorModal,
     };
@@ -127,7 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAuthenticated: state.isAuthenticated,
       isSupervisorMode: state.isSupervisorMode,
       vehicleId: state.vehicleId,
-      vehicleName: state.vehicleName,
+      vehicleName: state.vehicleId,
       serviceStatus: state.serviceStatus,
       selectedRoute: state.selectedRoute,
       selectedRouteId: state.selectedRouteId,
@@ -148,15 +150,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (vId) {
           const updates: any = {
             vehicleId: String(vId),
-            vehicleName: lastVehicle.vehicleName || String(vId),
+            vehicleName: String(vId),
             passengerCount: Number(lastVehicle.APCCount) || 0,
             apcCount: Number(lastVehicle.APCCount) || 0,
           };
 
-          // Fetch current assignment for this vehicle
-          const assignment = await getVehicleAssignment(String(vId));
-          if (assignment.success && assignment.routeID) {
+          // Fetch current assignment for this vehicle (Route AND Manifest)
+          const [assignment, manifests, allManifests] = await Promise.all([
+            getVehicleAssignment(String(vId)),
+            getManifestAssignmentsByVehicle(String(vId)),
+            getManifestsForToday(),
+          ]);
+          console.log('All Manifest====>>>>', allManifests)
+          if (assignment.success && assignment.routeID && (String(assignment.routeID) !== '0')) {
             updates.selectedRouteId = assignment.routeID;
+            updates.selectedManifestId = null;
 
             // Try to find the route name
             try {
@@ -169,6 +177,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             } catch (e) {
               console.error('[AuthContext] Error finding route name:', e);
+            }
+          } else if (manifests.length > 0) {
+            // Find the most recent active manifest assignment
+            const activeManifest = manifests[0];
+            updates.selectedManifestId = activeManifest.manifestID;
+            updates.selectedRouteId = null;
+
+            // Try to find the manifest name
+            const match = allManifests.find((m) => m.manifestID === activeManifest.manifestID);
+            if (match) {
+              updates.selectedRoute = match.name;
+              updates.serviceStatus = 'in_service';
+            } else {
+              updates.selectedRoute = `Block ${activeManifest.manifestID}`;
+              updates.serviceStatus = 'in_service';
             }
           }
 
@@ -241,7 +264,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       hasShownSupervisorModal: false, // Reset on every login
       // Reset to defaults first to prevent leaking previous session data
       vehicleId: initialState.vehicleId,
-      vehicleName: initialState.vehicleName,
+      vehicleName: initialState.vehicleId,
       serviceStatus: initialState.serviceStatus,
       selectedRoute: initialState.selectedRoute,
       selectedRouteId: initialState.selectedRouteId,
@@ -251,11 +274,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return true;
   }, []);
 
-  const logout = useCallback(() => {
-    setState(initialState);
-    AsyncStorage.removeItem(AUTH_STORAGE_KEY).catch(() => { });
+  const logout = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+      setState(initialState);
+    } catch (e) {
+      console.log('Logout error:', e);
+    }
   }, []);
-
   const selectDriver = useCallback(async (driver: Driver) => {
     try {
       const data = await getDriverData();
@@ -284,7 +310,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hasShownSupervisorModal: false,
         // Reset to defaults first
         vehicleId: initialState.vehicleId,
-        vehicleName: initialState.vehicleName,
+        vehicleName: initialState.vehicleId,
         serviceStatus: initialState.serviceStatus,
         selectedRoute: initialState.selectedRoute,
         selectedRouteId: initialState.selectedRouteId,
@@ -300,7 +326,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hasShownSupervisorModal: false,
         // Reset to defaults first
         vehicleId: initialState.vehicleId,
-        vehicleName: initialState.vehicleName,
+        vehicleName: initialState.vehicleId,
         serviceStatus: initialState.serviceStatus,
         selectedRoute: initialState.selectedRoute,
         selectedRouteId: initialState.selectedRouteId,
@@ -322,19 +348,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setState((s) => ({ ...s, serviceStatus }));
   }, []);
 
-  const selectRouteOrStatus = useCallback((value: string, routeId?: string | null) => {
+  const selectRouteOrStatus = useCallback((value: string, routeId?: string | null, manifestId?: number | null) => {
     const isOutOfService = value === 'Out of Service';
     setState((s) => ({
       ...s,
       selectedRoute: value,
-      selectedRouteId: isOutOfService ? null : (routeId ?? s.selectedRouteId),
-      selectedManifestId: isOutOfService ? null : s.selectedManifestId,
+      selectedRouteId: isOutOfService ? null : (routeId ?? null),
+      selectedManifestId: isOutOfService ? null : (manifestId ?? null),
       serviceStatus: isOutOfService ? 'out_of_service' : 'in_service',
       ...(isOutOfService ? {
         passengerCount: 0,
-        driver: unassignedDriver,
-        vehicleId: initialState.vehicleId,
-        vehicleName: initialState.vehicleName,
+        // driver: unassignedDriver,
+        // vehicleId: initialState.vehicleId,
+        // vehicleName: initialState.vehicleId,
       } : {}),
     }));
   }, []);

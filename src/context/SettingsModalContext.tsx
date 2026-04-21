@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TIME_FORMAT_KEY = '@driver_tracking:time_format';
@@ -45,8 +45,17 @@ export const SettingsModalProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
   const close = useCallback(() => setVisible(false), []);
 
+  const value = useMemo(() => ({
+    visible,
+    anchorY,
+    open,
+    close,
+    use24HourClock,
+    setUse24HourClock
+  }), [visible, anchorY, open, close, use24HourClock, setUse24HourClock]);
+
   return (
-    <SettingsModalContext.Provider value={{ visible, anchorY, open, close, use24HourClock, setUse24HourClock }}>
+    <SettingsModalContext.Provider value={value}>
       {children}
     </SettingsModalContext.Provider>
   );

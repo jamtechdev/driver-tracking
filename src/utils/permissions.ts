@@ -94,7 +94,7 @@ export const requestBackgroundLocationPermission = async (): Promise<boolean> =>
     } else {
       // Redirect user to settings (important for Android 11+)
       Alert.alert('Background Location Required',
-  'To enable continuous GPS tracking, please allow location access "All the time" in your device settings.',
+        'To enable continuous GPS tracking, please allow location access "All the time" in your device settings.',
         [{ text: 'OK', onPress: () => Linking.openSettings() }])
       return false;
     }

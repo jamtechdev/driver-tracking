@@ -31,6 +31,11 @@ export interface ManifestAssignment {
   disabled: boolean;
 }
 
+export interface ManifestAssignmentsResponse {
+  manifestAssignments: ManifestAssignment[];
+  success: boolean;
+}
+
 function todayDateString(): string {
   return new Date().toISOString().split('T')[0];
 }
@@ -73,6 +78,15 @@ async function getManifestAssignment(manifestAssignmentID: number): Promise<Mani
 }
 
 /**
+ * Fetches all block manifests for today (regardless of assignment).
+ */
+export async function getManifestsForToday(date?: string): Promise<BlockManifest[]> {
+  const calendarIDs = await getCalendarIDs(date);
+  const manifestArrays = await Promise.all(calendarIDs.map(getManifestsForCalendar));
+  return manifestArrays.flat().filter((m) => !m.disabled && !m.hidden);
+}
+
+/**
  * Fetches all available (unassigned) block manifests for today.
  * Combines steps 1–4.
  */
@@ -85,20 +99,20 @@ export async function getAvailableBlockManifests(date?: string): Promise<BlockMa
   // Fetch all manifests across all calendars in parallel
   const manifestArrays = await Promise.all(calendarIDs.map(getManifestsForCalendar));
   // console.log('All Manifest Array ------>>>>>.', manifestArrays);
-  
+
   const allManifests = manifestArrays.flat().filter((m) => !m.disabled && !m.hidden);
 
   if (assignmentIDs.length === 0) return allManifests;
   const assignments = await Promise.all(assignmentIDs.map(getManifestAssignment));
-  
-//   console.log('All Assignments ------->>>', assignments);
-// return allManifests.filter((m) => m.type === 'block');
-  // Fetch all existing assignments in parallel to find already-assigned manifestIDs
-  const assignedManifestIDs = new Set(
-    assignments.filter(Boolean).map((a) => a!.manifestID)
-  );
 
-  return allManifests.filter((m) => !assignedManifestIDs.has(m.manifestID));
+  //   console.log('All Assignments ------->>>', assignments);
+  return allManifests.filter((m) => m.type === 'block');
+  // Fetch all existing assignments in parallel to find already-assigned manifestIDs
+  // const assignedManifestIDs = new Set(
+  //   assignments.filter(Boolean).map((a) => a!.manifestID)
+  // );
+
+  // return allManifests.filter((m) => !assignedManifestIDs.has(m.manifestID));
 }
 
 /** Step 5: Assign a block manifest to a vehicle */
@@ -113,4 +127,44 @@ export async function assignBlockManifest(
   const json = await res.json();
   console.log('API Response Assign Block ----->>>>', json);
   return json?.success === true;
+}
+
+/** Fetch all manifest assignments for a vehicle on a specific date */
+// export async function getManifestAssignmentsByVehicle(
+//   vehicleID: string,
+//   date?: string
+// ): Promise<ManifestAssignment[]> {
+//   const d = date ?? todayDateString();
+//   const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=list&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&startDate=${d}&endDate=${d}&vehicleID=${vehicleID}`;
+//   const res = await fetch(url);
+//   const json: ManifestAssignmentsResponse = await res.json();
+//   return json.success && Array.isArray(json.manifestAssignments) ? json.manifestAssignments : [];
+// }
+
+export async function getManifestAssignmentsByVehicle(
+  vehicleID: string,
+  date?: string
+): Promise<ManifestAssignment[]> {
+  const d = date ?? todayDateString();
+
+  // Fetch all assignments for the date (without vehicleID)
+  const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=list&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&startDate=${d}&endDate=${d}`;
+  // console.log('URL ------->>>', url);
+  const res = await fetch(url);
+  const json: ManifestAssignmentsResponse = await res.json();
+
+  // Filter assignments locally for the given vehicleID
+  const allAssignments = json.success && Array.isArray(json.manifestAssignments)
+    ? json.manifestAssignments
+    : [];
+  // console.log('All Manifest Assignments for Today ------->>>', allAssignments);
+  return allAssignments.filter(a => String(a.vehicleID) == String(vehicleID));
+}
+
+/** Delete a manifest assignment */
+export async function deleteManifestAssignment(manifestAssignmentID: number): Promise<boolean> {
+  const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=delete&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&manifestAssignmentID=${manifestAssignmentID}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  return json.success === true;
 }

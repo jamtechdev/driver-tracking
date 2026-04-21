@@ -16,9 +16,19 @@ import { useAuth } from '@/context/AuthContext';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export const AppNavigator: React.FC = () => {
-  const { isAuthenticated, isSupervisorMode } = useAppSelector((state) => state.auth);
+  const { isAuthenticated, isSupervisorMode } = useAppSelector((state: any) => state.auth);
+  const linking = {
+    prefixes: ['drivertracking://'],
+    config: {
+      screens: {
+        Main: 'main',
+        Auth: 'auth',
+      },
+    },
+  };
+
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!isAuthenticated ? (
           <Stack.Screen name="Auth" component={AuthNavigator} />

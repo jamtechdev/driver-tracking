@@ -15,6 +15,7 @@ import {
   Platform,
   Pressable,
   ActivityIndicator,
+  useColorScheme,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,7 +31,6 @@ const MIN_MODAL_WIDTH = 280;
 const MAX_MODAL_WIDTH = 440;
 const EDGE_PADDING_RATIO = 0.04;
 const MIN_EDGE_PADDING = 12;
-const MODAL_BG = COLORS.background;
 
 export interface VehicleItem {
   vehicleID?: string;
@@ -50,6 +50,14 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
   const insets = useSafeAreaInsets();
 
   const { vehicles, isLoading: loading, error, refetch } = useDriverData();
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+
+  // Theme colors
+  const modalBg = isDarkMode ? COLORS.background : '#FFFFFF';
+  const themeTextColor = isDarkMode ? '#FFFFFF' : '#1E293B';
+  const themeSeparator = isDarkMode ? 'rgba(177, 174, 174, 0.08)' : 'rgba(0,0,0,0.05)';
+  const themeBorder = isDarkMode ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.15)';
 
   const handleSelect = async (item: VehicleItem) => {
     const id = item.vehicleID ?? item.vehicleNumber ?? String(item.vehicleID ?? '');
@@ -135,8 +143,8 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
             },
           ]}
         >
-          <View style={[styles.modal, { width: modalWidth, maxHeight: maxModalHeight }]}>
-            <View style={styles.header}>
+          <View style={[styles.modal, { width: modalWidth, maxHeight: maxModalHeight, backgroundColor: modalBg, borderColor: themeBorder }]}>
+            <View style={[styles.header, { borderBottomColor: themeSeparator }]}>
               <TouchableOpacity
                 onPress={onClose}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -144,7 +152,7 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
               >
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
-              <Text style={styles.title}>Select Vehicle</Text>
+              <Text style={[styles.title, { color: themeTextColor }]}>Select Vehicle</Text>
               <View style={styles.headerSpacer} />
             </View>
 
@@ -163,7 +171,7 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
               </View>
             ) : vehicles.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <Text style={styles.emptyText}>No vehicles available</Text>
+                <Text style={[styles.emptyText, { color: isDarkMode ? '#8A8E96' : '#64748B' }]}>No vehicles available</Text>
               </View>
             ) : (
               <FlatList
@@ -179,11 +187,12 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
                       style={[
                         styles.vehicleItem,
                         isSelected && styles.vehicleItemSelected,
+                        { borderBottomColor: themeSeparator },
                       ]}
                       onPress={() => handleSelect(item)}
                       activeOpacity={0.7}
                     >
-                      <Text style={styles.vehicleName}>{displayLabel(item)}</Text>
+                      <Text style={[styles.vehicleName, { color: themeTextColor }]}>{displayLabel(item)}</Text>
                       {isSelected && (
                         <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
                       )}
@@ -197,7 +206,7 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
               />
             )}
           </View>
-          <View style={styles.pointer} />
+          <View style={[styles.pointer, { borderTopColor: modalBg }]} />
         </View>
       </View>
     </Modal>
@@ -214,7 +223,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modal: {
-    backgroundColor: MODAL_BG,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.08)',
@@ -239,7 +247,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 10,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: MODAL_BG,
   },
   header: {
     flexDirection: 'row',
@@ -248,7 +255,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(177, 174, 174, 0.08)',
   },
   cancelBtn: {
     minWidth: 60,
@@ -261,7 +267,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#FFF',
+    color: '#FFF', // Default fallback
   },
   headerSpacer: {
     width: 60,
@@ -276,7 +282,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(177, 174, 174, 0.08)',
   },
   vehicleItemSelected: {
     // backgroundColor: 'rgba(37, 99, 235, 0.1)',
@@ -284,7 +289,7 @@ const styles = StyleSheet.create({
   vehicleName: {
     flex: 1,
     fontSize: 16,
-    color: '#FFF',
+    color: '#FFF', // Default fallback
     fontWeight: '500',
   },
   loadingWrap: {

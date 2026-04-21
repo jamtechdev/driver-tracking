@@ -213,3 +213,21 @@ export async function selfUpdateAssignment(params: {
   console.log('Self Update Assignment Response:', resp.data);
   return resp.data;
 }
+
+export async function selfUpdateDelete(params: {
+  agencyID: string | number;
+  vehicleID: string | number;
+  driverID: string | number;
+}): Promise<any> {
+  const url = buildUrl({
+    controller: 'vehicleassignments',
+    action: 'selfupdatedelete',
+    source: 'MDT',
+    agencyID: params.agencyID,
+    vehicleID: params.vehicleID,
+    driverID: params.driverID,
+  });
+  const resp = await axios.get(url, { timeout: TIMEOUT });
+  console.log('Self Update Delete Response:', resp.data);
+  return resp.data;
+}

@@ -1921,6 +1921,8 @@ PODS:
     - React-RCTFBReactNativeSpec
     - ReactCommon/turbomodule/core
     - SocketRocket
+  - react-native-background-actions (4.0.1):
+    - React-Core
   - react-native-device-battery (2.1.0):
     - React
   - react-native-geolocation (3.4.0):
@@ -3036,6 +3038,7 @@ DEPENDENCIES:
   - React-logger (from `../node_modules/react-native/ReactCommon/logger`)
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
+  - react-native-background-actions (from `../node_modules/react-native-background-actions`)
   - react-native-device-battery (from `../node_modules/react-native-device-battery`)
   - "react-native-geolocation (from `../node_modules/@react-native-community/geolocation`)"
   - react-native-geolocation-service (from `../node_modules/react-native-geolocation-service`)
@@ -3187,6 +3190,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   React-microtasksnativemodule:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
+  react-native-background-actions:
+    :path: "../node_modules/react-native-background-actions"
   react-native-device-battery:
     :path: "../node_modules/react-native-device-battery"
   react-native-geolocation:
@@ -3342,6 +3347,7 @@ SPEC CHECKSUMS:
   React-logger: b8483fa08e0d62e430c76d864309d90576ca2f68
   React-Mapbuffer: 7b72a669e94662359dad4f42b5af005eb24b4e83
   React-microtasksnativemodule: cdc02da075f2857803ed63f24f5f72fc40e094c0
+  react-native-background-actions: 48e6bad9e2a47e3b04858634c5a05ea11062f680
   react-native-device-battery: 2da22825f8e984e28bc92d3d0bf77f8da237646a
   react-native-geolocation: 95e48fe2687e5a8280103085372fa62c2297c5d6
   react-native-geolocation-service: 32b2c2a3b91e70ce2a8d0c684801aaeb0a07e0ec

@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
   Platform,
   Pressable,
+  useColorScheme,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,6 +48,14 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
   const insets = useSafeAreaInsets();
   const { drivers: rawDrivers, isLoading } = useDriverData();
 
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+
+  const modalBg = isDarkMode ? COLORS.background : '#FFFFFF';
+  const themeTextColor = isDarkMode ? '#FFFFFF' : '#1E293B';
+  const themeSeparator = isDarkMode ? 'rgba(177, 174, 174, 0.08)' : 'rgba(0,0,0,0.05)';
+  const themeBorder = isDarkMode ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.15)';
+
   // Map raw API drivers → Driver shape and prepend Unassigned
   const drivers: Driver[] = useMemo(() => {
     const mapped: Driver[] = rawDrivers.map((d) => ({
@@ -77,7 +86,7 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
 
   const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
   const edgePadding = Math.max(MIN_EDGE_PADDING, Math.round(width * EDGE_PADDING_RATIO));
-  const bottomOffset = BOTTOM_BAR_HEIGHT + (insets.bottom || 0) ;
+  const bottomOffset = BOTTOM_BAR_HEIGHT + (insets.bottom || 0);
   const modalWidth = Math.min(
     Math.max(MIN_MODAL_WIDTH, Math.round(width * 0.88)),
     MAX_MODAL_WIDTH
@@ -119,8 +128,8 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
             },
           ]}
         >
-          <View style={[styles.modal, { width: modalWidth, maxHeight: maxModalHeight }]}>
-            <View style={styles.header}>
+          <View style={[styles.modal, { width: modalWidth, maxHeight: maxModalHeight, backgroundColor: modalBg, borderColor: themeBorder }]}>
+            <View style={[styles.header, { borderBottomColor: themeSeparator }]}>
               <TouchableOpacity
                 onPress={onClose}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -128,7 +137,7 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
               >
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
-              <Text style={styles.title}>Select Driver</Text>
+              <Text style={[styles.title, { color: themeTextColor }]}>Select Driver</Text>
               <View style={styles.headerSpacer} />
             </View>
 
@@ -148,11 +157,12 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
                       style={[
                         styles.driverItem,
                         isSelected && styles.driverItemSelected,
+                        { borderBottomColor: themeSeparator },
                       ]}
                       onPress={() => handleSelectDriver(item)}
                       activeOpacity={0.7}
                     >
-                      <Text style={styles.driverName}>{item.name}</Text>
+                      <Text style={[styles.driverName, { color: themeTextColor }]}>{item.name}</Text>
                       {isSelected && (
                         <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
                       )}
@@ -165,14 +175,13 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
             )}
 
           </View>
-          <View style={styles.pointer} />
+          <View style={[styles.pointer, { borderTopColor: modalBg }]} />
         </View>
       </View>
     </Modal>
   );
 };
 
-const MODAL_BG = '#FFFFFF';
 
 const styles = StyleSheet.create({
   backdropRoot: {
@@ -184,7 +193,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modal: {
-    backgroundColor: COLORS.background,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.08)',
@@ -209,7 +217,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 10,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: COLORS.background,
   },
   header: {
     flexDirection: 'row',
@@ -231,7 +238,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#FFF',
+    color: '#FFF', // Default fallback
   },
   headerSpacer: {
     width: 60,
@@ -253,7 +260,7 @@ const styles = StyleSheet.create({
   },
   driverName: {
     fontSize: 16,
-    color: '#FFF',
+    color: '#FFF', // Default fallback
     fontWeight: '500',
   },
   loadingContainer: {

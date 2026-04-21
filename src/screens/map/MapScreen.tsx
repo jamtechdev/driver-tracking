@@ -397,22 +397,23 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
         )}
 
         {routeStops.map((stop) => {
+
           const lat = typeof stop.lat === 'number' ? stop.lat : parseFloat(stop.lat as string);
           const lng = typeof stop.lng === 'number' ? stop.lng : parseFloat(stop.lng as string);
           if (isNaN(lat) || isNaN(lng)) return null;
-          // return (
-          //   <Marker
-          //     key={`stop-${stop.stopID}`}
-          //     coordinate={{ latitude: lat, longitude: lng }}
-          //     anchor={{ x: 0.5, y: 1 }}
-          //     title={stop.longName || `Stop ${stop.stopID}`}
-          //     description={`Stop ID: ${stop.stopID}`}
-          //   >
-          //     <View style={styles.stopMarker}>
-          //       <MaterialIcons name="directions-bus" size={14} color="#FFF" />
-          //     </View>
-          //   </Marker>
-          // );
+          return (
+            <Marker
+              key={`stop-${stop.stopID}`}
+              coordinate={{ latitude: lat, longitude: lng }}
+              anchor={{ x: 0.5, y: 1 }}
+              title={stop.longName || `Stop ${stop.stopID}`}
+              description={`Stop ID: ${stop.stopID}`}
+            >
+              <View style={styles.stopMarker}>
+                {/* <MaterialIcons name="directions-bus" size={14} color="#FFF" /> */}
+              </View>
+            </Marker>
+          );
         })}
 
         {location && (
@@ -430,6 +431,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             rotation={heading}
             flat
           >
+
             <DirectionalArrow color={COLORS.background} />
           </Marker>
         )}
@@ -451,7 +453,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
               rotation={isNaN(bear) ? 0 : bear}
               flat
             >
-              <DirectionalArrow color={COLORS.background} />
+              <DirectionalArrow color={routeColor} />
             </Marker>
           );
         })}
@@ -793,10 +795,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   stopMarker: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: COLORS.headerBlue ?? '#1D4ED8',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: COLORS.emergency,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,

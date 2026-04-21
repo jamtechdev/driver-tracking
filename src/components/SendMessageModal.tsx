@@ -14,6 +14,7 @@ import {
   Platform,
   ActivityIndicator,
   TextInput,
+  useColorScheme,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../theme/colors';
@@ -30,6 +31,15 @@ const SendMessageModal: React.FC = () => {
   const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
   const { sendCannedMessage } = useEmergency();
   const { visible, close } = useMessagingModal();
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+
+  // Theme colors
+  const modalBg = isDarkMode ? COLORS.background : '#FFFFFF';
+  const themeTextColor = isDarkMode ? COLORS.textPrimary : '#1E293B';
+  const themeSecondaryText = isDarkMode ? COLORS.textSecondary : '#64748B';
+  const themeSeparator = isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const themeInputBg = isDarkMode ? '#1F242C' : 'rgba(0,0,0,0.04)';
 
   // useEffect(() => {
   //   if (!visible) return;
@@ -80,8 +90,8 @@ const SendMessageModal: React.FC = () => {
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
     >
       <Pressable style={[StyleSheet.absoluteFill, styles.modalOverlay]} onPress={handleCancel}>
-        <Pressable style={styles.modalContent} onPress={() => { }}>
-          <View style={styles.modalHeader}>
+        <Pressable style={[styles.modalContent, { backgroundColor: modalBg, borderColor: themeSeparator }]} onPress={() => { }}>
+          <View style={[styles.modalHeader, { borderBottomColor: themeSeparator }]}>
             <TouchableOpacity
               onPress={handleCancel}
               style={styles.cancelButton}
@@ -89,23 +99,23 @@ const SendMessageModal: React.FC = () => {
             >
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Send Message</Text>
+            <Text style={[styles.modalTitle, { color: themeTextColor }]}>Send Message</Text>
             <View style={styles.modalTitleSpacer} />
           </View>
           {!loading && (
-            <View style={styles.searchRow}>
+            <View style={[styles.searchRow, { borderBottomColor: themeSeparator }]}>
               <MaterialIcons
                 name="search"
                 size={20}
-                color={COLORS.textSecondary}
+                color={themeSecondaryText}
                 style={styles.searchIcon}
               />
               <TextInput
                 placeholder="Search messages"
-                placeholderTextColor={COLORS.textMuted}
+                placeholderTextColor={isDarkMode ? COLORS.textMuted : '#94A3B8'}
                 value={search}
                 onChangeText={setSearch}
-                style={styles.searchInput}
+                style={[styles.searchInput, { backgroundColor: themeInputBg, color: themeTextColor }]}
                 autoCorrect={false}
                 autoCapitalize="none"
               />
@@ -118,7 +128,7 @@ const SendMessageModal: React.FC = () => {
             </View>
           ) : filteredMessages.length === 0 ? (
             <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>
+              <Text style={[styles.emptyText, { color: isDarkMode ? COLORS.textMuted : '#94A3B8' }]}>
                 {search.trim() ? 'No messages match your search' : 'No messages'}
               </Text>
             </View>
@@ -132,7 +142,7 @@ const SendMessageModal: React.FC = () => {
                   key={item.messageID}
                   style={[
                     styles.messageItem,
-                    // selectedMessage === item.message && styles.messageItemSelected,
+                    { borderBottomColor: themeSeparator },
                   ]}
                   onPress={() => handleSendMessage(item.message)}
                   activeOpacity={0.7}
@@ -140,6 +150,7 @@ const SendMessageModal: React.FC = () => {
                   <Text
                     style={[
                       styles.messageText,
+                      { color: themeTextColor },
                       selectedMessage === item.message && styles.messageTextSelected,
                     ]}
                   >
@@ -175,11 +186,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: '70%',
     maxHeight: '80%',
-    backgroundColor: COLORS.background,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -188,7 +197,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
   },
   cancelButton: {
     paddingVertical: 4,
@@ -202,7 +210,6 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: COLORS.textPrimary,
   },
   modalTitleSpacer: {
     width: 60,
@@ -214,7 +221,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   searchIcon: {
     marginTop: 1,
@@ -224,8 +230,6 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 10,
     paddingHorizontal: 10,
-    backgroundColor: '#1F242C',
-    color: COLORS.textPrimary,
     fontSize: 14,
   },
   loadingContainer: {
@@ -245,7 +249,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 15,
-    color: COLORS.textMuted,
   },
   messageList: {
     maxHeight: 340,
@@ -255,7 +258,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   messageItemSelected: {
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
@@ -265,7 +267,6 @@ const styles = StyleSheet.create({
   },
   messageText: {
     fontSize: 22,
-    color: COLORS.textPrimary,
     fontWeight: '500',
   },
   messageTextSelected: {

@@ -16,6 +16,7 @@ import {
   Platform,
   Pressable,
   ActivityIndicator,
+  useColorScheme,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,8 +27,12 @@ import { useDriverData } from '@/context/DriverDataContext';
 import {
   getAvailableBlockManifests,
   assignBlockManifest,
+  getManifestAssignmentsByVehicle,
+  deleteManifestAssignment,
   type BlockManifest,
 } from '@/api/manifests.api';
+import { selfUpdateAssignment, selfUpdateDelete } from '@/api/position.api';
+import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import Toast from 'react-native-toast-message';
 
 const MIN_MODAL_WIDTH = 280;
@@ -54,10 +59,20 @@ interface SelectRouteModalProps {
 type Tab = 'route' | 'block';
 
 const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose }) => {
-  const { selectedRoute, selectedManifestId, setSelectedManifestId, selectRouteOrStatus, vehicleId } = useAuth();
+  const { driver, selectedRoute, selectedManifestId, setSelectedManifestId, selectRouteOrStatus, vehicleId } = useAuth();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { routes, isLoading: routesLoading, error: routesError, refetch } = useDriverData();
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+
+  // Theme colors
+  const modalBg = isDarkMode ? COLORS.background : '#FFFFFF';
+  const themeTextColor = isDarkMode ? COLORS.textPrimary : '#1E293B';
+  const themeSecondaryText = isDarkMode ? COLORS.textSecondary : '#64748B';
+  const themeSurface = isDarkMode ? COLORS.surface : 'rgba(0,0,0,0.04)';
+  const themeBorder = isDarkMode ? COLORS.surface : 'rgba(0,0,0,0.08)';
+  const themeMutedText = isDarkMode ? COLORS.textMuted : '#94A3B8';
 
   const [activeTab, setActiveTab] = useState<Tab>('route');
 
@@ -96,30 +111,107 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
 
   }, [visible]);
 
-  const handleSelectRoute = (value: string, routeId?: string | null) => {
-    selectRouteOrStatus(value, routeId);
+  const handleSelectRoute = async (value: string, routeId?: string | null) => {
+    if (value === 'Out of Service') {
+      if (vehicleId && vehicleId !== '110') {
+        selfUpdateDelete({
+          agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+          vehicleID: vehicleId,
+          driverID: driver?.id || 0,
+        }).catch((e) => console.warn('[SelectRouteModal] Error calling selfUpdateDelete:', e));
+      }
+    }
+    if (vehicleId && vehicleId !== '110') {
+      try {
+        // 1. Unassign any current block manifests for this vehicle
+        const existing = await getManifestAssignmentsByVehicle(vehicleId);
+        for (const assignment of existing) {
+          if (!assignment.disabled) {
+            await deleteManifestAssignment(assignment.manifestAssignmentID);
+          }
+        }
+      } catch (e) {
+        console.warn('[SelectRouteModal] Error clearing blocks before route selection:', e);
+      }
+    }
+
+    // 2. Update state to the selected route
+    selectRouteOrStatus(value, routeId, null);
     onClose();
   };
 
   const handleSelectBlock = async (block: BlockManifest) => {
     if (!vehicleId || vehicleId === '110') {
       Toast.show({ type: 'error', text1: 'Error', text2: 'Please select a vehicle' });
-      return
+      return;
     }
+
+    if (block.manifestID === -1) {
+      // HANDLE OUT OF SERVICE / UNASSIGN
+      setAssigningID(-1);
+      try {
+        // 1. Unassign any current block manifests
+        const existing = await getManifestAssignmentsByVehicle(vehicleId);
+        for (const assignment of existing) {
+          if (!assignment.disabled) {
+            await deleteManifestAssignment(assignment.manifestAssignmentID);
+          }
+        }
+
+        // 2. Clear route assignment on server
+        await selfUpdateDelete({
+          agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+          vehicleID: vehicleId,
+          driverID: driver?.id || 0,
+        }).catch((e) => console.warn('[SelectRouteModal] Error calling selfUpdateDelete:', e));
+
+        // 3. Update local state
+        selectRouteOrStatus('Out of Service', null, null);
+        onClose();
+        Toast.show({ type: 'success', text1: 'Success', text2: 'Vehicle is now Out of Service' });
+      } catch (e) {
+        console.error('[SelectRouteModal] Error unassigning block:', e);
+        Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to unassign block' });
+      } finally {
+        setAssigningID(null);
+      }
+      return;
+    }
+
     setAssigningID(block.manifestID);
     try {
+      // ... existing logic ...
+      // 1. Fetch existing assignments for this vehicle to unassign
+      const existing = await getManifestAssignmentsByVehicle(vehicleId);
+      console.log('Existing Assignments ===>>>', existing);
+      for (const assignment of existing) {
+        if (!assignment.disabled) {
+          await deleteManifestAssignment(assignment.manifestAssignmentID);
+        }
+      }
+
+      // 2. Clear route assignment on server (set routeID to 0)
+      await selfUpdateAssignment({
+        agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+        vehicleID: vehicleId,
+        routeID: 0,
+        driverID: driver?.id || 0,
+      }).catch((e) => console.warn('[SelectRouteModal] Error clearing route before block assignment:', e));
+
+      // 3. Assign the new block
       const ok = await assignBlockManifest(block.manifestID, vehicleId);
-      console.log('Block Assigned Resp====>>>', ok)
+      console.log('Block Assigned Resp====>>>', ok);
       if (ok) {
-        // selectRouteOrStatus(block.name, String(block.manifestID));
-        // setSelectedManifestId(block.manifestID);
+        selectRouteOrStatus(block.name, null, block.manifestID);
         onClose();
-        Toast.show({ type: 'success', text1: 'Success', text2: 'Block assigned successfully' });
+        Toast.show({ type: 'success', text1: 'Success', text2: `Block "${block.name}" assigned successfully` });
       } else {
         setBlocksError('Assignment failed. Please try again.');
+        Toast.show({ type: 'error', text1: 'Error', text2: 'Assignment failed' });
       }
     } catch (e) {
       setBlocksError(e instanceof Error ? e.message : 'Assignment failed');
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Assignment process failed' });
     } finally {
       setAssigningID(null);
     }
@@ -148,16 +240,16 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
   }, [routes]);
 
   const getRouteLabel = (route: DriverRouteItem) => {
-    if (route.shortName && route.longName && route.longName !== route.shortName) {
-      return `${route.shortName} – ${route.longName}`;
-    }
+    // if (route.shortName && route.longName && route.longName !== route.shortName) {
+    //   return `${route.shortName} – ${route.longName}`;
+    // }
     return route.shortName || route.longName || route.routeID;
   };
 
   // ── Layout ──────────────────────────────────────────────────────────────────
 
   const edgePadding = Math.max(MIN_EDGE_PADDING, Math.round(width * EDGE_PADDING_RATIO));
-  const bottomOffset = BOTTOM_BAR_HEIGHT + (insets.bottom || 0) + 12;
+  const bottomOffset = BOTTOM_BAR_HEIGHT + (insets.bottom);
   const modalWidth = Math.min(Math.max(MIN_MODAL_WIDTH, Math.round(width * 0.88)), MAX_MODAL_WIDTH);
   const maxModalHeight = Math.min(
     height - insets.top - bottomOffset - 24,
@@ -171,51 +263,54 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
 
   const renderRouteItem = ({ item }: { item: typeof combinedRouteList[number] }) => {
     if (item.type === 'fixed') {
+      // console.log('Selected Route ===>>>', selectedRoute, item);
       const isSelected = selectedRoute === item.label;
       return (
         <TouchableOpacity
-          style={[styles.listItem, isSelected && styles.listItemSelected]}
+          style={[styles.listItem, isSelected && { backgroundColor: themeSurface }, { borderBottomColor: themeBorder }]}
           onPress={() => handleSelectRoute(item.label, null)}
           activeOpacity={0.7}
         >
-          <Text style={styles.itemName}>{item.label}</Text>
+          <Text style={[styles.itemName, { color: themeTextColor }]}>{item.label}</Text>
           {isSelected && <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />}
         </TouchableOpacity>
       );
     }
     const label = getRouteLabel(item.route);
+    // console.log('Selected Route ===>>>', selectedRoute, label);
     const isSelected = selectedRoute === label;
     return (
       <TouchableOpacity
-        style={[styles.listItem, isSelected && styles.listItemSelected, item.disabled && styles.listItemDisabled]}
+        style={[styles.listItem, isSelected && { backgroundColor: themeSurface }, item.disabled && styles.listItemDisabled, { borderBottomColor: themeBorder }]}
         onPress={() => { if (!item.disabled) handleSelectRoute(label, item.route.routeID); }}
         activeOpacity={item.disabled ? 1 : 0.7}
         disabled={item.disabled}
       >
-        <Text style={[styles.itemName, item.disabled && styles.itemNameDisabled]}>{label}</Text>
-        {isSelected && !item.disabled && <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />}
+        <Text style={[styles.itemName, { color: themeTextColor }, item.disabled && { color: themeMutedText }]}>{label}</Text>
+        {isSelected && <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />}
       </TouchableOpacity>
     );
   };
 
   const renderBlockItem = ({ item }: { item: BlockManifest }) => {
-    // console.log('SelectedId===>>>', selectedManifestId)
     const isAssigning = assigningID === item.manifestID;
-    // const isSelected = selectedManifestId === item.manifestID;
+    const isSelected = item.manifestID === -1
+      ? (selectedRoute === 'Out of Service' && !selectedManifestId)
+      : selectedManifestId === item.manifestID;
+
     return (
       <TouchableOpacity
-        // style={[styles.listItem, isSelected && styles.listItemSelected]}
-        style={[styles.listItem]}
+        style={[styles.listItem, isSelected && { backgroundColor: themeSurface }, { borderBottomColor: themeBorder }]}
         onPress={() => handleSelectBlock(item)}
         activeOpacity={0.7}
         disabled={assigningID !== null}
       >
-        <Text style={styles.itemName}>{item.name}</Text>
+        <Text style={[styles.itemName, { color: themeTextColor }]}>{item.name}</Text>
         {isAssigning
           ? <ActivityIndicator size="small" color={COLORS.accentBlue} />
-          // : isSelected
-          //   ? <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
-          : null}
+          : isSelected
+            ? <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
+            : null}
       </TouchableOpacity>
     );
   };
@@ -235,10 +330,10 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
       <View style={styles.backdropRoot}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={[styles.popoverWrap, { bottom: bottomOffset, left: modalLeft, width: modalWidth }]}>
-          <View style={[styles.modal, { width: modalWidth, maxHeight: maxModalHeight }]}>
+          <View style={[styles.modal, { width: modalWidth, maxHeight: maxModalHeight, backgroundColor: modalBg }]}>
 
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { borderBottomColor: themeBorder }]}>
               <TouchableOpacity
                 onPress={onClose}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -246,25 +341,25 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
               >
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
-              <Text style={styles.title}>Select</Text>
+              <Text style={[styles.title, { color: themeTextColor }]}>Select</Text>
               <View style={styles.headerSpacer} />
             </View>
 
             {/* Tabs */}
-            <View style={styles.tabs}>
+            <View style={[styles.tabs, { borderBottomColor: themeBorder }]}>
               <TouchableOpacity
                 style={[styles.tab, activeTab === 'route' && styles.tabActive]}
                 onPress={() => handleTabChange('route')}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.tabText, activeTab === 'route' && styles.tabTextActive]}>Route</Text>
+                <Text style={[styles.tabText, { color: themeMutedText }, activeTab === 'route' && styles.tabTextActive]}>Route</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.tab, activeTab === 'block' && styles.tabActive]}
                 onPress={() => handleTabChange('block')}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.tabText, activeTab === 'block' && styles.tabTextActive]}>Block</Text>
+                <Text style={[styles.tabText, { color: themeMutedText }, activeTab === 'block' && styles.tabTextActive]}>Block</Text>
               </TouchableOpacity>
             </View>
 
@@ -273,12 +368,12 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
               routesLoading && combinedRouteList.length === 0 ? (
                 <View style={styles.centerWrap}>
                   <ActivityIndicator size="large" color={COLORS.accentBlue} />
-                  <Text style={styles.statusText}>Loading routes…</Text>
+                  <Text style={[styles.statusText, { color: themeSecondaryText }]}>Loading routes…</Text>
                 </View>
               ) : routesError && combinedRouteList.length === 0 ? (
                 <View style={styles.centerWrap}>
                   <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
-                  <Text style={styles.statusText}>{routesError}</Text>
+                  <Text style={[styles.statusText, { color: themeSecondaryText }]}>{routesError}</Text>
                   <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
                     <Text style={styles.retryText}>Retry</Text>
                   </TouchableOpacity>
@@ -301,23 +396,19 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
               blocksLoading ? (
                 <View style={styles.centerWrap}>
                   <ActivityIndicator size="large" color={COLORS.accentBlue} />
-                  <Text style={styles.statusText}>Loading blocks…</Text>
+                  <Text style={[styles.statusText, { color: themeSecondaryText }]}>Loading blocks…</Text>
                 </View>
               ) : blocksError ? (
                 <View style={styles.centerWrap}>
                   <MaterialIcons name="error-outline" size={40} color={COLORS.emergency} />
-                  <Text style={styles.statusText}>{blocksError}</Text>
+                  <Text style={[styles.statusText, { color: themeSecondaryText }]}>{blocksError}</Text>
                   <TouchableOpacity style={styles.retryBtn} onPress={fetchBlocks}>
                     <Text style={styles.retryText}>Retry</Text>
                   </TouchableOpacity>
                 </View>
-              ) : blocks.length === 0 ? (
-                <View style={styles.centerWrap}>
-                  <Text style={styles.statusText}>No blocks available</Text>
-                </View>
               ) : (
                 <FlatList
-                  data={blocks}
+                  data={[{ manifestID: -1, name: 'Out of Service' } as BlockManifest, ...blocks]}
                   keyExtractor={(b) => String(b.manifestID)}
                   renderItem={renderBlockItem}
                   style={{ maxHeight: listMaxHeight }}
@@ -328,7 +419,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
               )
             )}
           </View>
-          <View style={styles.pointer} />
+          <View style={[styles.pointer, { borderTopColor: modalBg }]} />
         </View>
       </View>
     </Modal>
@@ -345,7 +436,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modal: {
-    backgroundColor: COLORS.background,
     borderRadius: 14,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -362,7 +452,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 10,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: COLORS.background,
   },
   header: {
     flexDirection: 'row',
@@ -370,18 +459,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.surface,
   },
   cancelBtn: { minWidth: 56 },
   cancelText: { color: COLORS.accentBlue, fontSize: 16 },
-  title: { flex: 1, textAlign: 'center', color: COLORS.textPrimary, fontSize: 17, fontWeight: '600' },
+  title: { flex: 1, textAlign: 'center', color: '#FFF', fontSize: 17, fontWeight: '600' },
   headerSpacer: { minWidth: 56 },
 
   // Tabs
   tabs: {
     flexDirection: 'row',
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.surface,
   },
   tab: {
     flex: 1,
@@ -394,7 +481,6 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 15,
-    color: COLORS.textMuted,
     fontWeight: '500',
   },
   tabTextActive: {
@@ -410,10 +496,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.surface,
   },
   listItemSelected: {
-    backgroundColor: COLORS.surface,
+    // Handled dynamically
   },
   listItemDisabled: {
     opacity: 0.4,
@@ -421,11 +506,10 @@ const styles = StyleSheet.create({
   itemName: {
     flex: 1,
     fontSize: 16,
-    color: COLORS.textPrimary,
     marginRight: 8,
   },
   itemNameDisabled: {
-    color: COLORS.textMuted,
+    // Handled dynamically
   },
 
   // States
@@ -437,7 +521,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   statusText: {
-    color: COLORS.textSecondary,
     fontSize: 14,
     textAlign: 'center',
   },

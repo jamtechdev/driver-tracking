@@ -12,6 +12,7 @@ import {
   FlatList,
   ScrollView,
   Linking,
+  useColorScheme,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -73,6 +74,13 @@ const DebugScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const { vehicleId, vehicleName, selectedRouteId } = useAuth();
   const { lastLocation, minsLate, nextStop, schedule, linkAverages } = useDriverModel();
   const { agency, routes } = useDriverData();
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+
+  const themeTextColor = isDarkMode ? '#FFFFFF' : '#1E293B';
+  const themeSecondaryText = isDarkMode ? COLORS.textSecondary : '#64748B';
+  const themeSurface = isDarkMode ? COLORS.surface : 'rgba(0,0,0,0.05)';
+  const themeBorder = isDarkMode ? COLORS.surface : 'rgba(0,0,0,0.08)';
 
   const [info, setInfo] = useState<DebugInfo>({
     uuid: '—',
@@ -118,12 +126,12 @@ const DebugScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       if (heading !== undefined && i < points.length - 1) {
         let bearingDiff = Math.abs(
           heading -
-            calculateBearing(
-              points[i].latitude,
-              points[i].longitude,
-              points[i + 1].latitude,
-              points[i + 1].longitude
-            )
+          calculateBearing(
+            points[i].latitude,
+            points[i].longitude,
+            points[i + 1].latitude,
+            points[i + 1].longitude
+          )
         );
         if (bearingDiff > 180) bearingDiff = 360 - bearingDiff;
         if (lastLocation.speed && lastLocation.speed > 1) score += bearingDiff * 0.5;
@@ -195,7 +203,7 @@ const DebugScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         vehicleId: vehicleId ?? '—',
         vehicleName: vehicleName ?? '—',
         connectionType: net.type ?? '—',
-        ssid: net.details?.ssid ?? '—',
+        ssid: net?.details?.ssid ?? '—',
         gpsHorizontal: lastLocation?.accuracy?.toString() ?? '—',
         gpsVertical: lastLocation?.altitude?.toString() ?? '—',
         batteryLevel: `${Math.round((power.batteryLevel ?? 0) * 100)}%`,
@@ -266,21 +274,28 @@ const DebugScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const renderItem = useCallback(
     ({ item }: { item: any }) =>
       item.type === 'section' ? (
-        <DebugSection title={item.title} />
+        <View style={[debugStyles.sectionHeader, { backgroundColor: themeSurface }]}>
+          <Text style={[debugStyles.sectionHeaderText, { color: themeSecondaryText }]}>{item.title}</Text>
+        </View>
       ) : (
-        <DebugRow label={item.label} value={item.value} />
+        <View style={[debugStyles.row, { borderBottomColor: themeBorder }]}>
+          <Text style={[debugStyles.rowLabel, { color: themeTextColor }]}>{item.label}</Text>
+          <Text style={[debugStyles.rowValue, { color: themeSecondaryText }]} numberOfLines={1} ellipsizeMode="tail">
+            {item.value}
+          </Text>
+        </View>
       ),
-    []
+    [themeSurface, themeSecondaryText, themeTextColor, themeBorder]
   );
 
   return (
     <>
-      <View style={debugStyles.header}>
+      <View style={[debugStyles.header, { borderBottomColor: themeBorder }]}>
         <TouchableOpacity style={debugStyles.backBtn} onPress={onBack}>
           <MaterialIcons name="chevron-left" size={22} color={COLORS.accentBlue} />
           <Text style={debugStyles.backText}>Back</Text>
         </TouchableOpacity>
-        <Text style={debugStyles.headerTitle}>Debug</Text>
+        <Text style={[debugStyles.headerTitle, { color: themeTextColor }]}>Debug</Text>
         <View style={{ width: 100 }} />
       </View>
       <FlatList
@@ -299,16 +314,19 @@ const DebugScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 };
 
 // ─── Sub-page header ───────────────────────────────────────────────
-const SubPageHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => (
-  <View style={debugStyles.header}>
-    <TouchableOpacity style={debugStyles.backBtn} onPress={onBack}>
-      <MaterialIcons name="chevron-left" size={22} color={COLORS.accentBlue} />
-      <Text style={debugStyles.backText}>Back</Text>
-    </TouchableOpacity>
-    <Text style={debugStyles.headerTitle}>{title}</Text>
-    {/* <View style={{ width: 100 }} /> */}
-  </View>
-);
+const SubPageHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => {
+  const isDarkMode = useColorScheme() === 'dark';
+  const themeTextColor = isDarkMode ? '#FFFFFF' : '#1E293B';
+  return (
+    <View style={debugStyles.header}>
+      <TouchableOpacity style={debugStyles.backBtn} onPress={onBack}>
+        <MaterialIcons name="chevron-left" size={22} color={COLORS.accentBlue} />
+        <Text style={debugStyles.backText}>Back</Text>
+      </TouchableOpacity>
+      <Text style={[debugStyles.headerTitle, { color: themeTextColor }]}>{title}</Text>
+    </View>
+  );
+};
 
 // ─── Changelog ───────────────────────────────────────────────
 const CHANGELOG_DATA = [
@@ -355,34 +373,42 @@ const CHANGELOG_DATA = [
   },
 ];
 
-const ChangelogScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-  <>
-    <SubPageHeader title="Changelog" onBack={onBack} />
-    <ScrollView
-      style={debugStyles.scroll}
-      showsVerticalScrollIndicator={false}
-      decelerationRate="fast"
-      nestedScrollEnabled>
-      {CHANGELOG_DATA.map((item, idx) => (
-        <View key={idx} style={changelogStyles.versionBlock}>
-          <View style={changelogStyles.header}>
-            <Text style={changelogStyles.versionText}>{item.version}</Text>
-            <Text style={changelogStyles.dateText}>{item.date}</Text>
+const ChangelogScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const isDarkMode = useColorScheme() === 'dark';
+  const themeTextColor = isDarkMode ? '#FFFFFF' : '#1E293B';
+  const themeSecondaryText = isDarkMode ? COLORS.textSecondary : '#64748B';
+  const themeMutedText = isDarkMode ? COLORS.textMuted : '#94A3B8';
+  const themeBorder = isDarkMode ? COLORS.surface : 'rgba(0,0,0,0.08)';
+
+  return (
+    <>
+      <SubPageHeader title="Changelog" onBack={onBack} />
+      <ScrollView
+        style={debugStyles.scroll}
+        showsVerticalScrollIndicator={false}
+        decelerationRate="fast"
+        nestedScrollEnabled>
+        {CHANGELOG_DATA.map((item, idx) => (
+          <View key={idx} style={[changelogStyles.versionBlock, { borderBottomColor: themeBorder }]}>
+            <View style={changelogStyles.header}>
+              <Text style={[changelogStyles.versionText, { color: themeTextColor }]}>{item.version}</Text>
+              <Text style={[changelogStyles.dateText, { color: themeMutedText }]}>{item.date}</Text>
+            </View>
+            <View style={changelogStyles.content}>
+              {item.items.map((change, cIdx) => (
+                <View key={cIdx} style={changelogStyles.itemRow}>
+                  <Text style={[changelogStyles.bullet, { color: isDarkMode ? COLORS.backgroundSecondary : '#CCC' }]}>-</Text>
+                  <Text style={[changelogStyles.itemText, { color: themeSecondaryText }]}>{change}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <View style={changelogStyles.content}>
-            {item.items.map((change, cIdx) => (
-              <View key={cIdx} style={changelogStyles.itemRow}>
-                <Text style={changelogStyles.bullet}>-</Text>
-                <Text style={changelogStyles.itemText}>{change}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      ))}
-      <View style={{ height: 40 }} />
-    </ScrollView>
-  </>
-);
+        ))}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </>
+  );
+};
 
 const changelogStyles = StyleSheet.create({
   versionBlock: {
@@ -400,11 +426,9 @@ const changelogStyles = StyleSheet.create({
   versionText: {
     fontSize: 17,
     fontWeight: '700',
-    color: COLORS.textPrimary,
   },
   dateText: {
     fontSize: 13,
-    color: COLORS.textMuted,
   },
   content: {
     paddingLeft: 4,
@@ -422,7 +446,6 @@ const changelogStyles = StyleSheet.create({
   },
   itemText: {
     fontSize: 14,
-    color: COLORS.textSecondary,
     lineHeight: 20,
     flex: 1,
   },
@@ -463,6 +486,11 @@ const ACKNOWLEDGEMENTS_DATA = [
 ];
 
 const AcknowledgementsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const isDarkMode = useColorScheme() === 'dark';
+  const themeTextColor = isDarkMode ? '#FFFFFF' : '#1E293B';
+  const themeSecondaryText = isDarkMode ? COLORS.textSecondary : '#64748B';
+  const themeBorder = isDarkMode ? COLORS.surface : 'rgba(0,0,0,0.08)';
+
   const handlePressLink = (url: string) => {
     Linking.openURL(url).catch(err => console.error('Error opening URL:', err));
   };
@@ -475,8 +503,8 @@ const AcknowledgementsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =>
         showsVerticalScrollIndicator={false}
         decelerationRate="fast"
         nestedScrollEnabled>
-        <View style={ackStyles.intro}>
-          <Text style={ackStyles.introText}>
+        <View style={[ackStyles.intro, { borderBottomColor: themeBorder }]}>
+          <Text style={[ackStyles.introText, { color: themeSecondaryText }]}>
             This application uses Open Source components. You can find the source code of their open
             source projects along with license information below. We acknowledge and are grateful to
             these developers for their contributions to open source.
@@ -484,14 +512,14 @@ const AcknowledgementsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) =>
         </View>
 
         {ACKNOWLEDGEMENTS_DATA.map((item, idx) => (
-          <View key={idx} style={ackStyles.row}>
+          <View key={idx} style={[ackStyles.row, { borderBottomColor: themeBorder }]}>
             <View style={ackStyles.rowTop}>
-              <Text style={ackStyles.libName}>{item.name}</Text>
+              <Text style={[ackStyles.libName, { color: themeTextColor }]}>{item.name}</Text>
               <TouchableOpacity onPress={() => handlePressLink(item.url)}>
                 <MaterialIcons name="open-in-new" size={18} color={COLORS.accentBlue} />
               </TouchableOpacity>
             </View>
-            <Text style={ackStyles.libInfo}>{item.info}</Text>
+            <Text style={[ackStyles.libInfo, { color: themeSecondaryText }]}>{item.info}</Text>
             <TouchableOpacity onPress={() => handlePressLink(item.url)}>
               <Text style={ackStyles.linkText}>{item.url}</Text>
             </TouchableOpacity>
@@ -520,6 +548,14 @@ const SettingsModal: React.FC = () => {
     anchorY !== null
       ? Math.max(8, Math.min(anchorY - 30, height - MODAL_HEIGHT - 8))
       : height * 0.08;
+
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+  const modalBg = isDarkMode ? COLORS.background : '#FFFFFF';
+  const themeTextColor = isDarkMode ? '#FFFFFF' : '#1E293B';
+  const themeSecondaryText = isDarkMode ? COLORS.textSecondary : '#64748B';
+  const themeSurface = isDarkMode ? COLORS.surface : 'rgba(0,0,0,0.05)';
+  const themeBorder = isDarkMode ? COLORS.surface : 'rgba(0,0,0,0.08)';
 
   useEffect(() => {
     if (!visible) {
@@ -581,7 +617,7 @@ const SettingsModal: React.FC = () => {
       ]}>
       <Pressable style={StyleSheet.absoluteFill} onPress={close}>
         <View
-          style={[styles.arrowLeft, { top: computedTop + 52, left: SIDEBAR_WIDTH + 1 }]}
+          style={[styles.arrowLeft, { top: computedTop + 52, left: SIDEBAR_WIDTH + 1, borderRightColor: modalBg }]}
           pointerEvents="none"
         />
         <Pressable
@@ -592,9 +628,11 @@ const SettingsModal: React.FC = () => {
               left: isTablet() ? SIDEBAR_WIDTH + 14 : 15,
               width: MODAL_WIDTH,
               height: MODAL_HEIGHT,
+              backgroundColor: modalBg,
+              shadowColor: isDarkMode ? '#000' : '#888',
             },
           ]}
-          onPress={() => {}}>
+          onPress={() => { }}>
           {currentPage === 'debug' ? (
             <DebugScreen onBack={() => setCurrentPage('main')} />
           ) : currentPage === 'changelog' ? (
@@ -607,46 +645,46 @@ const SettingsModal: React.FC = () => {
               showsVerticalScrollIndicator={false}
               nestedScrollEnabled>
               <View style={styles.header}>
-                <Text style={styles.headerTitle}>MDT Settings</Text>
+                <Text style={[styles.headerTitle, { color: themeTextColor }]}>MDT Settings</Text>
                 <TouchableOpacity onPress={close}>
                   <Text style={styles.doneText}>Done</Text>
                 </TouchableOpacity>
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>DISPLAY</Text>
+                <Text style={[styles.sectionTitle, { color: themeSecondaryText }]}>DISPLAY</Text>
                 <View style={styles.row}>
-                  <Text style={styles.rowLabel}>Use a 24-hour clock</Text>
+                  <Text style={[styles.rowLabel, { color: themeTextColor }]}>Use a 24-hour clock</Text>
                   <Switch
                     value={use24HourClock}
                     onValueChange={handle24HourToggle}
-                    trackColor={{ false: COLORS.surface, true: COLORS.primary }}
+                    trackColor={{ false: themeSurface, true: COLORS.primary }}
                     thumbColor={COLORS.primary}
                   />
                 </View>
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>DEVICE INFORMATION</Text>
+                <Text style={[styles.sectionTitle, { color: themeSecondaryText }]}>DEVICE INFORMATION</Text>
                 <View style={styles.row}>
-                  <Text style={styles.rowLabel}>MDT ID</Text>
-                  <Text style={[styles.rowValue, { fontSize: 14 }]}>{mdtId || '—'}</Text>
+                  <Text style={[styles.rowLabel, { color: themeTextColor }]}>MDT ID</Text>
+                  <Text style={[styles.rowValue, { fontSize: 14, color: themeSecondaryText }]}>{mdtId || '—'}</Text>
                 </View>
                 <View style={styles.row}>
-                  <Text style={styles.rowLabel}>App Version</Text>
-                  <Text style={[styles.rowValue, { fontSize: 14 }]}>{APP_VERSION}</Text>
+                  <Text style={[styles.rowLabel, { color: themeTextColor }]}>App Version</Text>
+                  <Text style={[styles.rowValue, { fontSize: 14, color: themeSecondaryText }]}>{APP_VERSION}</Text>
                 </View>
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>NAVIGATION</Text>
+                <Text style={[styles.sectionTitle, { color: themeSecondaryText }]}>NAVIGATION</Text>
                 {navItems.map(item => (
                   <TouchableOpacity
                     key={item.id}
-                    style={styles.navItem}
+                    style={[styles.navItem, { borderBottomColor: themeBorder }]}
                     onPress={() => handleNavItem(item.id)}>
-                    <Text style={styles.navLabel}>{item.label}</Text>
-                    <MaterialIcons name="chevron-right" size={20} color={'#fff'} />
+                    <Text style={[styles.navLabel, { color: themeTextColor }]}>{item.label}</Text>
+                    <MaterialIcons name="chevron-right" size={20} color={isDarkMode ? '#fff' : '#1E293B'} />
                   </TouchableOpacity>
                 ))}
               </View>
@@ -663,7 +701,6 @@ export default SettingsModal;
 // ─── STYLES ───────────────────────────────────────────────
 const styles = StyleSheet.create({
   modalContent: {
-    backgroundColor: COLORS.background,
     borderRadius: 12,
     padding: 16,
     shadowColor: COLORS.background,
@@ -678,7 +715,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  headerTitle: { fontSize: 20, fontWeight: '600', color: '#fff' },
+  headerTitle: { fontSize: 20, fontWeight: '600' },
   doneText: { color: COLORS.accentBlue, fontSize: 16 },
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 14, fontWeight: '700', marginBottom: 8, color: COLORS.textSecondary },
@@ -688,7 +725,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
   },
-  rowLabel: { fontSize: 16, color: '#fff' },
+  rowLabel: { fontSize: 16 },
   rowValue: { fontSize: 16, color: COLORS.textSecondary },
   navItem: {
     flexDirection: 'row',
@@ -698,7 +735,7 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.surface,
     borderBottomWidth: 1,
   },
-  navLabel: { fontSize: 16, color: '#fff' },
+  navLabel: { fontSize: 16 },
   arrowLeft: {
     width: 0,
     height: 0,
@@ -707,7 +744,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 10,
     borderBottomColor: 'transparent',
     borderRightWidth: 10,
-    borderRightColor: COLORS.background,
     position: 'absolute',
   },
 });
@@ -717,9 +753,9 @@ const debugStyles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 15 },
   backBtn: { flexDirection: 'row', alignItems: 'center' },
   backText: { marginLeft: 4, color: COLORS.accentBlue },
-  headerTitle: { fontWeight: '600', fontSize: 18, color: '#fff' },
+  headerTitle: { fontWeight: '600', fontSize: 18 },
   scroll: { flex: 1 },
-  sectionHeader: { backgroundColor: COLORS.surface, paddingVertical: 6, paddingHorizontal: 12 },
+  sectionHeader: { paddingVertical: 6, paddingHorizontal: 12 },
   sectionHeaderText: { fontWeight: '700', color: COLORS.textSecondary },
   row: {
     flexDirection: 'row',
@@ -729,7 +765,7 @@ const debugStyles = StyleSheet.create({
     borderBottomColor: COLORS.surface,
     borderBottomWidth: 1,
   },
-  rowLabel: { fontSize: 14, color: '#fff' },
+  rowLabel: { fontSize: 14 },
   rowValue: { fontSize: 14, color: COLORS.textSecondary },
 });
 
@@ -742,7 +778,6 @@ const ackStyles = StyleSheet.create({
   },
   introText: {
     fontSize: 14,
-    color: COLORS.textSecondary,
     lineHeight: 20,
   },
   row: {
@@ -760,11 +795,9 @@ const ackStyles = StyleSheet.create({
   libName: {
     fontSize: 16,
     fontWeight: '700',
-    color: COLORS.textPrimary,
   },
   libInfo: {
     fontSize: 13,
-    color: COLORS.textSecondary,
     lineHeight: 18,
     marginBottom: 6,
   },

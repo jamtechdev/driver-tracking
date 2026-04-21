@@ -67,9 +67,9 @@ const PassengerCountModal: React.FC<PassengerCountModalProps> = ({
         const eventTimestamp = Math.floor(Date.now() / 1000);
         const lat = location?.latitude ?? 0;
         const lng = location?.longitude ?? 0;
-        const course = heading ?? 0;
+        const course = heading && heading > 0 ? heading : 0;
         // speed from geolocation is in m/s, convert to MPH (1 m/s = 2.23694 mph)
-        const speedMPH = (location?.speed ?? 0) * 2.23694;
+        const speedMPH = (location?.speed !== undefined && location?.speed >= 0 ? location?.speed : 0) * 2.23694;
         const eventFare = selectedCategory.title;
         const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
         const vehicleID = vehicleId ?? '0';

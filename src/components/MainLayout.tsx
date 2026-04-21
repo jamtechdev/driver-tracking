@@ -46,7 +46,14 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   const slideAnim = useRef(new Animated.Value(-280)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const { isOpen: driverModalVisible, open: openDriverModal, close: closeDriverModal } = useDriverModal();
-  const { brightnessVisible, setBrightnessVisible, brightness, setBrightness, brightnessSupported } = useBrightness();
+  const {
+    brightnessVisible,
+    setBrightnessVisible,
+    anchorY,
+    brightness,
+    setBrightness,
+    brightnessSupported,
+  } = useBrightness();
   const { width, height } = useWindowDimensions();
   // Use Platform.isPad for iPad (iPad Mini portrait = 744px, would fail width >= 768)
   const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
@@ -130,10 +137,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({
           <>
             <View style={[styles.content, styles.contentTop]}>{mainContent}</View>
             <View style={styles.bottomBarWrapper}>
-<BottomBar
-              navigation={navigation}
-              onDriverPress={openDriverModal}
-            />
+              <BottomBar
+                navigation={navigation}
+                onDriverPress={openDriverModal}
+              />
             </View>
           </>
         )}
@@ -154,7 +161,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
                 styles.brightnessOverlay,
                 isTablet && styles.brightnessOverlayTablet,
                 {
-                  top: Math.min(148, 80 + height * 0.12),
+                  top: anchorY ? anchorY - 10 : Math.min(148, 80 + height * 0.12),
                   left: isTablet ? 120 : Math.max(12, width * 0.02),
                 },
               ]}
@@ -318,7 +325,7 @@ const styles = StyleSheet.create({
   },
   menuButton: {
     position: 'absolute',
-    top: 90,
+    top: 70,
     // left: 10,
     zIndex: 9999,
     elevation: 9999,

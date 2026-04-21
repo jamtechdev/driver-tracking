@@ -3,7 +3,7 @@
  * Sends driver message API (controller=driver&action=message) for emergency and canned messages.
  */
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import Toast from 'react-native-toast-message';
 import { useAuth } from './AuthContext';
 import { useDriverModel } from './DriverModelContext';
@@ -30,13 +30,21 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const { lastLocation } = useDriverModel();
   const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
 
+  // Reset emergency state when driver or vehicle changes (e.g. on logout/login)
+  useEffect(() => {
+    if (!vehicleId || driver?.id === 'unassigned') {
+      setEmergencyActivated(false);
+      setMessageSent(false);
+    }
+  }, [vehicleId, driver?.id]);
+
   const sendMessage = useCallback(
     async (message: string) => {
-      if (!vehicleId || !driver?.id) {
+      if (!vehicleId || driver?.id == 'unassigned') {
         Toast.show({
           type: 'error',
           text1: 'Emergency',
-          text2: 'Select a vehicle and driver first.',
+          text2: 'Please login to get the vehicle.',
         });
         throw new Error('Vehicle and driver required');
       }
@@ -46,7 +54,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         await sendDriverMessage({
           agencyID,
           vehicleID: vehicleId,
-          driverID: driver.id,
+          driverID: driver?.id,
           lat,
           lng,
           message,
