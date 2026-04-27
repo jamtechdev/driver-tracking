@@ -595,7 +595,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         )}
 
         {!isPortrait && (
-          <View style={[styles.gpsRow, { bottom: isMobile && isLandscape ? insets.bottom : insets.bottom + 8, flex: isTablet ? 0.1 : 0.2, paddingRight: 15, marginRight: Platform.OS === 'ios' ? insets.right : 0 }]}>
+          <View style={[styles.gpsRow, { bottom: isMobile && isLandscape ? insets.bottom : insets.bottom + 8, flex: isTablet ? 0.1 : 0.2, paddingRight: 0, marginRight: Platform.OS === 'ios' ? insets.right : 0 }]}>
             {/* <View style={[styles.gpsRow, { bottom: isMobile && isLandscape ? insets.bottom : insets.bottom, flex: isTablet ? 0.1 : 0.2 }]}></View> */}
             <View style={[styles.gpsDot, isGpsFlashing && styles.gpsDotFlashing]} />
             <Text style={styles.gpsText}>{powerTrackingStatus}</Text>
@@ -1020,7 +1020,7 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   gpsText: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '500',
   },

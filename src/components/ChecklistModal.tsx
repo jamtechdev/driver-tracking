@@ -165,8 +165,6 @@ const ChecklistModal: React.FC = () => {
     const hasFail = items.some((i) => i.status === 'fail') ? 1 : 0;
     console.log('Payload:', payload);
     console.log('Has Fail:', hasFail);
-
-    return;
     setSubmitting(true);
     try {
       await submitChecklist(vehicleId, driver.id, agencyID, hasFail as 0 | 1, payload);

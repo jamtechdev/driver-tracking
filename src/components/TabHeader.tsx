@@ -1,23 +1,25 @@
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, Animated, Pressable, PanResponder, useWindowDimensions, Modal, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Animated, Pressable, PanResponder, useWindowDimensions, Modal, TextInput, TouchableOpacity, Keyboard } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../theme/colors';
 import { useEmergency } from '../context/EmergencyContext';
 import { useReportIncidentModal } from '../context/ReportIncidentModalContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSettingsModal } from '../context/SettingsModalContext';
+import { useSidebar } from '../context/SidebarContext';
 
 const TabHeader: React.FC = () => {
   const { emergencyActivated, activateEmergency, deactivateEmergency } = useEmergency();
   const { open: openReportIncidentModal } = useReportIncidentModal();
   const { use24HourClock } = useSettingsModal();
+  const { open: openSidebar } = useSidebar();
   const sliderAnim = useRef(new Animated.Value(0)).current;
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   const isPortrait = !isLandscape;
   const isMobile = width < 768;
   const isSmallDevice = width < 600;
-  const sliderWidth = isSmallDevice ? (isPortrait ? 80 : 150) : 160;
+  const sliderWidth = isSmallDevice ? (isPortrait ? 130 : 150) : 160;
   const thumbSize = 52;
   const timeFontSize = isSmallDevice ? (isPortrait ? 16 : 24) : 28;
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -93,34 +95,42 @@ const TabHeader: React.FC = () => {
 
   return (
     <SafeAreaView style={[styles.header, isLandscape && styles.headerLandscape]} edges={['top']}>
-      <View style={styles.headerTimeAbsolute} pointerEvents="none">
+      <View style={styles.leftContainer}>
+        {isPortrait && isSmallDevice && (
+          <TouchableOpacity onPress={openSidebar} style={styles.menuButton}>
+            <MaterialIcons name="menu" size={28} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.headerTimeContainer}>
         <Text style={[styles.headerTime, { fontSize: timeFontSize }]}>
           {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: !use24HourClock })}
         </Text>
       </View>
 
-      <View style={{ flex: 1 }} />
-
-      <View style={[styles.emergencyContainerNew, { width: sliderWidth + (isMobile ? 12 : 24), paddingRight: isMobile ? 12 : 24, marginBottom: isPortrait ? 10 : 0 }]}>
-        {emergencyActivated ? (
-          <TouchableOpacity
-            style={styles.emergencyActivatedBtn}
-            onLongPress={handleDeactivateLongPress}
-            delayLongPress={5000}
-          >
-            <Text style={styles.emergencyActivatedText}>Activated</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={[styles.sliderTrack, { width: sliderWidth }]}>
-            <Text style={styles.sliderLabel}>Emergency</Text>
-            <Animated.View
-              {...panResponder.panHandlers}
-              style={[styles.sliderThumb, { transform: [{ translateX: sliderAnim }] }]}
+      <View style={styles.rightContainer}>
+        <View style={[styles.emergencyContainerNew, { width: sliderWidth + (isMobile ? 12 : 24), paddingRight: isMobile ? 12 : 24, marginBottom: isPortrait ? 10 : 0 }]}>
+          {emergencyActivated ? (
+            <TouchableOpacity
+              style={styles.emergencyActivatedBtn}
+              onLongPress={handleDeactivateLongPress}
+              delayLongPress={5000}
             >
-              <MaterialIcons name="arrow-forward" size={28} color="#FFFFFF" />
-            </Animated.View>
-          </View>
-        )}
+              <Text style={styles.emergencyActivatedText}>Activated</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.sliderTrack, { width: sliderWidth }]}>
+              <Text style={styles.sliderLabel}>Emergency</Text>
+              <Animated.View
+                {...panResponder.panHandlers}
+                style={[styles.sliderThumb, { transform: [{ translateX: sliderAnim }] }]}
+              >
+                <MaterialIcons name="arrow-forward" size={28} color="#FFFFFF" />
+              </Animated.View>
+            </View>
+          )}
+        </View>
       </View>
 
       <Modal
@@ -130,7 +140,9 @@ const TabHeader: React.FC = () => {
         onRequestClose={() => setIsDeactivateModalVisible(false)}
         supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
       >
-        <View style={styles.modalOverlay}>
+        <Pressable
+          onPress={() => Keyboard.dismiss()}
+          style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Reason for Clearing Emergency state</Text>
             <TextInput
@@ -156,7 +168,7 @@ const TabHeader: React.FC = () => {
               </Pressable>
             </View>
           </View>
-        </View>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );
@@ -167,33 +179,44 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 0, // Controlled by flex columns
+    justifyContent: 'space-between', // Keeps the 3 columns spread out
+    marginHorizontal: 15,
     position: 'relative',
-    paddingTop: 30,
-    paddingBottom: 40,
+    paddingTop: 10,
+  },
+  leftContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  headerTimeContainer: {
+    flex: 2, // Give more space to the center time
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rightContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
+  menuButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerLandscape: {
     paddingTop: 15,
-    marginTop: 10,
-    paddingBottom: 35,
-  },
-  headerTimeAbsolute: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: -1,
-
+    // marginTop: 10,
+    paddingBottom: 2,
   },
   headerTime: {
     fontWeight: '600',
     color: COLORS.textPrimary,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+    marginRight: 10,
+    // backgroundColor: 'red'
   },
   emergencyContainerNew: {
     alignItems: 'flex-end',
@@ -201,7 +224,8 @@ const styles = StyleSheet.create({
     // marginBottom: 10,
   },
   sliderTrack: {
-    width: 200,
+    width: '100%',
+    maxWidth: 220,
     height: 42,
     backgroundColor: '#3A3A3C',
     borderRadius: 26,
@@ -209,11 +233,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+    marginRight: 10
   },
   sliderLabel: {
     position: 'absolute',
     left: 0,
-    right: 0,
+    right: -24,
     textAlign: 'center',
     fontSize: 13,
     marginLeft: 10,
@@ -244,6 +269,7 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
+    marginRight: 10
   },
   emergencyActivatedText: {
     fontSize: 16,

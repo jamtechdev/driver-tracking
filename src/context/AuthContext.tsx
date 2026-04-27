@@ -29,6 +29,7 @@ interface AuthState {
   passengerCount: number;
   apcCount: number;
   hasShownSupervisorModal: boolean;
+  isSyncingVehicle: boolean;
 }
 
 interface AuthContextType extends AuthState {
@@ -42,6 +43,7 @@ interface AuthContextType extends AuthState {
   setSelectedManifestId: (id: number | null) => void;
   setPassengerCount: (count: number | ((prev: number) => number)) => void;
   setHasShownSupervisorModal: (shown: boolean) => void;
+  syncVehicleAssignment: () => Promise<void>;
 }
 
 const unassignedDriver = DRIVERS.find((d) => d.role === 'unassigned') || DRIVERS[0];
@@ -50,7 +52,7 @@ const initialState: AuthState = {
   driver: unassignedDriver,
   isAuthenticated: true,
   isSupervisorMode: false,
-  vehicleId: '110',
+  vehicleId: null,
   vehicleName: null,
   serviceStatus: 'out_of_service',
   selectedRoute: 'Out of Service',
@@ -59,6 +61,7 @@ const initialState: AuthState = {
   passengerCount: 0,
   apcCount: 0,
   hasShownSupervisorModal: false,
+  isSyncingVehicle: false,
 };
 
 function isDriverLike(obj: unknown): obj is Driver {
@@ -91,6 +94,7 @@ function parseStoredState(raw: string | null): AuthState | null {
       passengerCount: typeof parsed.passengerCount === 'number' || typeof parsed.passengerCount === 'string' ? parsed.passengerCount : initialState.passengerCount,
       apcCount: typeof parsed.apcCount === 'number' ? parsed.apcCount : (typeof parsed.passengerCount === 'number' ? parsed.passengerCount : initialState.apcCount),
       hasShownSupervisorModal: typeof parsed.hasShownSupervisorModal === 'boolean' ? parsed.hasShownSupervisorModal : initialState.hasShownSupervisorModal,
+      isSyncingVehicle: false,
     };
   } catch {
     return null;
@@ -111,7 +115,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const stored = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
         if (cancelled) return;
         const restored = parseStoredState(stored);
-        if (restored) setState(restored);
+        if (restored) {
+          if (restored.driver && restored.driver.role !== 'unassigned') {
+            setState({ ...restored, isSyncingVehicle: true });
+
+            // Trigger MDT update immediately on launch
+            const deviceBrightness = await deviceService.getBrightness();
+            reportMdtStatusAfterLogin({
+              agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+              vehicleID: restored.vehicleId || '0',
+              driverID: String(restored.driver.id),
+              screenBrightness: deviceBrightness / 100,
+            }).then((resp) => {
+              if (!cancelled && resp && resp.vehicleID) {
+                setState(prev => ({
+                  ...prev,
+                  vehicleId: String(resp.vehicleID),
+                  vehicleName: String(resp.vehicleID),
+                  isSyncingVehicle: false
+                }));
+              } else {
+                if (!cancelled) setState(prev => ({ ...prev, isSyncingVehicle: false }));
+              }
+            }).catch((err) => {
+              console.error('[AuthContext] Launch MDT sync failed:', err);
+              if (!cancelled) setState(prev => ({ ...prev, isSyncingVehicle: false }));
+            });
+          } else {
+            setState(restored);
+          }
+        }
       } catch (_e) {
         // keep initialState
       } finally {
@@ -238,39 +271,60 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return false;
     }
 
-    // Now fetch vehicle/assignment info using the resolved ID
-    const vehicleUpdates = resolvedDriver?.role !== 'supervisor' && await fetchAndSetVehicle(resolvedDriver.id);
-    const deviceBrightness = await deviceService.getBrightness();
-    // Call MDT status update after login (proactively)
-    if (resolvedDriver?.role !== 'supervisor') {
-      const vId = vehicleUpdates ? vehicleUpdates.vehicleId : initialState.vehicleId;
-      if (vId) {
-        reportMdtStatusAfterLogin({
-          agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
-          vehicleID: String(vId),
-          driverID: String(resolvedDriver.id),
-          screenBrightness: deviceBrightness / 100,
-        }).catch((e: Error) => {
-          console.error('[AuthContext] Failed to report MDT status after login:', e);
-        });
-      }
-    }
-
+    // UPDATE DRIVER IMMEDIATELY so the UI (like BottomBar) shows the name right away
     setState((s) => ({
       ...s,
       driver: resolvedDriver,
       isAuthenticated: true,
       isSupervisorMode: resolvedDriver.role === 'supervisor',
       hasShownSupervisorModal: false, // Reset on every login
-      // Reset to defaults first to prevent leaking previous session data
-      vehicleId: initialState.vehicleId,
-      vehicleName: initialState.vehicleId,
-      serviceStatus: initialState.serviceStatus,
-      selectedRoute: initialState.selectedRoute,
-      selectedRouteId: initialState.selectedRouteId,
-      passengerCount: 0,
-      ...(vehicleUpdates || {}),
     }));
+
+    // Fetch vehicle/assignment and MDT status in the background to avoid blocking the UI
+    (async () => {
+      try {
+        const vehicleUpdates = resolvedDriver?.role !== 'supervisor' && await fetchAndSetVehicle(resolvedDriver.id);
+        const deviceBrightness = await deviceService.getBrightness();
+        
+        // Call MDT status update after login (proactively)
+        if (resolvedDriver?.role !== 'supervisor') {
+          const vId = vehicleUpdates ? (vehicleUpdates as any).vehicleId : initialState.vehicleId;
+          if (vId) {
+            setState(s => ({ ...s, isSyncingVehicle: true }));
+            reportMdtStatusAfterLogin({
+              agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+              vehicleID: String(vId),
+              driverID: String(resolvedDriver.id),
+              screenBrightness: deviceBrightness / 100,
+            }).then((resp) => {
+              if (resp && resp.vehicleID) {
+                setVehicleId(String(resp.vehicleID));
+                setVehicleName(String(resp.vehicleID));
+              }
+            }).catch((e: Error) => {
+              console.error('[AuthContext] Failed to report MDT status after login:', e);
+            }).finally(() => {
+              setState(s => ({ ...s, isSyncingVehicle: false }));
+            });
+          }
+        }
+
+        setState((s) => ({
+          ...s,
+          // Reset vehicle defaults first to prevent leaking previous session data
+          vehicleId: initialState.vehicleId,
+          vehicleName: initialState.vehicleId,
+          serviceStatus: initialState.serviceStatus,
+          selectedRoute: initialState.selectedRoute,
+          selectedRouteId: initialState.selectedRouteId,
+          passengerCount: 0,
+          ...(vehicleUpdates || {}),
+        }));
+      } catch (e) {
+        console.error('[AuthContext] Background vehicle/MDT update failed:', e);
+      }
+    })();
+
     return true;
   }, []);
 
@@ -283,13 +337,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
   const selectDriver = useCallback(async (driver: Driver) => {
+    let mapped: Driver = driver;
     try {
       const data = await getDriverData();
       const driverList = data?.driver;
       const list = Array.isArray(driverList) ? driverList : [];
       const match = list.find((d) => String(d.driverID) === String(driver.id));
 
-      let mapped: Driver = driver;
       if (match) {
         mapped = {
           id: match.driverID,
@@ -299,41 +353,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           pin: match.code ?? driver.pin,
         };
       }
-
-      // Fetch vehicles for the selected driver and pick the last one
-      const vehicleUpdates = await fetchAndSetVehicle(driver.id);
-
-      setState((s) => ({
-        ...s,
-        driver: mapped,
-        isSupervisorMode: mapped.role === 'supervisor',
-        hasShownSupervisorModal: false,
-        // Reset to defaults first
-        vehicleId: initialState.vehicleId,
-        vehicleName: initialState.vehicleId,
-        serviceStatus: initialState.serviceStatus,
-        selectedRoute: initialState.selectedRoute,
-        selectedRouteId: initialState.selectedRouteId,
-        passengerCount: 0,
-        ...(vehicleUpdates || {}),
-      }));
-    } catch (_error) {
-      const vehicleUpdates = await fetchAndSetVehicle(driver.id);
-      setState((s) => ({
-        ...s,
-        driver,
-        isSupervisorMode: driver.role === 'supervisor',
-        hasShownSupervisorModal: false,
-        // Reset to defaults first
-        vehicleId: initialState.vehicleId,
-        vehicleName: initialState.vehicleId,
-        serviceStatus: initialState.serviceStatus,
-        selectedRoute: initialState.selectedRoute,
-        selectedRouteId: initialState.selectedRouteId,
-        passengerCount: 0,
-        ...(vehicleUpdates || {}),
-      }));
+    } catch (e) {
+      console.warn('[AuthContext] Driver data fetch failed in selectDriver:', e);
     }
+
+    // UPDATE DRIVER IMMEDIATELY
+    setState((s) => ({
+      ...s,
+      driver: mapped,
+      isSupervisorMode: mapped.role === 'supervisor',
+      hasShownSupervisorModal: false,
+    }));
+
+    // Fetch vehicles for the selected driver and pick the last one in background
+    (async () => {
+      try {
+        const vehicleUpdates = await fetchAndSetVehicle(mapped.id);
+        setState((s) => ({
+          ...s,
+          // Reset to defaults first
+          vehicleId: initialState.vehicleId,
+          vehicleName: initialState.vehicleId,
+          serviceStatus: initialState.serviceStatus,
+          selectedRoute: initialState.selectedRoute,
+          selectedRouteId: initialState.selectedRouteId,
+          passengerCount: 0,
+          ...(vehicleUpdates || {}),
+        }));
+      } catch (e) {
+        console.error('[AuthContext] Background vehicle fetch failed in selectDriver:', e);
+      }
+    })();
   }, []);
 
   const setVehicleId = useCallback((vehicleId: string | null) => {
@@ -376,6 +426,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }));
   }, []);
 
+  const syncVehicleAssignment = useCallback(async () => {
+    if (!state.driver || state.driver.role === 'unassigned') return;
+
+    setState(s => ({ ...s, isSyncingVehicle: true }));
+    try {
+      const deviceBrightness = await deviceService.getBrightness();
+      const resp = await reportMdtStatusAfterLogin({
+        agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+        vehicleID: state.vehicleId || '0',
+        driverID: String(state.driver.id),
+        screenBrightness: deviceBrightness / 100,
+      });
+
+      if (resp && resp.vehicleID) {
+        setState(s => ({
+          ...s,
+          vehicleId: String(resp.vehicleID),
+          vehicleName: String(resp.vehicleID),
+          isSyncingVehicle: false
+        }));
+      } else {
+        setState(s => ({ ...s, isSyncingVehicle: false }));
+      }
+    } catch (e) {
+      console.error('[AuthContext] syncVehicleAssignment failed:', e);
+      setState(s => ({ ...s, isSyncingVehicle: false }));
+    }
+  }, [state.driver, state.vehicleId]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -389,6 +468,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         selectRouteOrStatus,
         setPassengerCount,
         setSelectedManifestId,
+        syncVehicleAssignment,
         setHasShownSupervisorModal: (shown: boolean) => setState((s) => ({ ...s, hasShownSupervisorModal: shown })),
       }}
     >

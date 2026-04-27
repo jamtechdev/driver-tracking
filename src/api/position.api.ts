@@ -50,7 +50,7 @@ export interface MdtUpdateParams {
   locationAuthStatus?: string;
 }
 
-export async function mdtUpdate(params: MdtUpdateParams): Promise<void> {
+export async function mdtUpdate(params: MdtUpdateParams): Promise<any> {
   const url = buildUrl({
     controller: 'mdt',
     action: 'update',

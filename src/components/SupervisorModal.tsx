@@ -43,12 +43,12 @@ const DirectionalArrow = ({ color }: { color: string }) => {
 
     return (
         <Animated.View style={{ width: 50, height: 50, alignItems: 'center', justifyContent: 'center', opacity: heartbeat }}>
-            <Svg width={80} height={80} viewBox="0 0 24 24" fill="none">
+            <Svg width={60} height={60} viewBox="0 0 24 24" fill="none">
                 <Path
                     d="M12 2L19 21L12 17L5 21L12 2Z"
                     fill={color}
                     stroke="white"
-                    strokeWidth="2"
+                    strokeWidth="1"
                     strokeLinejoin="round"
                 />
             </Svg>

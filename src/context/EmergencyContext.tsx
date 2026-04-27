@@ -40,21 +40,17 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const sendMessage = useCallback(
     async (message: string) => {
-      if (!vehicleId || driver?.id == 'unassigned') {
-        Toast.show({
-          type: 'error',
-          text1: 'Emergency',
-          text2: 'Please login to get the vehicle.',
-        });
-        throw new Error('Vehicle and driver required');
-      }
+      // Use provided ID or fallback to '0' for unassigned states
+      const effectiveVehicleId = vehicleId || '0';
+      const effectiveDriverId = (driver?.id && driver.id !== 'unassigned') ? driver.id : '0';
+
       const lat = lastLocation?.latitude ?? 0;
       const lng = lastLocation?.longitude ?? 0;
       try {
         await sendDriverMessage({
           agencyID,
-          vehicleID: vehicleId,
-          driverID: driver?.id,
+          vehicleID: effectiveVehicleId,
+          driverID: effectiveDriverId,
           lat,
           lng,
           message,

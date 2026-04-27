@@ -34,7 +34,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>This app needs camera access to capture photos for incident reports.</string>
+	<string>This app needs camera access to capture photos.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app needs background location access for continuous GPS tracking during routes.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
@@ -42,7 +42,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app needs access to your location for GPS tracking and route navigation.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>This app needs photo library access to attach photos to incident reports.</string>
+	<string>This app needs photo library access to upload photos.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>

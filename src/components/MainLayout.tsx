@@ -14,6 +14,7 @@ import {
   Modal,
   Platform,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import Slider from 'react-native-sliders';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -24,6 +25,7 @@ import BottomBar from './BottomBar';
 import SelectDriverModal from './SelectDriverModal';
 import { useDriverModal } from '../context/DriverModalContext';
 import { useBrightness } from '../context/BrightnessContext';
+import { useAuth } from '../context/AuthContext';
 import { COLORS } from '../theme/colors';
 import { BOTTOM_BAR_HEIGHT } from '../utils/constants';
 
@@ -54,6 +56,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
     setBrightness,
     brightnessSupported,
   } = useBrightness();
+  const { isSyncingVehicle } = useAuth();
   const { width, height } = useWindowDimensions();
   // Use Platform.isPad for iPad (iPad Mini portrait = 744px, would fail width >= 768)
   const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
@@ -100,7 +103,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   const mainContent = (
     <>
       {children}
-      {isMobile && showSidebar && (
+      {isMobile && showSidebar && isLandscape && (
         <TouchableOpacity
           style={[styles.menuButton, isLandscape && styles.menuButtonLandscape]}
           onPress={() => setSidebarVisible(true)}
@@ -218,6 +221,15 @@ const MainLayout: React.FC<MainLayoutProps> = ({
             </View>
           </Modal>
         )}
+
+        {/* {isSyncingVehicle && (
+          <View style={styles.loadingOverlay}>
+            <View style={styles.loadingCard}>
+              <ActivityIndicator size="large" color="#007AFF" />
+              <Text style={styles.loadingText}>Syncing vehicle assignment...</Text>
+            </View>
+          </View>
+        )} */}
       </SafeAreaView>
     </SidebarProvider>
   );
@@ -356,6 +368,34 @@ const styles = StyleSheet.create({
   },
   drawerBackdropBg: {
     backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10000,
+    elevation: 10000,
+  },
+  loadingCard: {
+    backgroundColor: '#1C1C1E',
+    padding: 32,
+    borderRadius: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  loadingText: {
+    color: '#FFFFFF',
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
 });
 

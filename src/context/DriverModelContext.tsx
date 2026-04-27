@@ -99,10 +99,11 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     vehicleId,
     driver,
     selectedRouteId,
+    setVehicleId,
+    setVehicleName,
   } = useAuth();
   const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
   const { vehicles, routes, drivers, stops, isLoading } = useDriverData();
-
   const [lastLocation, setLastLocation] = useState<LastLocation | null>(null);
   const [isAcquiringSat, setIsAcquiringSat] = useState(false);
   const [trackingMode, setTrackingModeState] = useState<TrackingMode>('auto');
@@ -155,7 +156,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       const params: MdtUpdateParams = {
         agencyID,
-        vehicleID: vehicleId && vehicleId !== '110' ? vehicleId : 0,
+        vehicleID: vehicleId ? vehicleId : 0,
         vehicleAssignmentUpdated: 0,
         driverID: (driver?.id && driver.id !== 'unassigned') ? driver.id : 0,
         lat: loc.latitude,
@@ -182,8 +183,12 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       };
 
       console.log('[MDT Update] Data before sending:', params);
-      const resp = await mdtUpdate(params);
+      const resp: any = await mdtUpdate(params);
       console.log('[MDT Update] Response:', resp);
+      if (resp && resp.vehicleID) {
+        setVehicleId(String(resp.vehicleID));
+        setVehicleName(String(resp.vehicleID));
+      }
       lastMdtSendRef.current = Date.now();
       hasSentFirstMdtRef.current = true;
     } catch (e: any) {
@@ -304,7 +309,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Send vehicle update (throttled 5s). Pass position from callback to use latest fix.
   const trySendVehicleUpdate = useCallback(async (position?: LastLocation | null) => {
     const loc = position ?? lastLocation;
-    if (!loc) return;
+    if (!loc || !vehicleId) return;
     if (trackingMode === 'off') return;
     // If auto mode, we only send if a real vehicle is selected
     // if (trackingMode === 'auto' && (!vehicleId || vehicleId === '110')) return;
@@ -313,9 +318,9 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     const params: VehicleUpdateParams = {
       agencyID,
-      vehicleID: (vehicleId && vehicleId !== '110') ? vehicleId : '0',
-      routeID: selectedRouteId ?? '0',
-      driverID: (driver?.id && driver.id !== 'unassigned') ? driver.id : '0',
+      vehicleID: vehicleId ? vehicleId : 0,
+      routeID: selectedRouteId ?? 0,
+      driverID: (driver?.id && driver.id !== 'unassigned') ? driver.id : 0,
       lat: loc.latitude,
       lng: loc.longitude,
       course: loc.heading != null ? Math.round(loc.heading) : 0,
@@ -422,6 +427,11 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
             (prevState === 'background' || prevState === 'inactive')
           ) {
             if (backgroundTrackingService.isTracking()) {
+              const data = backgroundTrackingService.getCurrentData();
+              if (data && data.vehicleID && data.vehicleID !== String(vehicleId)) {
+                setVehicleId(data.vehicleID);
+                setVehicleName(data.vehicleID);
+              }
               await backgroundTrackingService.stop();
 
               if (__DEV__) {

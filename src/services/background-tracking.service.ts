@@ -41,6 +41,13 @@ class BackgroundTrackingService {
   }
 
   /**
+   * Get the current tracking data
+   */
+  public getCurrentData(): BackgroundTrackingData | null {
+    return this.currentData;
+  }
+
+  /**
    * Start the background tracking service
    */
   public async start(data: BackgroundTrackingData) {
@@ -218,7 +225,10 @@ class BackgroundTrackingService {
       };
 
       console.log('[BackgroundTrackingService] Sending MDT Update:', params);
-      await mdtUpdate(params);
+      const resp: any = await mdtUpdate(params);
+      if (resp && resp.vehicleID) {
+        this.currentData.vehicleID = String(resp.vehicleID);
+      }
     } catch (error) {
       console.warn('[BackgroundTrackingService] MDT update failed:', error);
     }

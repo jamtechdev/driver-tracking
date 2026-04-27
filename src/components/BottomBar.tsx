@@ -52,7 +52,7 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
   const [showVehicleModal, setShowVehicleModal] = useState(false);
 
   const driverName = emergencyActivated ? 'Unassigned' : (driver && driver.role !== 'unassigned' ? driver.name : 'Unassigned');
-  const vehicleDisplay = emergencyActivated ? 'Unassigned' : (vehicleName === '110' ? 'Unassigned' : vehicleName || 'Unassigned');
+  const vehicleDisplay = emergencyActivated ? 'Unassigned' : (vehicleName || 'Unassigned');
   const routeDisplay = emergencyActivated ? 'Out of Service' : (selectedRoute || 'Out of Service');
   const showLimeDriver = effectiveLoggedOut;
   const showLimeRoute = serviceStatus === 'out_of_service' || emergencyActivated;

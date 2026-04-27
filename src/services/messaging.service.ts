@@ -30,6 +30,7 @@ export const messagingService = {
    * Speak text
    */
   speak: (text: string) => {
+    Tts.stop();
     Tts.speak(text);
   },
 
