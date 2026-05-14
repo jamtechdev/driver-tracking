@@ -13,7 +13,7 @@ import React, {
   useCallback,
   useEffect,
 } from 'react';
-import { Platform, AppState, AppStateStatus } from 'react-native';
+import { Platform, AppState, AppStateStatus, PermissionsAndroid } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
@@ -62,6 +62,8 @@ export interface ScheduleStop {
 }
 
 interface DriverModelContextType {
+  /** Latest `alert` value from vehicle update response (0 = cleared, 1 = active, null = not yet received). */
+  serverAlert: number | null;
   /** Current GPS position (for map and route adherence). Map updates from this; no separate "get position" API. */
   lastLocation: LastLocation | null;
   /** True when horizontal accuracy > 50m (not sent to server). */
@@ -101,6 +103,8 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     selectedRouteId,
     setVehicleId,
     setVehicleName,
+    setPassengerCount,
+    resolveVehicleName,
   } = useAuth();
   const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
   const { vehicles, routes, drivers, stops, isLoading } = useDriverData();
@@ -113,6 +117,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [batteryState, setBatteryState] = useState(2); // 2 = charging
   const [mdtUuid, setMdtUuid] = useState<string>('');
   const [minsLate, setMinsLate] = useState<number | null>(null);
+  const [serverAlert, setServerAlert] = useState<number | null>(null);
   const [schedule, setSchedule] = useState<ScheduleStop[]>([]);
   const [nextStop, setNextStop] = useState<ScheduleStop | null>(null);
   const [visitedLinks, setVisitedLinks] = useState<Set<number>>(new Set());
@@ -142,6 +147,14 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Track app foreground/background state so vehicle updates fire in both modes
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const notificationInitializedRef = useRef(false);
+  // Refs to hold latest values for background GPS callback (avoids stale closure)
+  const vehicleIdRef = useRef(vehicleId);
+  const driverIdRef = useRef(driver?.id);
+  const selectedRouteIdRef = useRef(selectedRouteId);
+  const minsLateRef = useRef(minsLate);
+  const batteryLevelRef = useRef(batteryLevel);
+  const batteryStateRef = useRef(batteryState);
+  const trackingModeRef = useRef(trackingMode);
 
   const trySendMdtUpdate = useCallback(async (loc: LastLocation) => {
     if (driver?.role === 'supervisor') {
@@ -156,7 +169,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       const params: MdtUpdateParams = {
         agencyID,
-        vehicleID: vehicleId ? vehicleId : 0,
+        vehicleID: vehicleId && vehicleId !== 'unassigned' ? vehicleId : 0,
         vehicleAssignmentUpdated: 0,
         driverID: (driver?.id && driver.id !== 'unassigned') ? driver.id : 0,
         lat: loc.latitude,
@@ -186,8 +199,10 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const resp: any = await mdtUpdate(params);
       console.log('[MDT Update] Response:', resp);
       if (resp && resp.vehicleID) {
-        setVehicleId(String(resp.vehicleID));
-        setVehicleName(String(resp.vehicleID));
+        const vId = String(resp.vehicleID);
+        const vName = await resolveVehicleName(vId);
+        setVehicleId(vId);
+        setVehicleName(vName);
       }
       lastMdtSendRef.current = Date.now();
       hasSentFirstMdtRef.current = true;
@@ -200,6 +215,15 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setTrackingModeState(mode);
     AsyncStorage.setItem(TRACKING_MODE_KEY, mode).catch(() => { });
   }, []);
+
+  // Keep refs in sync with latest state for background GPS callback
+  useEffect(() => { vehicleIdRef.current = vehicleId; }, [vehicleId]);
+  useEffect(() => { driverIdRef.current = driver?.id; }, [driver?.id]);
+  useEffect(() => { selectedRouteIdRef.current = selectedRouteId; }, [selectedRouteId]);
+  useEffect(() => { minsLateRef.current = minsLate; }, [minsLate]);
+  useEffect(() => { batteryLevelRef.current = batteryLevel; }, [batteryLevel]);
+  useEffect(() => { batteryStateRef.current = batteryState; }, [batteryState]);
+  useEffect(() => { trackingModeRef.current = trackingMode; }, [trackingMode]);
 
   // Restore tracking mode from storage
   useEffect(() => {
@@ -309,7 +333,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
   // Send vehicle update (throttled 5s). Pass position from callback to use latest fix.
   const trySendVehicleUpdate = useCallback(async (position?: LastLocation | null) => {
     const loc = position ?? lastLocation;
-    if (!loc || !vehicleId) return;
+    if (!loc || !vehicleId || vehicleId === 'unassigned') return;
     if (trackingMode === 'off') return;
     // If auto mode, we only send if a real vehicle is selected
     // if (trackingMode === 'auto' && (!vehicleId || vehicleId === '110')) return;
@@ -338,6 +362,14 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (resp && typeof resp.minsLate !== 'undefined') {
         setMinsLate(Number(resp.minsLate));
       }
+      if (resp && typeof resp.alert !== 'undefined') {
+        setServerAlert(Number(resp.alert));
+      }
+      // Sync APC count from server response
+      if (resp && resp.APCCount !== undefined && resp.APCCount !== null) {
+        const serverApc = Number(resp.APCCount) || 0;
+        setPassengerCount(serverApc);
+      }
       lastVehicleSendRef.current = now;
       setLastVehicleSendTime(now);
       onLocationXmitRef.current?.(loc);
@@ -365,10 +397,15 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   trySendVehicleUpdateRef.current = trySendVehicleUpdate;
 
-  // 1. Initial Permission Request (Handled in App.tsx)
+  // 1. Initial Permission Request
   useEffect(() => {
-    // If the user handles initialization in App.tsx, we can just mark it as ready here.
-    notificationInitializedRef.current = true;
+    const initPermissions = async () => {
+      const granted = await requestLocationPermission();
+      if (granted) {
+        notificationInitializedRef.current = true;
+      }
+    };
+    initPermissions();
   }, []);
 
 
@@ -406,23 +443,32 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       try {
         if (isTrackingActive && isReadyForNotify) {
-          if (
-            (nextState === 'background' || nextState === 'inactive') &&
-            !backgroundTrackingService.isTracking()
-          ) {
-            await backgroundTrackingService.start({
-              agencyID,
-              vehicleID: (vehicleId && vehicleId !== '110') ? String(vehicleId) : '0',
-              driverID: (driver?.id && driver.id !== 'unassigned') ? String(driver.id) : '0',
-              routeID: String(selectedRouteId || 0),
-              mdtUuid,
-              minsLate: minsLate || 0,
-            });
+          // Double check permissions before starting background service on Android
+          let hasPermission = true;
+          if (Platform.OS === 'android') {
+            hasPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+          }
 
-            if (__DEV__) {
-              console.log('[DriverModel] Background tracking service started');
-            }
-          } else if (
+          // if (
+          //   (nextState === 'background' || nextState === 'inactive') &&
+          //   !backgroundTrackingService.isTracking() &&
+          //   hasPermission
+          // ) {
+          //   await backgroundTrackingService.start({
+          //     agencyID,
+          //     vehicleID: (vehicleId && vehicleId !== '110') ? String(vehicleId) : '0',
+          //     driverID: (driver?.id && driver.id !== 'unassigned') ? String(driver.id) : '0',
+          //     routeID: String(selectedRouteId || 0),
+          //     mdtUuid,
+          //     minsLate: minsLate || 0,
+          //   });
+
+          //   if (__DEV__) {
+          //     console.log('[DriverModel] Background tracking service started');
+          //   }
+          // } 
+
+          else if (
             nextState === 'active' &&
             (prevState === 'background' || prevState === 'inactive')
           ) {
@@ -460,100 +506,6 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       }
     };
   }, [trackingMode, vehicleId, driver?.id]);
-
-
-
-  // // 2. AppState Listener for Background tracking indicator
-  // useEffect(() => {
-  //   const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
-  //     const prevState = appStateRef.current;
-  //     appStateRef.current = nextState;
-
-  //     if (__DEV__) {
-  //       console.log('[DriverModel] AppState changed ->', nextState);
-  //     }
-
-  //     // Handle background tracking indicator & persistent background task
-  //     const isTrackingActive = trackingMode !== 'off' && vehicleId && vehicleId !== '110';
-  //     const isReadyForNotify = notificationInitializedRef.current && driver?.id && driver?.id !== 'unassigned';
-
-  //     if (isTrackingActive && isReadyForNotify) {
-  //       if (nextState === 'background' || nextState === 'inactive') {
-  //         // 1. Android/iOS background task to keep JS loop alive
-  //         const options = {
-  //           taskName: 'DriverTracking',
-  //           taskTitle: 'GPS Tracking Active',
-  //           taskDesc: 'Broadcasting location to Peak Transit server',
-  //           taskIcon: {
-  //             name: 'ic_launcher',
-  //             type: 'mipmap',
-  //           },
-  //           color: '#000000',
-  //           parameters: {
-  //             delay: 5000,
-  //           },
-  //         };
-
-  //         BackgroundService.start(backgroundHeartbeatTask, options).catch(err =>
-  //           console.warn('[DriverModel] Background service failed to start:', err)
-  //         );
-  //       } else if (nextState === 'active' && (prevState === 'background' || prevState === 'inactive')) {
-  //         // Restore to foreground
-  //         BackgroundService.stop().catch(() => { });
-  //       }
-  //     } else {
-  //       BackgroundService.stop().catch(() => { });
-  //     }
-  //   });
-
-  //   return () => {
-  //     sub.remove();
-  //     BackgroundService.stop().catch(() => { });
-  //   };
-  // }, [trackingMode, vehicleId, driver?.id]);
-
-  // const backgroundHeartbeatTask = async (taskDataArguments: any) => {
-  //   const { delay } = taskDataArguments;
-
-  //   // We run an infinite loop as long as the service is active
-  //   await new Promise(async (resolve) => {
-  //     while (BackgroundService.isRunning()) {
-  //       try {
-  //         // Manually request a fresh GPS fix to keep hardware active in background
-  //         const pos = await locationService.getCurrentLocation();
-
-  //         if (pos) {
-  //           // Map GeolocationResponse to LastLocation format expected by the API
-  //           const ts = Date.now();
-  //           const loc: LastLocation = {
-  //             latitude: pos.latitude,
-  //             longitude: pos.longitude,
-  //             accuracy: pos.accuracy,
-  //             heading: pos.heading ?? 0,
-  //             speed: pos.speed ?? 0,
-  //             altitude: pos.altitude ?? 0,
-  //             timestamp: ts,
-  //           };
-
-  //           // Sync the main app state if possible (though it's usually throttled)
-  //           setLastLocation(loc);
-
-  //           // Send the update to the server immediately
-  //           await trySendVehicleUpdateRef.current?.(loc);
-
-  //           if (__DEV__) {
-  //             console.log('[BackgroundHeartbeat] Sent update at', new Date(ts).toLocaleTimeString());
-  //           }
-  //         }
-  //       } catch (err) {
-  //         if (__DEV__) console.warn('[BackgroundHeartbeat] Fix failed:', err);
-  //       }
-
-  //       // Wait for the next 5-second interval
-  //       await new Promise((r) => setTimeout(r, delay));
-  //     }
-  //   });
-  // };
 
   const magnetometerHeadingRef = useRef<number>(0);
 
@@ -667,13 +619,49 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       // ── Vehicle update on every GPS fix (foreground AND background) ──
       // The throttle inside trySendVehicleUpdate (5 s) prevents flooding.
       if (!acquiring) {
-        trySendVehicleUpdateRef.current?.(loc);
+        const isBackground = appStateRef.current === 'background' || appStateRef.current === 'inactive';
+        if (isBackground) {
+          // Use refs directly — React state is stale in background callbacks
+          const vId = vehicleIdRef.current;
+          const now = Date.now();
+          if (
+            vId && vId !== 'unassigned' &&
+            trackingModeRef.current !== 'off' &&
+            now - lastVehicleSendRef.current >= TIME_BETWEEN_SERVER_CALLS - 500
+          ) {
+            const bgParams: VehicleUpdateParams = {
+              agencyID,
+              vehicleID: vId,
+              routeID: selectedRouteIdRef.current ?? 0,
+              driverID: (driverIdRef.current && driverIdRef.current !== 'unassigned') ? driverIdRef.current : 0,
+              lat: loc.latitude,
+              lng: loc.longitude,
+              course: loc.heading != null ? Math.round(loc.heading) : 0,
+              speed: Math.round(speedMpsToMph(loc.speed)),
+              batteryLevel: batteryLevelRef.current,
+              batteryState: batteryStateRef.current,
+              source: 'MDT',
+              d: 1,
+              minsLate: minsLateRef.current ?? undefined,
+            };
+            vehicleUpdate(bgParams)
+              .then((resp: any) => {
+                lastVehicleSendRef.current = now;
+                if (resp && typeof resp.minsLate !== 'undefined') {
+                  minsLateRef.current = Number(resp.minsLate);
+                }
+              })
+              .catch(() => { });
+          }
+        } else {
+          trySendVehicleUpdateRef.current?.(loc);
+        }
       }
 
       // Next Stop Logic: Proximity check
       if (!acquiring && schedule.length > 0) {
         // Find the first non-visited stop that we are close to
-        const arrivalThreshold = 100; // meters
+        const arrivalThreshold = 50; // meters
 
         let updatedVisited = false;
         const newVisited = new Set(visitedLinks);
@@ -766,6 +754,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     batteryLevel,
     batteryState,
     setOnLocationXmit,
+    serverAlert,
     minsLate: minsLate,
     schedule,
     nextStop,

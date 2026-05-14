@@ -4,6 +4,8 @@
  * Placeholder - to be implemented in Week 7
  */
 
+
+import { Platform } from 'react-native';
 import Tts from 'react-native-tts';
 
 export const messagingService = {
@@ -14,7 +16,15 @@ export const messagingService = {
     try {
       await Tts.getInitStatus();
       await Tts.setDefaultLanguage('en-US');
-      await Tts.setDefaultRate(0.5);
+      if (Platform.OS === 'ios') {
+
+        await Tts.setDefaultVoice('com.apple.ttsbundle.Samantha.compact');
+        await Tts.setDefaultRate(0.5);
+
+      } else {
+
+        await Tts.setDefaultRate(0.5);
+      }
       await Tts.setDefaultPitch(1.0);
 
       // Ignore errors if already initialized

@@ -28,8 +28,8 @@ export const MAPS_CONFIG = {
   API_KEY: env.GOOGLE_MAPS_API_KEY,
   IS_AVAILABLE: isMapsApiKeyValid(),
   DEFAULT_REGION: {
-    latitude: 37.78825,
-    longitude: -122.4324,
+    latitude: 0, // Fallback - will be overridden by Agency or GPS location
+    longitude: 0,
     latitudeDelta: 0.0922,
     longitudeDelta: 0.0421,
   },

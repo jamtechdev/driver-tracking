@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     View,
     Text,
@@ -35,9 +35,17 @@ const PassengerCountModal: React.FC<PassengerCountModalProps> = ({
 }) => {
     const [embarking, setEmbarking] = useState(0);
     const [disembarking, setDisembarking] = useState(0);
-    const [selectedFareCategoryId, setSelectedFareCategoryId] = useState<number | null>(null);
+    const [selectedFareId, setSelectedFareId] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { fareCategories } = useDriverData();
+
+    // Flatten fare items from all categories to display attributes directly
+    const allFares = useMemo(() => {
+        return fareCategories.flatMap(cat =>
+            (cat.fare || []).map(f => ({ ...f, categoryID: cat.fareCategoryID }))
+        );
+    }, [fareCategories]);
+
     const { vehicleId, setPassengerCount } = useAuth();
     const { location, heading } = useMapLocation();
     const { width, height } = useWindowDimensions();
@@ -53,16 +61,16 @@ const PassengerCountModal: React.FC<PassengerCountModalProps> = ({
         if (visible) {
             setEmbarking(0);
             setDisembarking(0);
-            setSelectedFareCategoryId(null);
+            setSelectedFareId(null);
             setIsSubmitting(false);
         }
     }, [visible]);
 
-    const selectedCategory = fareCategories.find(c => c.fareCategoryID === selectedFareCategoryId);
-    const canSubmit = selectedFareCategoryId !== null && !isSubmitting && (embarking > 0 || disembarking > 0);
+    const selectedFare = allFares.find(f => f.fareID === selectedFareId);
+    const canSubmit = selectedFareId !== null && !isSubmitting && (embarking > 0 || disembarking > 0);
 
     const handleSubmit = async () => {
-        if (!canSubmit || !selectedCategory) return;
+        if (!canSubmit || !selectedFare) return;
 
         const eventTimestamp = Math.floor(Date.now() / 1000);
         const lat = location?.latitude ?? 0;
@@ -70,7 +78,7 @@ const PassengerCountModal: React.FC<PassengerCountModalProps> = ({
         const course = heading && heading > 0 ? heading : 0;
         // speed from geolocation is in m/s, convert to MPH (1 m/s = 2.23694 mph)
         const speedMPH = (location?.speed !== undefined && location?.speed >= 0 ? location?.speed : 0) * 2.23694;
-        const eventFare = selectedCategory.title;
+        const eventFare = selectedFare.title;
         const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
         const vehicleID = vehicleId ?? '0';
 
@@ -178,17 +186,17 @@ const PassengerCountModal: React.FC<PassengerCountModalProps> = ({
                             </TouchableOpacity>
                         </View>
 
-                        {fareCategories.length > 0 && (
+                        {allFares.length > 0 && (
                             <View style={[styles.fareCategorySection, isLandscape && { marginTop: 4, paddingBottom: 4 }]}>
-                                <Text style={styles.fareCategoryLabel}>Fare Category</Text>
+                                <Text style={styles.fareCategoryLabel}>Select Fare</Text>
                                 <FlatList
-                                    data={fareCategories}
-                                    keyExtractor={(item) => String(item.fareCategoryID)}
+                                    data={allFares}
+                                    keyExtractor={(item) => String(item.fareID)}
                                     horizontal
                                     showsHorizontalScrollIndicator={false}
                                     contentContainerStyle={styles.fareCategoryList}
                                     renderItem={({ item }) => {
-                                        const isSelected = selectedFareCategoryId === item.fareCategoryID;
+                                        const isSelected = selectedFareId === item.fareID;
                                         return (
                                             <TouchableOpacity
                                                 style={[
@@ -197,8 +205,8 @@ const PassengerCountModal: React.FC<PassengerCountModalProps> = ({
                                                     isLandscape && { paddingVertical: 6, paddingHorizontal: 12 }
                                                 ]}
                                                 onPress={() =>
-                                                    setSelectedFareCategoryId(
-                                                        isSelected ? null : item.fareCategoryID
+                                                    setSelectedFareId(
+                                                        isSelected ? null : item.fareID
                                                     )
                                                 }
                                                 activeOpacity={0.75}

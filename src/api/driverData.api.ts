@@ -22,6 +22,7 @@ export interface DriverDataVehicle {
   vehicleID?: string;
   vehicleNumber?: string;
   vehicleName?: string;
+  alert?: string | number;
   [key: string]: unknown;
 }
 

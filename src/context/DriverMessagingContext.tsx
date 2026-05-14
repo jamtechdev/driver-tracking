@@ -17,6 +17,7 @@ import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import { useAuth } from '@/context/AuthContext';
 import { getIncomingMessages, type IncomingMessageItem } from '@/api/incomingMessages.api';
 import { messagingService } from '@/services/messaging.service';
+import { Platform } from 'react-native';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -79,7 +80,9 @@ export const DriverMessagingProvider: React.FC<{ children: React.ReactNode }> = 
             clearTimeout(dismissTimeoutRef.current);
             dismissTimeoutRef.current = null;
         }
-        messagingService.stop();
+        if (Platform.OS === 'android') {
+            messagingService.stop();
+        }
         setActiveAlert(null);
     }, [dismissTimeoutRef]);
 
@@ -145,7 +148,7 @@ export const DriverMessagingProvider: React.FC<{ children: React.ReactNode }> = 
             }
 
         } catch (e) {
-            console.warn('[DriverMessaging] Error polling messages:', e.response.data);
+            console.warn('[DriverMessaging] Error polling messages:', e);
         }
 
     }, [agencyID, vehicleId, shouldPoll]);

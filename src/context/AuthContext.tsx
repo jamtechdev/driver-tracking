@@ -44,6 +44,7 @@ interface AuthContextType extends AuthState {
   setPassengerCount: (count: number | ((prev: number) => number)) => void;
   setHasShownSupervisorModal: (shown: boolean) => void;
   syncVehicleAssignment: () => Promise<void>;
+  resolveVehicleName: (vId: string) => Promise<string>;
 }
 
 const unassignedDriver = DRIVERS.find((d) => d.role === 'unassigned') || DRIVERS[0];
@@ -107,6 +108,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [state, setState] = useState<AuthState>(initialState);
   const hasRestored = useRef(false);
 
+  const resolveVehicleName = async (vId: string): Promise<string> => {
+    try {
+      const data = await getDriverData();
+
+      const vehicles = Array.isArray(data?.vehicle) ? data.vehicle : [];
+
+      const match = vehicles.find(v => String(v.vehicleID) === String(vId) || String(v.vehicleNumber) === String(vId));
+      if (match) {
+        return match.vehicleName || match.vehicleNumber || String(match.vehicleID) || vId;
+      }
+    } catch (e) {
+      console.error('[AuthContext] resolveVehicleName failed:', e);
+    }
+    return vId;
+  };
+
   // Restore session from storage on mount
   useEffect(() => {
     let cancelled = false;
@@ -126,12 +143,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               vehicleID: restored.vehicleId || '0',
               driverID: String(restored.driver.id),
               screenBrightness: deviceBrightness / 100,
-            }).then((resp) => {
+            }).then(async (resp) => {
               if (!cancelled && resp && resp.vehicleID) {
+                const resolvedName = await resolveVehicleName(String(resp.vehicleID));
                 setState(prev => ({
                   ...prev,
                   vehicleId: String(resp.vehicleID),
-                  vehicleName: String(resp.vehicleID),
+                  vehicleName: resolvedName,
                   isSyncingVehicle: false
                 }));
               } else {
@@ -162,7 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAuthenticated: state.isAuthenticated,
       isSupervisorMode: state.isSupervisorMode,
       vehicleId: state.vehicleId,
-      vehicleName: state.vehicleId,
+      vehicleName: state.vehicleName,
       serviceStatus: state.serviceStatus,
       selectedRoute: state.selectedRoute,
       selectedRouteId: state.selectedRouteId,
@@ -174,6 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(toStore)).catch(() => { });
   }, [state]);
 
+
   const fetchAndSetVehicle = async (driverId: string) => {
     try {
       const vehicles = await getVehiclesByDriver(driverId);
@@ -181,9 +200,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const lastVehicle = vehicles[vehicles.length - 1];
         const vId = lastVehicle.vehicleID || lastVehicle.vehicleNumber;
         if (vId) {
+          const resolvedName = await resolveVehicleName(String(vId));
           const updates: any = {
             vehicleId: String(vId),
-            vehicleName: String(vId),
+            vehicleName: resolvedName,
             passengerCount: Number(lastVehicle.APCCount) || 0,
             apcCount: Number(lastVehicle.APCCount) || 0,
           };
@@ -285,7 +305,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const vehicleUpdates = resolvedDriver?.role !== 'supervisor' && await fetchAndSetVehicle(resolvedDriver.id);
         const deviceBrightness = await deviceService.getBrightness();
-        
+
         // Call MDT status update after login (proactively)
         if (resolvedDriver?.role !== 'supervisor') {
           const vId = vehicleUpdates ? (vehicleUpdates as any).vehicleId : initialState.vehicleId;
@@ -296,10 +316,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               vehicleID: String(vId),
               driverID: String(resolvedDriver.id),
               screenBrightness: deviceBrightness / 100,
-            }).then((resp) => {
+            }).then(async (resp) => {
               if (resp && resp.vehicleID) {
+                const vName = await resolveVehicleName(String(resp.vehicleID));
                 setVehicleId(String(resp.vehicleID));
-                setVehicleName(String(resp.vehicleID));
+                setVehicleName(vName);
               }
             }).catch((e: Error) => {
               console.error('[AuthContext] Failed to report MDT status after login:', e);
@@ -311,13 +332,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setState((s) => ({
           ...s,
-          // Reset vehicle defaults first to prevent leaking previous session data
-          vehicleId: initialState.vehicleId,
-          vehicleName: initialState.vehicleId,
-          serviceStatus: initialState.serviceStatus,
-          selectedRoute: initialState.selectedRoute,
-          selectedRouteId: initialState.selectedRouteId,
-          passengerCount: 0,
+          // Preserve existing vehicle/route if present, otherwise use defaults
+          vehicleId: s.vehicleId || initialState.vehicleId,
+          vehicleName: s.vehicleName || initialState.vehicleName,
+          serviceStatus: s.serviceStatus || initialState.serviceStatus,
+          selectedRoute: s.selectedRoute || initialState.selectedRoute,
+          selectedRouteId: s.selectedRouteId || initialState.selectedRouteId,
           ...(vehicleUpdates || {}),
         }));
       } catch (e) {
@@ -330,12 +350,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async () => {
     try {
-      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-      setState(initialState);
+      // Preserve passengerCount & apcCount across logout so APC data isn't lost
+      setState(prev => ({
+        ...initialState,
+        vehicleId: prev.vehicleId,
+        vehicleName: prev.vehicleName,
+        passengerCount: prev.passengerCount,
+        apcCount: prev.apcCount,
+      }));
+      // Persist the updated state (with preserved counts and vehicle) back to storage
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
+        ...initialState,
+        vehicleId: state.vehicleId,
+        vehicleName: state.vehicleName,
+        passengerCount: state.passengerCount,
+        apcCount: state.apcCount,
+      }));
     } catch (e) {
       console.log('Logout error:', e);
     }
-  }, []);
+  }, [state.passengerCount, state.apcCount, state.vehicleId, state.vehicleName]);
   const selectDriver = useCallback(async (driver: Driver) => {
     let mapped: Driver = driver;
     try {
@@ -373,11 +407,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...s,
           // Reset to defaults first
           vehicleId: initialState.vehicleId,
-          vehicleName: initialState.vehicleId,
+          vehicleName: initialState.vehicleName,
           serviceStatus: initialState.serviceStatus,
           selectedRoute: initialState.selectedRoute,
           selectedRouteId: initialState.selectedRouteId,
-          passengerCount: 0,
           ...(vehicleUpdates || {}),
         }));
       } catch (e) {
@@ -407,10 +440,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       selectedManifestId: isOutOfService ? null : (manifestId ?? null),
       serviceStatus: isOutOfService ? 'out_of_service' : 'in_service',
       ...(isOutOfService ? {
-        passengerCount: 0,
-        // driver: unassignedDriver,
-        // vehicleId: initialState.vehicleId,
-        // vehicleName: initialState.vehicleId,
+        // passengerCount intentionally preserved
       } : {}),
     }));
   }, []);
@@ -440,10 +470,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (resp && resp.vehicleID) {
+        const vName = await resolveVehicleName(String(resp.vehicleID));
         setState(s => ({
           ...s,
           vehicleId: String(resp.vehicleID),
-          vehicleName: String(resp.vehicleID),
+          vehicleName: vName,
           isSyncingVehicle: false
         }));
       } else {
@@ -469,6 +500,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPassengerCount,
         setSelectedManifestId,
         syncVehicleAssignment,
+        resolveVehicleName,
         setHasShownSupervisorModal: (shown: boolean) => setState((s) => ({ ...s, hasShownSupervisorModal: shown })),
       }}
     >

@@ -44,6 +44,7 @@ import { APP_CONSTANTS } from '../../utils/constants';
 import { requestBackgroundLocationPermission } from '@/utils/permissions';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { messagingService } from '@/services/messaging.service';
 
 
 interface HomeScreenProps {
@@ -132,8 +133,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [isGpsFlashing, setIsGpsFlashing] = useState(false);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fareCategories, stops } = useDriverData();
-  // console.log('stops======>>>>>>', nextStop);
-  // console.log('fareCategories', fareCategories);
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [reasonText, setReasonText] = useState('');
   const [isCharging, setIsCharging] = useState(true);
@@ -225,16 +224,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const nextStopName = useMemo(
-    () => {
-      // 1. If we have a calculated next stop from the schedule tracking
-      if (nextStop && selectedRouteId && selectedRouteId !== 'Out of Service') {
-        return nextStop.longName;
-      }
-
-      // 2. Default fallback for empty schedule or unknown state
-      return '...';
-    },
-    [nextStop, selectedRouteId],
+    () => getNearestStopName(stops as any[], lastLocation),
+    [stops, lastLocation, selectedRoute]
   );
 
   // Responsive gauge size from device dimensions (no scroll: fit in viewport)
@@ -345,19 +336,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   }, [setOnLocationXmit]);
 
 
-  // const [isHighAccuracy, setIsHighAccuracy] = useState(false);
-
-  // useEffect(() => {
-  //   const checkAccuracy = () => {
-  //     const accuracy = lastLocation?.accuracy ?? 999;
-  //     // High accuracy: less than 30 meters
-  //     setIsHighAccuracy(accuracy < 30);
-  //   };
-
-  //   // Check once immediately on location change
-  //   checkAccuracy();
-  // }, [lastLocation]);
-
   // Fetch passenger history when a route is selected and set count from tallies
   useEffect(() => {
     if (!selectedRouteId) return;
@@ -429,27 +407,23 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const handleBoarding = (count = 1) => {
     const next = Math.min(999, passengerCount + count);
     setPassengerCount(next);
-    // Call individual updatecount API
-    if (vehicleId) {
-      passengerApi.updateCount({
-        agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
-        vehicleID: vehicleId,
-        count_in: count
-      }).catch(e => console.log('Error updating Peak transit count', e));
-    }
+    // Call individual updatecount API — always fire, even without driver/vehicle
+    passengerApi.updateCount({
+      agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+      vehicleID: vehicleId || '0',
+      count_in: count
+    }).catch(e => console.log('Error updating Peak transit count', e));
   };
 
   const handleAlighting = (count = 1) => {
     const next = Math.max(0, passengerCount - count);
     setPassengerCount(next);
-    // Call individual updatecount API
-    if (vehicleId) {
-      passengerApi.updateCount({
-        agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
-        vehicleID: vehicleId,
-        count_out: count
-      }).catch(e => console.log('Error updating Peak transit count', e));
-    }
+    // Call individual updatecount API — always fire, even without driver/vehicle
+    passengerApi.updateCount({
+      agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+      vehicleID: vehicleId || '0',
+      count_out: count
+    }).catch(e => console.log('Error updating Peak transit count', e));
   };
 
   const openNumpad = (mode: NumpadMode) => {
@@ -555,12 +529,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
                   style={[styles.passengerActionBox, { width: actionBoxSize, height: actionBoxSize, }]}
                   onPress={togglePassengerInline}
                   activeOpacity={0.7}
-                  disabled={!driver || driver.role === 'unassigned'}
                 >
                   <MaterialCommunityIcons
                     name="account-edit"
                     size={actionIconSize}
-                    color={driver && driver.role !== 'unassigned' ? dynamicIconColor : 'rgba(255,255,255,0.4)'}
+                    color={dynamicIconColor}
                   />
                 </TouchableOpacity>
               </View>
@@ -569,12 +542,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
                 style={[styles.passengerActionBox, { width: actionBoxSize, height: actionBoxSize }]}
                 onPress={openPassengerModal}
                 activeOpacity={0.7}
-                disabled={!driver || driver.role === 'unassigned'}
               >
                 <MaterialIcons
                   name="confirmation-number"
                   size={actionIconSize}
-                  color={driver && driver.role !== 'unassigned' ? dynamicIconColor : 'rgba(255,255,255,0.4)'}
+                  color={dynamicIconColor}
                 />
               </TouchableOpacity>
             </View>
@@ -595,7 +567,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         )}
 
         {!isPortrait && (
-          <View style={[styles.gpsRow, { bottom: isMobile && isLandscape ? insets.bottom : insets.bottom + 8, flex: isTablet ? 0.1 : 0.2, paddingRight: 0, marginRight: Platform.OS === 'ios' ? insets.right : 0 }]}>
+          <View style={[styles.gpsRow, { bottom: isMobile && isLandscape ? insets.bottom : insets.bottom + 8, flex: isTablet ? 0.1 : 0.2, paddingRight: 0, marginRight: Platform.OS === 'ios' ? insets.right : 10 }]}>
             {/* <View style={[styles.gpsRow, { bottom: isMobile && isLandscape ? insets.bottom : insets.bottom, flex: isTablet ? 0.1 : 0.2 }]}></View> */}
             <View style={[styles.gpsDot, isGpsFlashing && styles.gpsDotFlashing]} />
             <Text style={styles.gpsText}>{powerTrackingStatus}</Text>

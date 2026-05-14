@@ -4,7 +4,7 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../theme/colors';
 import { useEmergency } from '../context/EmergencyContext';
 import { useReportIncidentModal } from '../context/ReportIncidentModalContext';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSettingsModal } from '../context/SettingsModalContext';
 import { useSidebar } from '../context/SidebarContext';
 
@@ -23,6 +23,7 @@ const TabHeader: React.FC = () => {
   const thumbSize = 52;
   const timeFontSize = isSmallDevice ? (isPortrait ? 16 : 24) : 28;
   const [currentTime, setCurrentTime] = useState(new Date());
+  const insets = useSafeAreaInsets()
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -180,9 +181,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between', // Keeps the 3 columns spread out
-    marginHorizontal: 15,
     position: 'relative',
-    paddingTop: 10,
+    paddingRight: 10
   },
   leftContainer: {
     flex: 1,
@@ -206,9 +206,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerLandscape: {
-    paddingTop: 15,
+
     // marginTop: 10,
-    paddingBottom: 2,
+    paddingBottom: 5,
   },
   headerTime: {
     fontWeight: '600',

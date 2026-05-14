@@ -130,7 +130,7 @@ export async function vehicleUpdate(params: VehicleUpdateParams): Promise<void> 
   // console.log('Vehicle Update Params:', params);
   // console.log('Vehicle Update URL:', JSON.stringify(url));
   const resp = await axios.get(url, { timeout: TIMEOUT });
-  console.log('Vehicle Update Response:', resp.data);
+  console.log('Vehicle Update Response:', JSON.stringify(resp.data));
   return resp.data;
 }
 
@@ -211,6 +211,27 @@ export async function selfUpdateAssignment(params: {
   });
   const resp = await axios.get(url, { timeout: TIMEOUT });
   console.log('Self Update Assignment Response:', resp.data);
+  return resp.data;
+}
+
+// ---------------------------------------------------------------------------
+// D) Vehicles2 alert update (emergency slider activated/deactivated)
+// ---------------------------------------------------------------------------
+
+export async function vehicles2Alert(params: {
+  agencyID: string | number;
+  vehicleID: string | number;
+  alert: 0 | 1;
+}): Promise<any> {
+  const url = buildUrl({
+    controller: 'Vehicles2',
+    action: 'update',
+    agencyID: params.agencyID,
+    vehicleID: params.vehicleID,
+    alert: params.alert,
+  });
+  const resp = await axios.get(url, { timeout: TIMEOUT });
+  console.log('Vehicles2 Alert Response:', resp.data);
   return resp.data;
 }
 

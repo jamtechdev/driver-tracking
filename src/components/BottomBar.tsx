@@ -3,8 +3,8 @@
  * Dark gray, vertical separators, lime for status text, device-size adjustable
  */
 
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, useWindowDimensions, useColorScheme } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, useWindowDimensions, useColorScheme, Animated, Easing, ScrollView } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../theme/colors';
@@ -21,6 +21,103 @@ interface BottomBarProps {
   navigation: any;
   onDriverPress?: () => void;
 }
+
+const MarqueeText: React.FC<{ text: string; style: any; threshold?: number }> = ({ text, style, threshold = 15 }) => {
+  const scrollAnim = useRef(new Animated.Value(0)).current;
+  const [textWidth, setTextWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  const isScrolling = containerWidth > 0 && textWidth > containerWidth + 5;
+
+  const lastText = useRef(text);
+
+  useEffect(() => {
+    if (lastText.current !== text) {
+      lastText.current = text;
+      scrollAnim.stopAnimation();
+      scrollAnim.setValue(0);
+    }
+  }, [text]);
+
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+
+    if (isScrolling) {
+      const scrollDistance = (textWidth - containerWidth) + 30;
+      const duration = Math.max(3000, scrollDistance * 60);
+
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.delay(1500),
+          Animated.timing(scrollAnim, {
+            toValue: -scrollDistance,
+            duration: duration,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+          Animated.delay(1500),
+          Animated.timing(scrollAnim, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+    } else {
+      scrollAnim.stopAnimation();
+      Animated.timing(scrollAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+
+    return () => {
+      if (animation) animation.stop();
+    };
+  }, [text, textWidth, containerWidth, isScrolling]);
+
+  return (
+    <View
+      style={{ overflow: 'hidden', flex: 1, minWidth: 0 }}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width;
+        if (w > 0) setContainerWidth(w);
+      }}
+    >
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={false}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: isScrolling ? 'flex-start' : 'center',
+          alignItems: 'center',
+        }}
+      >
+        <Animated.Text
+          onLayout={(e) => {
+            const w = e.nativeEvent.layout.width;
+            if (w > 0 && w !== textWidth) setTextWidth(w);
+          }}
+          style={[
+            style,
+            {
+              transform: [{ translateX: scrollAnim }],
+              maxWidth: undefined,
+              textAlign: isScrolling ? 'left' : 'center',
+            },
+          ]}
+          numberOfLines={1}
+          ellipsizeMode="clip"
+        >
+          {text}
+        </Animated.Text>
+      </ScrollView>
+    </View>
+  );
+};
 
 const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
   const { width, height } = useWindowDimensions();
@@ -47,13 +144,13 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
     logout();
   };
   const isLoggedOut = !driver || driver.role === 'unassigned';
-  const effectiveLoggedOut = isLoggedOut || emergencyActivated;
+  const effectiveLoggedOut = isLoggedOut;
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
 
-  const driverName = emergencyActivated ? 'Unassigned' : (driver && driver.role !== 'unassigned' ? driver.name : 'Unassigned');
-  const vehicleDisplay = emergencyActivated ? 'Unassigned' : (vehicleName || 'Unassigned');
-  const routeDisplay = emergencyActivated ? 'Out of Service' : (selectedRoute || 'Out of Service');
+  const driverName = driver && driver.role !== 'unassigned' ? driver.name : 'Unassigned';
+  const vehicleDisplay = vehicleName || 'Unassigned';
+  const routeDisplay = selectedRoute || 'Out of Service';
   const showLimeDriver = effectiveLoggedOut;
   const showLimeRoute = serviceStatus === 'out_of_service' || emergencyActivated;
 
@@ -74,18 +171,17 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
               color={dynamicIconColor}
               style={isLandscape ? undefined : styles.itemIcon}
             />
-            <Text
+            <MarqueeText
+              key={`driver-${isLandscape}-${driverName}`}
+              text={driverName}
               style={[
                 styles.itemLabel,
                 { fontSize: labelSize },
                 showLimeDriver && styles.labelLime,
                 effectiveLoggedOut && !isLoggedOut && styles.labelLime,
-
               ]}
-              numberOfLines={1}
-            >
-              {driverName}
-            </Text>
+              threshold={15}
+            />
           </Pressable>
 
           <View style={[styles.divider, { height: dividerHeight }]} />
@@ -104,12 +200,12 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
               color={effectiveLoggedOut ? COLORS.navBarIconDisabled : dynamicIconColor}
               style={isLandscape ? undefined : styles.itemIcon}
             />
-            <Text
+            <MarqueeText
+              key={`vehicle-${isLandscape}-${vehicleDisplay}`}
+              text={vehicleDisplay}
               style={[styles.itemLabel, styles.labelSecondary, { fontSize: labelSize }, effectiveLoggedOut && styles.itemLabelDisabled]}
-              numberOfLines={1}
-            >
-              {vehicleDisplay}
-            </Text>
+              threshold={15}
+            />
           </Pressable>
 
           <View style={[styles.divider, { height: dividerHeight }]} />
@@ -128,18 +224,16 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
               color={dynamicIconColor}
               style={isLandscape ? undefined : styles.itemIcon}
             />
-            <Text
+            <MarqueeText
+              key={`route-${isLandscape}-${routeDisplay}`}
+              text={routeDisplay}
               style={[
                 styles.itemLabel,
                 { fontSize: labelSize },
                 showLimeRoute && isLoggedOut && styles.labelLime,
-                // showLimeRoute && !isLoggedOut && styles.labelLime,
-
               ]}
-              numberOfLines={1}
-            >
-              {routeDisplay}
-            </Text>
+              threshold={15}
+            />
           </Pressable>
 
           <View style={[styles.divider, { height: dividerHeight }]} />
@@ -158,7 +252,13 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
               style={isLandscape ? undefined : styles.itemIcon}
             />
             <Text
-              style={[styles.itemLabel, styles.labelSecondary, { fontSize: labelSize }, effectiveLoggedOut && styles.itemLabelDisabled]}
+              style={[
+                styles.itemLabel,
+                styles.labelSecondary,
+                { fontSize: labelSize },
+                effectiveLoggedOut && styles.itemLabelDisabled,
+                isLandscape && { flex: 1 }
+              ]}
               numberOfLines={1}
             >
               Logout
@@ -212,9 +312,9 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 8,
-    minWidth: 130
+    gap: 8,
+    paddingHorizontal: 12,
+    minWidth: 100
   },
   itemIcon: {
     marginBottom: 4,
@@ -223,7 +323,7 @@ const styles = StyleSheet.create({
     color: COLORS.navBarText,
     fontWeight: '500',
     textAlign: 'center',
-    maxWidth: 120,
+    maxWidth: '100%',
   },
   labelLime: {
     color: COLORS.early,

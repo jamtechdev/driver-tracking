@@ -98,8 +98,8 @@ const DirectionalArrow = ({ color }: { color: string }) => {
 const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) => {
   const { isAcquiringSat, trackingMode, setTrackingMode } = useDriverModel();
   const { location, error: mapLocationError, heading } = useMapLocation();
-  const { vehicleId, selectedRouteId } = useAuth();
-  const { routes, stops } = useDriverData();
+  const { vehicleId, selectedRouteId, driver } = useAuth();
+  const { agency, routes, stops } = useDriverData();
   const [vehiclesPosition, setVehiclesPosition] = useState<any[]>([]);
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -120,7 +120,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     const fetchOtherVehicles = async () => {
       try {
         const data = await getAllVehicles();
-        if (data && Array.isArray(data)) {
+        if (data !== null) {
           setVehiclesPosition(data);
         }
       } catch (err) {
@@ -163,36 +163,50 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     [routes, selectedRouteId]
   );
 
+  const routeColor = selectedRoute?.color ? `#${selectedRoute.color}` : COLORS.background;
+
+  // Build a routeID → color map for all routes
+  const routeColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    routes.forEach(r => {
+      map[String(r.routeID)] = r.color ? `#${r.color}` : COLORS.primary;
+    });
+    return map;
+  }, [routes]);
+
   const routePoints = useMemo(() => {
     if (!selectedRoute?.points) return [];
     return parseRoutePoints(selectedRoute.points);
   }, [selectedRoute]);
 
-  const routeStops = useMemo(() => {
-    // If no route is selected, we have nothing to show
-    if (!selectedRouteId || !stops || stops.length === 0) return [];
+  // All other routes (not selected) with valid points
+  const otherRoutesWithPoints = useMemo(() =>
+    routes
+      .filter(r => String(r.routeID) !== String(selectedRouteId) && r.points)
+      .map(r => ({
+        routeID: String(r.routeID),
+        color: r.color ? `#${r.color}` : COLORS.textMuted,
+        points: parseRoutePoints(r.points as string),
+      }))
+      .filter(r => r.points.length > 0),
+    [routes, selectedRouteId]
+  );
 
-    // Attempt to get stops from the current route object
-    const rStops = selectedRoute?.routeStops;
-    if (!rStops || !Array.isArray(rStops)) return [];
-
+  const getRouteStops = useCallback((route: any) => {
+    const rStops = route?.routeStops;
+    if (!rStops || !Array.isArray(rStops) || stops.length === 0) return [];
     return stops.filter(stop =>
-      rStops.some(id => String(id) === String(stop.stopID))
+      rStops.some((id: any) => String(id) === String(stop.stopID))
     );
-  }, [selectedRoute, stops, selectedRouteId]);
+  }, [stops]);
 
-  const routeColor = selectedRoute?.color ? `#${selectedRoute.color}` : COLORS.primary;
+  const routeStops = useMemo(() => getRouteStops(selectedRoute), [selectedRoute, getRouteStops]);
 
-  const otherVehiclesOnSameRoute = useMemo(() => {
-    if (!selectedRouteId || !vehiclesPosition.length) return [];
-
-    const vehicles = vehiclesPosition.filter(v =>
-      String(v.routeID) === String(selectedRouteId)
-      // String(v.vehicleID) !== String(vehicleId)
-    );
-    console.log('otherVehiclesOnSameRoute', vehicles);
-    return vehicles;
-  }, [selectedRouteId, vehiclesPosition, vehicleId]);
+  // Other vehicles (all, not just same route), excluding current driver
+  const otherVehicles = useMemo(() =>
+    vehiclesPosition.filter(v => String(v.vehicleID) !== String(vehicleId)),
+    [vehiclesPosition, vehicleId]
+  );
 
 
   useEffect(() => {
@@ -220,18 +234,36 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
 
   // Center on user location if no route is selected
   useEffect(() => {
-    if (mapReady && routePoints.length === 0 && location && mapRef.current) {
-      const reg = {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      };
-      mapRef.current.animateToRegion(reg, 1000);
+    if (mapReady && routePoints.length === 0 && mapRef.current) {
+      if (location && driver?.role !== 'unassigned') {
+        const reg = {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          latitudeDelta: 0.005,
+          longitudeDelta: 0.005,
+        };
+        mapRef.current.animateToRegion(reg, 1000);
+      } else if (agency?.latitude && agency?.longitude) {
+        const reg = {
+          latitude: parseFloat(agency.latitude),
+          longitude: parseFloat(agency.longitude),
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        };
+        mapRef.current.animateToRegion(reg, 1000);
+      }
     }
-  }, [mapReady, routePoints.length, location?.latitude, location?.longitude]);
+  }, [mapReady, routePoints.length, location?.latitude, location?.longitude, agency?.latitude, agency?.longitude, driver?.role]);
 
   const calculatedRegion = useMemo(() => {
+    if (agency?.latitude && agency?.longitude && (driver?.role === 'unassigned' || !location)) {
+      return {
+        latitude: parseFloat(agency.latitude),
+        longitude: parseFloat(agency.longitude),
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+    }
     if (location && !mapReady) {
       return {
         latitude: location.latitude,
@@ -241,7 +273,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
       };
     }
     return null;
-  }, [location, mapReady]);
+  }, [location, agency, mapReady, driver?.role]);
 
   useEffect(() => {
     if (calculatedRegion) {
@@ -386,6 +418,39 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
         onRegionChangeComplete={setCurrentRegion}
         zoomControlEnabled={!isTabView || isMobile}
       >
+        {/* Other routes – dimmed polylines */}
+        {otherRoutesWithPoints.map(r => (
+          <Polyline
+            key={`route-path-${r.routeID}`}
+            coordinates={r.points}
+            strokeColor={r.color + '66'}
+            strokeWidth={4}
+            lineJoin="round"
+            lineCap="round"
+          />
+        ))}
+
+        {/* Other route stops – small dimmed dots */}
+        {otherRoutesWithPoints.map(r => {
+          const rObj = routes.find(ro => String(ro.routeID) === r.routeID);
+          return getRouteStops(rObj).map((stop) => {
+            const lat = typeof stop.lat === 'number' ? stop.lat : parseFloat(stop.lat as string);
+            const lng = typeof stop.lng === 'number' ? stop.lng : parseFloat(stop.lng as string);
+            if (isNaN(lat) || isNaN(lng)) return null;
+            return (
+              <Marker
+                key={`other-stop-${r.routeID}-${stop.stopID}`}
+                coordinate={{ latitude: lat, longitude: lng }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                title={String(stop.longName || `Stop ${stop.stopID}`)}
+              >
+                <View style={[styles.stopMarker, { backgroundColor: r.color + '99', borderColor: r.color, width: 12, height: 12, borderRadius: 6 }]} />
+              </Marker>
+            );
+          });
+        })}
+
+        {/* Selected route polyline */}
         {routePoints.length > 0 && Polyline && (
           <Polyline
             coordinates={routePoints}
@@ -396,8 +461,8 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           />
         )}
 
+        {/* Selected route stops */}
         {routeStops.map((stop) => {
-
           const lat = typeof stop.lat === 'number' ? stop.lat : parseFloat(stop.lat as string);
           const lng = typeof stop.lng === 'number' ? stop.lng : parseFloat(stop.lng as string);
           if (isNaN(lat) || isNaN(lng)) return null;
@@ -406,17 +471,31 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
               key={`stop-${stop.stopID}`}
               coordinate={{ latitude: lat, longitude: lng }}
               anchor={{ x: 0.5, y: 1 }}
-              title={stop.longName || `Stop ${stop.stopID}`}
+              title={String(stop.longName || `Stop ${stop.stopID}`)}
               description={`Stop ID: ${stop.stopID}`}
             >
-              <View style={styles.stopMarker}>
-                {/* <MaterialIcons name="directions-bus" size={14} color="#FFF" /> */}
-              </View>
+              <View style={[styles.stopMarker, { backgroundColor: routeColor, borderColor: '#FFF' }]} />
             </Marker>
           );
         })}
+        {
+          driver?.role === 'unassigned' && (
+            <Marker
+              key="agency-marker"
+              coordinate={{
+                latitude: parseFloat(agency?.latitude || "0"),
+                longitude: parseFloat(agency?.longitude || "0"),
+              }}
+              title="Agency"
+              description="Agency Location"
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <DirectionalArrow color={COLORS.background} />
+            </Marker>
+          )
+        }
 
-        {location && (
+        {location && driver && driver?.role !== 'unassigned' && (
           <Marker
             key="user-marker-map-context"
             coordinate={{
@@ -432,14 +511,16 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             flat
           >
 
-            <DirectionalArrow color={COLORS.background} />
+            <DirectionalArrow color={selectedRouteId ? routeColor : COLORS.background} />
           </Marker>
         )}
 
-        {otherVehiclesOnSameRoute?.map((v) => {
+        {/* All other vehicles with their own route color */}
+        {otherVehicles.map((v) => {
           const lat = typeof v.lat === 'number' ? v.lat : parseFloat(v.lat);
           const lng = typeof v.lng === 'number' ? v.lng : parseFloat(v.lng);
           const bear = typeof v.bearing === 'number' ? v.bearing : parseFloat(v.bearing || v.heading || '0');
+          const vColor = routeColorMap[String(v.routeID)] ?? COLORS.textMuted;
 
           if (isNaN(lat) || isNaN(lng)) return null;
 
@@ -447,13 +528,13 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             <Marker
               key={`vehicle-${v.vehicleID}`}
               coordinate={{ latitude: lat, longitude: lng }}
-              title={v.vehicleName || v.vehicleNumber || `Vehicle ${v.vehicleID}`}
-              description={`Route: ${v.routeShortName || selectedRouteId}`}
+              title={String(v.vehicleName || v.vehicleNumber || `Vehicle ${v.vehicleID}`)}
+              description={`Route: ${v.routeShortName || v.routeID || '—'}`}
               anchor={{ x: 0.5, y: 0.5 }}
               rotation={isNaN(bear) ? 0 : bear}
               flat
             >
-              <DirectionalArrow color={routeColor} />
+              <DirectionalArrow color={vColor} />
             </Marker>
           );
         })}

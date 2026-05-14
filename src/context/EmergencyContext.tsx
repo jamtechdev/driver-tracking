@@ -7,11 +7,13 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import Toast from 'react-native-toast-message';
 import { useAuth } from './AuthContext';
 import { useDriverModel } from './DriverModelContext';
+import { useDriverData } from './DriverDataContext';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import { sendDriverMessage } from '@/api/driverMessage.api';
+import { vehicles2Alert } from '@/api/position.api';
 
-const EMERGENCY_ACTIVATED = 'EMERGENCY MODE ACTIVATED';
-const EMERGENCY_CLEARED = 'EMERGENCY MODE cleared';
+const EMERGENCY_ACTIVATED = 'EMERGENCY MODE: ACTIVATED FROM MDT';
+const EMERGENCY_CLEARED = 'EMERGENCY MODE: DEACTIVATED';
 
 interface EmergencyContextType {
   emergencyActivated: boolean;
@@ -27,16 +29,25 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [emergencyActivated, setEmergencyActivated] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
   const { vehicleId, driver } = useAuth();
-  const { lastLocation } = useDriverModel();
+  const { lastLocation, serverAlert } = useDriverModel();
+  const { vehicles, isLoading: dataLoading } = useDriverData();
   const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
 
-  // Reset emergency state when driver or vehicle changes (e.g. on logout/login)
+  // Sync emergency state from API on app launch / vehicle change
   useEffect(() => {
-    if (!vehicleId || driver?.id === 'unassigned') {
-      setEmergencyActivated(false);
-      setMessageSent(false);
+    if (dataLoading || !vehicleId) return;
+    const match = vehicles.find((v) => String(v.vehicleID) === String(vehicleId));
+    if (match) {
+      setEmergencyActivated(String(match.alert) === '1');
     }
-  }, [vehicleId, driver?.id]);
+  }, [dataLoading, vehicleId, vehicles]);
+
+  // Sync emergency state from live vehicle update responses
+  useEffect(() => {
+    if (serverAlert === null) return;
+    if (serverAlert === 1) setEmergencyActivated(true);
+    if (serverAlert === 0) setEmergencyActivated(false);
+  }, [serverAlert]);
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -68,24 +79,47 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [agencyID, vehicleId, driver?.id, lastLocation?.latitude, lastLocation?.longitude]
   );
 
+  const sendAlert = useCallback((alert: 0 | 1) => {
+    const effectiveVehicleId = vehicleId || '0';
+    vehicles2Alert({ agencyID, vehicleID: effectiveVehicleId, alert }).catch(
+      (err) => __DEV__ && console.warn('[EmergencyContext] vehicles2Alert failed', err)
+    );
+  }, [agencyID, vehicleId]);
+
   const activateEmergency = useCallback(() => {
     setEmergencyActivated(true);
     setMessageSent(true);
-    sendMessage(EMERGENCY_ACTIVATED).catch((err) => {
-      console.log('Emergency activation failed', err);
-      setEmergencyActivated(false);
-      setMessageSent(false);
-    });
-  }, [sendMessage]);
+    sendAlert(1);
+    sendMessage(EMERGENCY_ACTIVATED)
+      .then((res) => {
+        console.log('Emergency activated successfully', res);
+        Toast.show({
+          type: 'success',
+          text1: 'Emergency Activated'
+        });
+      }).catch((err) => {
+        console.log('Emergency activation failed', err);
+        setEmergencyActivated(false);
+        setMessageSent(false);
+      });
+  }, [sendMessage, sendAlert]);
 
   const deactivateEmergency = useCallback(
     (reason: string) => {
       setEmergencyActivated(false);
       setMessageSent(false);
-      const message = reason?.trim() ? `${EMERGENCY_CLEARED} - ${reason}` : EMERGENCY_CLEARED;
-      sendMessage(message).catch(() => { });
+      sendAlert(0);
+      const message = reason?.trim() ? `${EMERGENCY_CLEARED} - Reason: ${reason}` : EMERGENCY_CLEARED;
+      sendMessage(message)
+        .then(() => {
+          console.log('Emergency cleared successfully');
+          Toast.show({
+            type: 'success',
+            text1: 'Emergency Cleared'
+          });
+        }).catch(() => { });
     },
-    [sendMessage]
+    [sendMessage, sendAlert]
   );
 
   const sendCannedMessage = useCallback(

@@ -19,6 +19,7 @@ import { COLORS } from '../theme/colors';
 import { useMapModal } from '../context/MapModalContext';
 import { useMapLocation } from '../context/MapLocationContext';
 import { MAPS_CONFIG } from '../config/maps.config';
+import { useDriverData } from '../context/DriverDataContext';
 
 let MapView: any = null;
 let Marker: any = null;
@@ -31,18 +32,32 @@ try {
 const MapModal: React.FC = () => {
   const { visible, close } = useMapModal();
   const { location, heading, error } = useMapLocation();
+  const { agency } = useDriverData();
   const [mapReady, setMapReady] = React.useState(false);
 
-  const initialRegion = location ? {
-    latitude: location.latitude,
-    longitude: location.longitude,
-    latitudeDelta: 0.005,
-    longitudeDelta: 0.005,
-  } : {
-    ...MAPS_CONFIG.DEFAULT_REGION,
-    latitudeDelta: 0.0922,
-    longitudeDelta: 0.0421,
-  };
+  const initialRegion = React.useMemo(() => {
+    if (location) {
+      return {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      };
+    }
+    if (agency?.latitude && agency?.longitude) {
+      return {
+        latitude: parseFloat(agency.latitude),
+        longitude: parseFloat(agency.longitude),
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+    }
+    return {
+      ...MAPS_CONFIG.DEFAULT_REGION,
+      latitudeDelta: 0.0922,
+      longitudeDelta: 0.0421,
+    };
+  }, [location, agency]);
 
   return (
     <Modal

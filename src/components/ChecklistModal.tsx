@@ -140,8 +140,22 @@ const ChecklistModal: React.FC = () => {
   }, [driverName]);
 
   const handleSubmit = useCallback(async () => {
-    if (!vehicleId || !driver?.id) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'Vehicle and driver required' });
+    if (!driver || driver.role === 'unassigned') {
+      close();
+      Toast.show({
+        type: 'error',
+        text1: 'Submission Failed',
+        text2: 'Driver should login.',
+      });
+      return;
+    }
+    if (!vehicleId) {
+      close();
+      Toast.show({
+        type: 'error',
+        text1: 'Submission Failed',
+        text2: 'Vehicle should be selected',
+      });
       return;
     }
     const payload = items.map((i) => {

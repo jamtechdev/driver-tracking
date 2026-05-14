@@ -24,7 +24,7 @@ class BackgroundTrackingService {
   private watchId: number | null = null;
   private isRunning = false;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): BackgroundTrackingService {
     if (!BackgroundTrackingService.instance) {
@@ -84,12 +84,12 @@ class BackgroundTrackingService {
    */
   public async stop() {
     if (!this.isRunning) return;
-    
+
     if (this.watchId !== null) {
       Geolocation.clearWatch(this.watchId);
       this.watchId = null;
     }
-    
+
     await BackgroundService.stop();
     this.isRunning = false;
     console.log('[BackgroundTrackingService] Service stopped');
@@ -133,7 +133,7 @@ class BackgroundTrackingService {
 
     const now = Date.now();
     const { latitude, longitude, accuracy, heading, speed } = position.coords;
-    
+
     // 1. Vehicle Update (Throttled 5s)
     if (now - this.lastVehicleSendTime >= 5000) {
       await this.sendVehicleUpdate(position);

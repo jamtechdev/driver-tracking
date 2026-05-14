@@ -136,11 +136,10 @@ interface SupervisorModalProps {
 }
 
 const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) => {
-    const { vehicles } = useDriverData();
-
+    const { agency, vehicles, routes, drivers, stops } = useDriverData();
+    // console.log("agency", agency);
     const { logout } = useAuth();
     const { open: openReportIncidentModal } = useReportIncidentModal();
-    const { routes, drivers, stops } = useDriverData();
 
     const onlyDrivers = drivers.filter(driver => driver.supervisor !== '1');
     const [polledVehicles, setPolledVehicles] = useState<any[]>([]);
@@ -323,7 +322,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                 setViewMode('list');
             } else {
                 onClose();
-                Alert.alert('Error', result.message?.errormsg || 'Assignment failed');
+                Alert.alert('Error', (result.message as any)?.errormsg || 'Assignment failed');
             }
         } catch (error) {
             console.error('Assignment catch error:', error);
@@ -386,11 +385,16 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                     ref={mapRef}
                                     provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                                     style={styles.map}
-                                    initialRegion={{
-                                        latitude: 45.4215,
-                                        longitude: -75.6972,
-                                        latitudeDelta: 40,
-                                        longitudeDelta: 40,
+                                    initialRegion={agency?.latitude && agency?.longitude ? {
+                                        latitude: parseFloat(agency.latitude),
+                                        longitude: parseFloat(agency.longitude),
+                                        latitudeDelta: 0.0922,
+                                        longitudeDelta: 0.0421,
+                                    } : {
+                                        latitude: 0,
+                                        longitude: 0,
+                                        latitudeDelta: 0.0922,
+                                        longitudeDelta: 0.0421,
                                     }}
                                 >
                                     {selectedRoutePoints.length > 0 && (
