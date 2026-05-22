@@ -191,12 +191,12 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
       }
 
       // 2. Clear route assignment on server (set routeID to 0)
-      await selfUpdateAssignment({
-        agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
-        vehicleID: vehicleId,
-        routeID: 0,
-        driverID: driver?.id || 0,
-      }).catch((e) => console.warn('[SelectRouteModal] Error clearing route before block assignment:', e));
+      // await selfUpdateAssignment({
+      //   agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+      //   vehicleID: vehicleId,
+      //   routeID: 0,
+      //   driverID: driver?.id || 0,
+      // }).catch((e) => console.warn('[SelectRouteModal] Error clearing route before block assignment:', e));
 
       // 3. Assign the new block
       const ok = await assignBlockManifest(block.manifestID, vehicleId);

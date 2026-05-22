@@ -93,7 +93,9 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
-        
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testBuildType System.getProperty("testBuildType", "debug")
+
         // (Maps disabled for now)
     }
     signingConfigs {
@@ -114,6 +116,7 @@ android {
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            proguardFile "${rootProject.projectDir}/../node_modules/detox/android/detox/proguard-rules-app.pro"
         }
     }
 }
@@ -127,4 +130,10 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    androidTestImplementation("com.wix:detox:20.46.3")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    implementation("androidx.appcompat:appcompat:1.7.0")
 }

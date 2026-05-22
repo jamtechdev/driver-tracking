@@ -5,6 +5,16 @@ module.exports = {
   plugins: ['@typescript-eslint'],
   overrides: [
     {
+      files: ['e2e/**/*.e2e.js'],
+      env: { jest: true },
+      globals: {
+        device: 'readonly',
+        element: 'readonly',
+        by: 'readonly',
+        waitFor: 'readonly',
+      },
+    },
+    {
       files: ['*.ts', '*.tsx'],
       rules: {
         '@typescript-eslint/no-shadow': ['error'],

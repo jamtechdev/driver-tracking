@@ -1,15 +1,29 @@
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, Animated, Pressable, PanResponder, useWindowDimensions, Modal, TextInput, TouchableOpacity, Keyboard } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  Easing,
+  PanResponder,
+  useWindowDimensions,
+  TouchableOpacity,
+} from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { COLORS } from '../theme/colors';
 import { useEmergency } from '../context/EmergencyContext';
+import { EMERGENCY_HOLD_DURATION_MS } from './EmergencyDeactivateReasonModal';
 import { useReportIncidentModal } from '../context/ReportIncidentModalContext';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSettingsModal } from '../context/SettingsModalContext';
 import { useSidebar } from '../context/SidebarContext';
 
 const TabHeader: React.FC = () => {
-  const { emergencyActivated, activateEmergency, deactivateEmergency } = useEmergency();
+  const { emergencyActivated, activateEmergency, openDeactivateReasonModal } = useEmergency();
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rippleScale = useRef(new Animated.Value(0)).current;
+  const rippleOpacity = useRef(new Animated.Value(0)).current;
+  const holdRippleAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const { open: openReportIncidentModal } = useReportIncidentModal();
   const { use24HourClock } = useSettingsModal();
   const { open: openSidebar } = useSidebar();
@@ -81,18 +95,78 @@ const TabHeader: React.FC = () => {
     [emergencyActivated, activateEmergency, sliderWidth, thumbSize, sliderAnim]
   );
 
-  const [isDeactivateModalVisible, setIsDeactivateModalVisible] = useState(false);
-  const [deactivateReason, setDeactivateReason] = useState('');
-
-  const handleDeactivateLongPress = () => {
-    setDeactivateReason('');
-    setIsDeactivateModalVisible(true);
+  const resetHoldRipple = () => {
+    holdRippleAnimRef.current?.stop();
+    holdRippleAnimRef.current = null;
+    rippleScale.setValue(0);
+    rippleOpacity.setValue(0);
   };
 
-  const handleDeactivateSubmit = () => {
-    deactivateEmergency(deactivateReason);
-    setIsDeactivateModalVisible(false);
+  const startHoldRipple = () => {
+    holdRippleAnimRef.current?.stop();
+    rippleScale.setValue(0);
+    rippleOpacity.setValue(0.55);
+    const easing = Easing.inOut(Easing.ease);
+    holdRippleAnimRef.current = Animated.parallel([
+      Animated.timing(rippleScale, {
+        toValue: 2.8,
+        duration: EMERGENCY_HOLD_DURATION_MS,
+        easing,
+        useNativeDriver: true,
+      }),
+      Animated.timing(rippleOpacity, {
+        toValue: 0,
+        duration: EMERGENCY_HOLD_DURATION_MS,
+        easing,
+        useNativeDriver: true,
+      }),
+    ]);
+    holdRippleAnimRef.current.start();
   };
+
+  const cancelHoldRipple = () => {
+    holdRippleAnimRef.current?.stop();
+    holdRippleAnimRef.current = null;
+    const easing = Easing.out(Easing.ease);
+    Animated.parallel([
+      Animated.timing(rippleScale, {
+        toValue: 0,
+        duration: 220,
+        easing,
+        useNativeDriver: true,
+      }),
+      Animated.timing(rippleOpacity, {
+        toValue: 0,
+        duration: 220,
+        easing,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const handleDeactivatePressIn = () => {
+    if (!emergencyActivated) return;
+    startHoldRipple();
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = setTimeout(() => {
+      holdTimerRef.current = null;
+      resetHoldRipple();
+      openDeactivateReasonModal();
+    }, EMERGENCY_HOLD_DURATION_MS);
+  };
+
+  const handleDeactivatePressOut = () => {
+    cancelHoldRipple();
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => () => {
+    resetHoldRipple();
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+  }, []);
 
   return (
     <SafeAreaView style={[styles.header, isLandscape && styles.headerLandscape]} edges={['top']}>
@@ -115,9 +189,20 @@ const TabHeader: React.FC = () => {
           {emergencyActivated ? (
             <TouchableOpacity
               style={styles.emergencyActivatedBtn}
-              onLongPress={handleDeactivateLongPress}
-              delayLongPress={5000}
+              activeOpacity={0.92}
+              onPressIn={handleDeactivatePressIn}
+              onPressOut={handleDeactivatePressOut}
             >
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.emergencyRipple,
+                  {
+                    opacity: rippleOpacity,
+                    transform: [{ scale: rippleScale }],
+                  },
+                ]}
+              />
               <Text style={styles.emergencyActivatedText}>Activated</Text>
             </TouchableOpacity>
           ) : (
@@ -134,43 +219,6 @@ const TabHeader: React.FC = () => {
         </View>
       </View>
 
-      <Modal
-        visible={isDeactivateModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsDeactivateModalVisible(false)}
-        supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
-      >
-        <Pressable
-          onPress={() => Keyboard.dismiss()}
-          style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Reason for Clearing Emergency state</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Enter reason..."
-              placeholderTextColor={COLORS.textMuted}
-              value={deactivateReason}
-              onChangeText={setDeactivateReason}
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
-              <Pressable
-                style={[styles.modalBtn, styles.modalBtnCancel]}
-                onPress={() => setIsDeactivateModalVisible(false)}
-              >
-                <Text style={styles.modalBtnText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalBtn, styles.modalBtnSubmit]}
-                onPress={handleDeactivateSubmit}
-              >
-                <Text style={styles.modalBtnText}>Submit</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -262,74 +310,32 @@ const styles = StyleSheet.create({
   emergencyActivatedBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#EAB308',
     paddingVertical: 12,
     paddingHorizontal: 35,
     borderRadius: 26,
-    gap: 8,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
-    marginRight: 10
+    marginRight: 10,
+    overflow: 'hidden',
+  },
+  emergencyRipple: {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    width: 56,
+    height: 56,
+    marginLeft: -28,
+    marginTop: -28,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
   },
   emergencyActivatedText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: '80%',
-    maxWidth: 400,
-    backgroundColor: '#252A32',
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  modalInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 8,
-    padding: 12,
-    color: COLORS.textPrimary,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 20,
-    minHeight: 48,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'center',
-  },
-  modalBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  modalBtnCancel: {
-    backgroundColor: '#3A3A3C',
-  },
-  modalBtnSubmit: {
-    backgroundColor: COLORS.primary,
-  },
-  modalBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
+    zIndex: 1,
   },
 });
 

@@ -11,6 +11,7 @@ import { useDriverData } from './DriverDataContext';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import { sendDriverMessage } from '@/api/driverMessage.api';
 import { vehicles2Alert } from '@/api/position.api';
+import EmergencyDeactivateReasonModal from '@/components/EmergencyDeactivateReasonModal';
 
 const EMERGENCY_ACTIVATED = 'EMERGENCY MODE: ACTIVATED FROM MDT';
 const EMERGENCY_CLEARED = 'EMERGENCY MODE: DEACTIVATED';
@@ -20,6 +21,8 @@ interface EmergencyContextType {
   messageSent: boolean;
   activateEmergency: () => void;
   deactivateEmergency: (reason: string) => void;
+  /** Show the global reason popup (e.g. after holding the activated button). */
+  openDeactivateReasonModal: () => void;
   sendCannedMessage: (message: string) => void;
 }
 
@@ -28,6 +31,7 @@ const EmergencyContext = createContext<EmergencyContextType | null>(null);
 export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [emergencyActivated, setEmergencyActivated] = useState(false);
   const [messageSent, setMessageSent] = useState(false);
+  const [reasonModalVisible, setReasonModalVisible] = useState(false);
   const { vehicleId, driver } = useAuth();
   const { lastLocation, serverAlert } = useDriverModel();
   const { vehicles, isLoading: dataLoading } = useDriverData();
@@ -122,6 +126,10 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [sendMessage, sendAlert]
   );
 
+  const openDeactivateReasonModal = useCallback(() => {
+    setReasonModalVisible(true);
+  }, []);
+
   const sendCannedMessage = useCallback(
     (message: string) => {
       setMessageSent(true);
@@ -154,10 +162,19 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         messageSent,
         activateEmergency,
         deactivateEmergency,
+        openDeactivateReasonModal,
         sendCannedMessage,
       }}
     >
       {children}
+      <EmergencyDeactivateReasonModal
+        visible={reasonModalVisible}
+        onClose={() => setReasonModalVisible(false)}
+        onSubmit={(reason) => {
+          deactivateEmergency(reason);
+          setReasonModalVisible(false);
+        }}
+      />
     </EmergencyContext.Provider>
   );
 };

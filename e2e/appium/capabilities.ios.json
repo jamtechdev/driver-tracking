@@ -1,0 +1,9 @@
+{
+  "platformName": "iOS",
+  "appium:automationName": "XCUITest",
+  "appium:deviceName": "iPhone 15",
+  "appium:platformVersion": "17.0",
+  "appium:app": "./ios/build/Build/Products/Debug-iphonesimulator/DriverTracking.app",
+  "appium:noReset": false,
+  "appium:newCommandTimeout": 120
+}

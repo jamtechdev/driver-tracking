@@ -12,18 +12,31 @@ import {
   Platform,
   ActivityIndicator,
   useWindowDimensions,
-  Animated,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import Svg, { Path } from 'react-native-svg';
 import MainLayout from '../../components/MainLayout';
+import DirectionalArrow from '../../components/DirectionalArrow';
 import { COLORS } from '../../theme/colors';
 import { useDriverModel } from '../../context/DriverModelContext';
+import { useEmergency } from '../../context/EmergencyContext';
 import { useAuth } from '../../context/AuthContext';
 import { useMapLocation } from '../../context/MapLocationContext';
 import { useDriverData } from '../../context/DriverDataContext';
+import { useMapAssignment } from '../../hooks/useMapAssignment';
 import { MAPS_CONFIG, isMapsApiKeyValid } from '../../config/maps.config';
+import { TRANSPARENT_MAP_MARKER } from '../../config/mapMarkers';
 import { getAllVehicles } from '../../api/vehicle.api';
+import {
+  createVehicleHeadingResolver,
+  isVehicleLocationFresh,
+  parseVehicleCourse,
+  parseVehicleLatLng,
+  shouldAnimateVehicleArrow,
+  getVehicleRouteColor,
+  getTabletMarkerBlinkMode,
+  isEmergencyAlertActive,
+  isVehicleEmergencyAlertActive,
+} from '../../utils/helpers';
 
 interface MapScreenProps {
   navigation: any;
@@ -42,65 +55,15 @@ try {
   // react-native-maps not linked: show fallback UI
 }
 
-const DirectionalArrow = ({ color }: { color: string }) => {
-  const pulseAnim = useRef(new Animated.Value(0)).current;
-
-  // useEffect(() => {
-  //   // Create a 'ping' animation: start from center, expand and fade out
-  //   Animated.loop(
-  //     Animated.timing(pulseAnim, {
-  //       toValue: 1,
-  //       duration: 2000,
-  //       useNativeDriver: true,
-  //     })
-  //   ).start();
-  // }, [pulseAnim]);
-
-  const glowScale = pulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 2.5], // Larger expansion
-  });
-
-  const glowOpacity = pulseAnim.interpolate({
-    inputRange: [0, 0.1, 1],
-    outputRange: [0, 0.8, 0], // Quick fade in, slow fade out
-  });
-
-  return (
-    <View style={{ width: 60, height: 60, alignItems: 'center', justifyContent: 'center' }}>
-      {/* Pulsing Glow Effect */}
-      <Animated.View
-        style={{
-          position: 'absolute',
-          width: 30,
-          height: 30,
-          borderRadius: 15,
-          // backgroundColor: color,
-          // opacity: glowOpacity,
-          // transform: [{ scale: glowScale }],
-        }}
-      />
-      {/* The Arrow */}
-      <Svg width={50} height={50} viewBox="0 0 24 24" fill="none">
-        <Path
-          d="M12 2L19 21L12 17L5 21L12 2Z"
-          fill={color}
-          stroke="white"
-          strokeWidth="2"
-          strokeLinejoin="round"
-        />
-      </Svg>
-    </View>
-  );
-};
-
-
 const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) => {
-  const { isAcquiringSat, trackingMode, setTrackingMode } = useDriverModel();
+  const { isAcquiringSat, trackingMode, setTrackingMode, lastLocation, serverAlert } = useDriverModel();
+  const { emergencyActivated } = useEmergency();
   const { location, error: mapLocationError, heading } = useMapLocation();
   const { vehicleId, selectedRouteId, driver } = useAuth();
+  const { effectiveRouteId, hasMapAssignment, blockPeerVehicleIds } = useMapAssignment();
   const { agency, routes, stops } = useDriverData();
   const [vehiclesPosition, setVehiclesPosition] = useState<any[]>([]);
+  const resolveVehicleHeading = useRef(createVehicleHeadingResolver()).current;
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const [showPositionOverlay, setShowPositionOverlay] = useState(false);
@@ -113,6 +76,19 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     longitudeDelta: MAPS_CONFIG.DEFAULT_REGION.longitudeDelta ?? 0.0421,
   });
   const [currentRegion, setCurrentRegion] = useState(initialRegion);
+  const [arrowBlink, setArrowBlink] = useState<0 | 1>(0);
+
+  const tabletHeading = lastLocation?.heading ?? heading ?? 0;
+  const tabletAlertActive = isEmergencyAlertActive(serverAlert) || emergencyActivated;
+  const tabletBlinkMode = getTabletMarkerBlinkMode(hasMapAssignment, tabletAlertActive);
+
+  // Shared blink phase for tablet + other vehicles without a route color
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setArrowBlink(p => (p === 0 ? 1 : 0));
+    }, 600);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -121,7 +97,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
       try {
         const data = await getAllVehicles();
         if (data !== null) {
-          setVehiclesPosition(data);
+          setVehiclesPosition([...data]);
         }
       } catch (err) {
         console.warn('[MapScreen] Failed to fetch other vehicles:', err);
@@ -159,8 +135,8 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   };
 
   const selectedRoute = useMemo(() =>
-    routes.find(r => String(r.routeID) === String(selectedRouteId)),
-    [routes, selectedRouteId]
+    routes.find(r => String(r.routeID) === String(effectiveRouteId)),
+    [routes, effectiveRouteId],
   );
 
   const routeColor = selectedRoute?.color ? `#${selectedRoute.color}` : COLORS.background;
@@ -179,18 +155,18 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     return parseRoutePoints(selectedRoute.points);
   }, [selectedRoute]);
 
-  // All other routes (not selected) with valid points
-  const otherRoutesWithPoints = useMemo(() =>
-    routes
-      .filter(r => String(r.routeID) !== String(selectedRouteId) && r.points)
+  // Other routes only when no route is assigned (assigned drivers see their route only)
+  const otherRoutesWithPoints = useMemo(() => {
+    if (hasMapAssignment) return [];
+    return routes
+      .filter(r => String(r.routeID) !== String(effectiveRouteId) && r.points)
       .map(r => ({
         routeID: String(r.routeID),
         color: r.color ? `#${r.color}` : COLORS.textMuted,
         points: parseRoutePoints(r.points as string),
       }))
-      .filter(r => r.points.length > 0),
-    [routes, selectedRouteId]
-  );
+      .filter(r => r.points.length > 0);
+  }, [routes, effectiveRouteId, hasMapAssignment]);
 
   const getRouteStops = useCallback((route: any) => {
     const rStops = route?.routeStops;
@@ -202,85 +178,39 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
 
   const routeStops = useMemo(() => getRouteStops(selectedRoute), [selectedRoute, getRouteStops]);
 
-  // Other vehicles (all, not just same route), excluding current driver
-  const otherVehicles = useMemo(() =>
-    vehiclesPosition.filter(v => String(v.vehicleID) !== String(vehicleId)),
-    [vehiclesPosition, vehicleId]
-  );
-
-
-  useEffect(() => {
-    if (routePoints.length > 0 && mapReady && mapRef.current) {
-      // Use a small timeout to ensure map layout is complete before fitting
-      const timer = setTimeout(() => {
-        mapRef.current.fitToCoordinates(routePoints, {
-          edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
-          animated: true,
-        });
-      }, 600);
-      return () => clearTimeout(timer);
+  // Fresh vehicles on the same route when assigned; otherwise all fresh vehicles except self
+  const otherVehicles = useMemo(() => {
+    let list = vehiclesPosition.filter(
+      v => String(v.vehicleID) !== String(vehicleId) && isVehicleLocationFresh(v),
+    );
+    if (hasMapAssignment && effectiveRouteId) {
+      list = list.filter(v =>
+        String(v.routeID) === String(effectiveRouteId) ||
+        blockPeerVehicleIds.has(String(v.vehicleID)),
+      );
     }
-  }, [routePoints, mapReady]);
+    return list;
+  }, [vehiclesPosition, vehicleId, hasMapAssignment, effectiveRouteId, blockPeerVehicleIds]);
 
-  // Fit to route when map first becomes ready if route already exists
+
+  const lastFittedRouteIdRef = useRef<string | null>(null);
+  const hasInitialCenteredRef = useRef(false);
+
+  // Fit to assigned route once per route (not on every GPS update or pan)
   useEffect(() => {
-    if (mapReady && routePoints.length > 0 && mapRef.current) {
-      mapRef.current.fitToCoordinates(routePoints, {
+    if (!mapReady || !mapRef.current || routePoints.length === 0 || !effectiveRouteId) return;
+    if (lastFittedRouteIdRef.current === effectiveRouteId) return;
+
+    const timer = setTimeout(() => {
+      mapRef.current?.fitToCoordinates(routePoints, {
         edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
         animated: true,
       });
-    }
-  }, [mapReady]);
-
-  // Center on user location if no route is selected
-  useEffect(() => {
-    if (mapReady && routePoints.length === 0 && mapRef.current) {
-      if (location && driver?.role !== 'unassigned') {
-        const reg = {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          latitudeDelta: 0.005,
-          longitudeDelta: 0.005,
-        };
-        mapRef.current.animateToRegion(reg, 1000);
-      } else if (agency?.latitude && agency?.longitude) {
-        const reg = {
-          latitude: parseFloat(agency.latitude),
-          longitude: parseFloat(agency.longitude),
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
-        };
-        mapRef.current.animateToRegion(reg, 1000);
-      }
-    }
-  }, [mapReady, routePoints.length, location?.latitude, location?.longitude, agency?.latitude, agency?.longitude, driver?.role]);
-
-  const calculatedRegion = useMemo(() => {
-    if (agency?.latitude && agency?.longitude && (driver?.role === 'unassigned' || !location)) {
-      return {
-        latitude: parseFloat(agency.latitude),
-        longitude: parseFloat(agency.longitude),
-        latitudeDelta: 0.0922,
-        longitudeDelta: 0.0421,
-      };
-    }
-    if (location && !mapReady) {
-      return {
-        latitude: location.latitude,
-        longitude: location.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      };
-    }
-    return null;
-  }, [location, agency, mapReady, driver?.role]);
-
-  useEffect(() => {
-    if (calculatedRegion) {
-      setInitialRegion(calculatedRegion);
-      setCurrentRegion(calculatedRegion);
-    }
-  }, [calculatedRegion, setInitialRegion, setCurrentRegion]);
+      lastFittedRouteIdRef.current = effectiveRouteId;
+      hasInitialCenteredRef.current = true;
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [mapReady, routePoints, effectiveRouteId]);
 
   const handleZoomIn = () => {
     if (mapRef.current) {
@@ -306,10 +236,12 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     }
   };
 
-  const hasCenteredRef = useRef(false);
-
+  // Center on device location once when there is no route shape to fit
   useEffect(() => {
-    if (location && !hasCenteredRef.current && mapReady) {
+    if (!mapReady || !mapRef.current || hasInitialCenteredRef.current) return;
+    if (routePoints.length > 0) return;
+
+    if (location) {
       const reg = {
         latitude: location.latitude,
         longitude: location.longitude,
@@ -318,10 +250,21 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
       };
       setInitialRegion(reg);
       setCurrentRegion(reg);
-      mapRef.current?.animateToRegion(reg, 500);
-      hasCenteredRef.current = true;
+      mapRef.current.animateToRegion(reg, 500);
+      hasInitialCenteredRef.current = true;
+    } else if (agency?.latitude && agency?.longitude) {
+      const reg = {
+        latitude: parseFloat(agency.latitude),
+        longitude: parseFloat(agency.longitude),
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      };
+      setInitialRegion(reg);
+      setCurrentRegion(reg);
+      mapRef.current.animateToRegion(reg, 500);
+      hasInitialCenteredRef.current = true;
     }
-  }, [location, mapReady]);
+  }, [mapReady, routePoints.length, location?.latitude, location?.longitude, agency?.latitude, agency?.longitude]);
 
   if (!MapView || !Marker) {
     const fallbackContent = (
@@ -418,20 +361,19 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
         onRegionChangeComplete={setCurrentRegion}
         zoomControlEnabled={!isTabView || isMobile}
       >
-        {/* Other routes – dimmed polylines */}
-        {otherRoutesWithPoints.map(r => (
+        {/* Other routes – only when driver has no route assignment */}
+        {!hasMapAssignment && otherRoutesWithPoints.map(r => (
           <Polyline
             key={`route-path-${r.routeID}`}
             coordinates={r.points}
-            strokeColor={r.color + '66'}
+            strokeColor={r.color}
             strokeWidth={4}
             lineJoin="round"
             lineCap="round"
           />
         ))}
 
-        {/* Other route stops – small dimmed dots */}
-        {otherRoutesWithPoints.map(r => {
+        {!hasMapAssignment && otherRoutesWithPoints.map(r => {
           const rObj = routes.find(ro => String(ro.routeID) === r.routeID);
           return getRouteStops(rObj).map((stop) => {
             const lat = typeof stop.lat === 'number' ? stop.lat : parseFloat(stop.lat as string);
@@ -440,8 +382,10 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             return (
               <Marker
                 key={`other-stop-${r.routeID}-${stop.stopID}`}
+                image={TRANSPARENT_MAP_MARKER}
                 coordinate={{ latitude: lat, longitude: lng }}
                 anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges={false}
                 title={String(stop.longName || `Stop ${stop.stopID}`)}
               >
                 <View style={[styles.stopMarker, { backgroundColor: r.color + '99', borderColor: r.color, width: 12, height: 12, borderRadius: 6 }]} />
@@ -469,8 +413,10 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           return (
             <Marker
               key={`stop-${stop.stopID}`}
+              image={TRANSPARENT_MAP_MARKER}
               coordinate={{ latitude: lat, longitude: lng }}
               anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
               title={String(stop.longName || `Stop ${stop.stopID}`)}
               description={`Stop ID: ${stop.stopID}`}
             >
@@ -478,63 +424,72 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             </Marker>
           );
         })}
-        {
-          driver?.role === 'unassigned' && (
-            <Marker
-              key="agency-marker"
-              coordinate={{
-                latitude: parseFloat(agency?.latitude || "0"),
-                longitude: parseFloat(agency?.longitude || "0"),
-              }}
-              title="Agency"
-              description="Agency Location"
-              anchor={{ x: 0.5, y: 1 }}
-            >
-              <DirectionalArrow color={COLORS.background} />
-            </Marker>
-          )
-        }
-
-        {location && driver && driver?.role !== 'unassigned' && (
+        {/* Tablet / device GPS marker — always shown when location is available */}
+        {location && driver && (
           <Marker
-            key="user-marker-map-context"
+            key={`tablet-marker-${location.latitude.toFixed(6)}-${location.longitude.toFixed(6)}-${Math.round(tabletHeading)}-${tabletBlinkMode === 'none' ? 0 : arrowBlink}`}
+            image={TRANSPARENT_MAP_MARKER}
             coordinate={{
               latitude: location.latitude,
               longitude: location.longitude,
             }}
             title="You"
-            description={
-              `Accuracy: ${Math.round(location.accuracy)} m`
-            }
+            description={`Accuracy: ${Math.round(location.accuracy)} m`}
             anchor={{ x: 0.5, y: 0.5 }}
-            rotation={heading}
             flat
+            tracksViewChanges={false}
           >
-
-            <DirectionalArrow color={selectedRouteId ? routeColor : COLORS.background} />
+            <DirectionalArrow
+              heading={tabletHeading}
+              color={hasMapAssignment ? routeColor : COLORS.background}
+              blinkMode={tabletBlinkMode}
+              blinkPhase={tabletBlinkMode === 'none' ? undefined : arrowBlink}
+            />
           </Marker>
         )}
 
         {/* All other vehicles with their own route color */}
         {otherVehicles.map((v) => {
-          const lat = typeof v.lat === 'number' ? v.lat : parseFloat(v.lat);
-          const lng = typeof v.lng === 'number' ? v.lng : parseFloat(v.lng);
-          const bear = typeof v.bearing === 'number' ? v.bearing : parseFloat(v.bearing || v.heading || '0');
-          const vColor = routeColorMap[String(v.routeID)] ?? COLORS.textMuted;
+          const coord = parseVehicleLatLng(v);
+          if (!coord) return null;
 
-          if (isNaN(lat) || isNaN(lng)) return null;
+          const course = parseVehicleCourse(v);
+          const bear = resolveVehicleHeading(String(v.vehicleID), coord, course);
+          let vColor = getVehicleRouteColor(v, routeColorMap);
+          let vehicleAnimates = shouldAnimateVehicleArrow(v, routeColorMap);
+          if (
+            !vColor &&
+            hasMapAssignment &&
+            effectiveRouteId &&
+            blockPeerVehicleIds.has(String(v.vehicleID))
+          ) {
+            vColor = routeColorMap[effectiveRouteId] ?? routeColor;
+            vehicleAnimates = false;
+          }
+          vColor = vColor ?? COLORS.background;
+          const roundedBear = Math.round(bear);
+          const vehicleAlertBlink = isVehicleEmergencyAlertActive(v);
+          const markerBlinks = vehicleAlertBlink || vehicleAnimates;
+          const markerKey = `vehicle-${v.vehicleID}-${coord.lat.toFixed(6)}-${coord.lng.toFixed(6)}-${roundedBear}${markerBlinks ? `-${arrowBlink}` : ''}`;
 
           return (
             <Marker
-              key={`vehicle-${v.vehicleID}`}
-              coordinate={{ latitude: lat, longitude: lng }}
+              key={markerKey}
+              image={TRANSPARENT_MAP_MARKER}
+              coordinate={{ latitude: coord.lat, longitude: coord.lng }}
               title={String(v.vehicleName || v.vehicleNumber || `Vehicle ${v.vehicleID}`)}
               description={`Route: ${v.routeShortName || v.routeID || '—'}`}
               anchor={{ x: 0.5, y: 0.5 }}
-              rotation={isNaN(bear) ? 0 : bear}
               flat
+              tracksViewChanges={false}
             >
-              <DirectionalArrow color={vColor} />
+              <DirectionalArrow
+                heading={bear}
+                color={vColor}
+                blinkMode={vehicleAlertBlink ? 'alert' : undefined}
+                unassigned={vehicleAlertBlink ? false : vehicleAnimates}
+                blinkPhase={markerBlinks ? arrowBlink : undefined}
+              />
             </Marker>
           );
         })}
@@ -595,7 +550,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
                 </Text>
                 <Text style={styles.positionMeta}>
                   Accuracy: {Math.round(location.accuracy)} m
-                  {heading != null ? ` · Heading: ${Math.round(heading)}°` : ''}
+                  {tabletHeading != null ? ` · Heading: ${Math.round(tabletHeading)}°` : ''}
                   {' · Real-time'}
                 </Text>
               </>
@@ -622,7 +577,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
               ))}
             </View>
             <Text style={styles.positionHint}>
-              Vehicle: {vehicleId || '—'} · Route: {selectedRouteId || '—'}
+              Vehicle: {vehicleId || '—'} · Route: {effectiveRouteId || selectedRouteId || '—'}
             </Text>
           </View>
         </View>

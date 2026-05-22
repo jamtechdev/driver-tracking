@@ -10,12 +10,10 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Animated,
   Pressable,
   Modal,
   TextInput,
   Platform,
-  Image,
   useColorScheme,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
@@ -58,74 +56,12 @@ const HOLD_DURATION_MS = 5000;
 
 const DEFAULT_STOP_ID = '0';
 
-// ---------------------------------------------------------------------------
-// Gauge image map
-// 0          → on_time.png
-// -9999      → no_status.png
-// > 0 (1-10) → {n}_early.png
-// < 0 (1-20) → {n}_late.png
-// ---------------------------------------------------------------------------
-const ON_TIME_IMAGE = require('../../assets/gauge/on_time.png');
-const NO_STATUS_IMAGE = require('../../assets/gauge/no_status.png');
-
-const EARLY_IMAGES: Record<number, any> = {
-  1: require('../../assets/gauge/1_early.png'),
-  2: require('../../assets/gauge/2_early.png'),
-  3: require('../../assets/gauge/3_early.png'),
-  4: require('../../assets/gauge/4_early.png'),
-  5: require('../../assets/gauge/5_early.png'),
-  6: require('../../assets/gauge/6_early.png'),
-  7: require('../../assets/gauge/7_early.png'),
-  8: require('../../assets/gauge/8_early.png'),
-  9: require('../../assets/gauge/9_early.png'),
-  10: require('../../assets/gauge/10_early.png'),
-};
-
-const LATE_IMAGES: Record<number, any> = {
-  1: require('../../assets/gauge/1_late.png'),
-  2: require('../../assets/gauge/2_late.png'),
-  3: require('../../assets/gauge/3_late.png'),
-  4: require('../../assets/gauge/4_late.png'),
-  5: require('../../assets/gauge/5_late.png'),
-  6: require('../../assets/gauge/6_late.png'),
-  7: require('../../assets/gauge/7_late.png'),
-  8: require('../../assets/gauge/8_late.png'),
-  9: require('../../assets/gauge/9_late.png'),
-  10: require('../../assets/gauge/10_late.png'),
-  11: require('../../assets/gauge/11_late.png'),
-  12: require('../../assets/gauge/12_late.png'),
-  13: require('../../assets/gauge/13_late.png'),
-  14: require('../../assets/gauge/14_late.png'),
-  15: require('../../assets/gauge/15_late.png'),
-  16: require('../../assets/gauge/16_late.png'),
-  17: require('../../assets/gauge/17_late.png'),
-  18: require('../../assets/gauge/18_late.png'),
-  19: require('../../assets/gauge/19_late.png'),
-  20: require('../../assets/gauge/20_late.png'),
-};
-
-/** Always returns a PNG source based on minsLate. */
-const getGaugeImage = (mins: number | null | undefined, role?: string): any => {
-  if (role === 'supervisor' || role === 'unassigned') {
-    return NO_STATUS_IMAGE;
-  }
-  if (mins === null || mins === undefined) return NO_STATUS_IMAGE;
-  if (mins === -9999) return NO_STATUS_IMAGE;
-  if (mins === 0) return ON_TIME_IMAGE;
-  if (mins > 0) {
-    // early — cap at max available (10)
-    const key = Math.min(mins, 10);
-    return EARLY_IMAGES[key] ?? ON_TIME_IMAGE;
-  }
-  // late — mins is negative, e.g. -3 → key 3, cap at 20
-  const key = Math.min(Math.abs(mins), 20);
-  return LATE_IMAGES[key] ?? ON_TIME_IMAGE;
-};
+import ScheduleGaugeImage from '../../components/ScheduleGaugeImage';
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const { driver, passengerCount, setPassengerCount, selectedRouteId, hasShownSupervisorModal, setHasShownSupervisorModal, vehicleId, apcCount, selectedRoute } = useAuth();
   const { open: openDriverModal } = useDriverModal();
-  const { emergencyActivated, activateEmergency, deactivateEmergency } = useEmergency();
+  const { emergencyActivated, activateEmergency, openDeactivateReasonModal } = useEmergency();
   const { open: openReportIncidentModal } = useReportIncidentModal();
   const { width, height } = useWindowDimensions();
   const { minsLate, lastLocation, nextStop, schedule, setOnLocationXmit } = useDriverModel();
@@ -133,8 +69,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [isGpsFlashing, setIsGpsFlashing] = useState(false);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fareCategories, stops } = useDriverData();
-  const [showReasonModal, setShowReasonModal] = useState(false);
-  const [reasonText, setReasonText] = useState('');
   const [isCharging, setIsCharging] = useState(true);
   const [showPassengerModal, setShowPassengerModal] = useState(false);
   const [showPassengerInline, setShowPassengerInline] = useState(false);
@@ -166,7 +100,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const supervisorLabelFontSize = Math.round(14 * Math.max(0.8, rs));
   const passengerBlockPaddingV = isLandscape ? (isMobile ? 5 : 8) : 8;
   const passengerBlockPaddingH = Math.round(12 * rs);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
   const [mdtId, setMdtId] = useState<string>('');
   const MDT_ID_KEY = '@driver_tracking:mdt_id';
 
@@ -231,23 +164,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   // Responsive gauge size from device dimensions (no scroll: fit in viewport)
   const contentHeight = height - 128;
   const gaugeSize = useMemo(() => {
-    // In landscape on small devices, we need a smaller gauge to fit between header and footer
-    const maxH = isLandscape ? height * 0.45 : contentHeight - 200;
+    const safeW = Math.max(width, 320);
+    const safeH = Math.max(height, 400);
+    const safeContentH = Math.max(safeH - 128, 200);
+    const maxH = isLandscape ? safeH * 0.45 : safeContentH - 200;
     const base = Math.min(
-      width - 100,
+      safeW - 100,
       GAUGE_MAX_WIDTH,
-      Math.max(GAUGE_MIN_SIZE, maxH)
+      Math.max(GAUGE_MIN_SIZE, maxH),
     );
-    return base;
+    return Number.isFinite(base) && base > 0 ? base : GAUGE_MIN_SIZE;
   }, [width, height, contentHeight, isLandscape]);
-
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 400,
-      useNativeDriver: true,
-    }).start();
-  }, []);
 
   useEffect(() => {
     if (driver?.role === 'supervisor' && !hasShownSupervisorModal) {
@@ -363,7 +290,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     if (!emergencyActivated) return;
     holdTimerRef.current = setTimeout(() => {
       holdTimerRef.current = null;
-      setShowReasonModal(true);
+      openDeactivateReasonModal();
     }, HOLD_DURATION_MS);
   };
 
@@ -381,17 +308,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       handleEmergencyPressOut();
       openReportIncidentModal();
     }
-  };
-
-  const handleReasonSubmit = () => {
-    deactivateEmergency(reasonText);
-    setReasonText('');
-    setShowReasonModal(false);
-  };
-
-  const handleReasonCancel = () => {
-    setReasonText('');
-    setShowReasonModal(false);
   };
 
   const togglePassengerInline = () => {
@@ -439,8 +355,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     }
   };
 
-  const gaugeImage = useMemo(() => getGaugeImage(minsLate, driver?.role), [minsLate, driver?.role]);
   const containerSize = isLandscape ? gaugeSize : gaugeSize + 40;
+  const gaugeImageWidth = gaugeSize + 40;
+  const gaugeImageHeight = gaugeSize;
 
   return (
     <>
@@ -458,21 +375,27 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             centerGaugeVertically && styles.centerSectionPhone,
           ]}
         >
-          <Animated.View
+          <View
             style={[
               styles.gaugeSection,
               centerGaugeVertically && styles.gaugeSectionPhone,
-              { opacity: fadeAnim },
             ]}
           >
-            <View style={[styles.gaugeWrapper, { width: containerSize, height: containerSize, alignItems: 'center', flex: 1, justifyContent: 'center', }]}>
+            <View
+              style={[
+                styles.gaugeWrapper,
+                { width: containerSize, height: containerSize, justifyContent: 'center' },
+              ]}
+            >
               <Text style={styles.nextStopText}>{nextStopName}</Text>
-              <Image
-                source={gaugeImage}
-                style={{ width: gaugeSize + 40, height: gaugeSize, resizeMode: 'contain' }}
+              <ScheduleGaugeImage
+                minsLate={minsLate}
+                role={driver?.role}
+                width={gaugeImageWidth}
+                height={gaugeImageHeight}
               />
             </View>
-          </Animated.View>
+          </View>
         </View>
 
         <View style={[styles.mainButtonContainer, { bottom: isPortrait ? insets.bottom + 40 : insets.bottom - 18 }]}>
@@ -601,48 +524,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         onClose={() => setShowPassengerModal(false)}
       // onSubmit={handlePassengerCountSubmit}
       />
-
-      <Modal
-        visible={showReasonModal}
-        transparent
-        animationType="fade"
-        onRequestClose={handleReasonCancel}
-        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
-        supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
-      >
-        <Pressable style={[StyleSheet.absoluteFill, styles.reasonModalOverlay]} onPress={handleReasonCancel}>
-          <Pressable style={styles.reasonModalContent} onPress={() => { }}>
-            <Text style={styles.reasonModalTitle}>
-              Reason for Clearing Emergency State
-            </Text>
-            <TextInput
-              style={styles.reasonInput}
-              placeholder="Please input reason here"
-              placeholderTextColor="#94A3B8"
-              value={reasonText}
-              onChangeText={setReasonText}
-              multiline
-              numberOfLines={3}
-            />
-            <View style={styles.reasonModalButtons}>
-              <TouchableOpacity
-                style={[styles.reasonModalBtn, styles.reasonModalBtnCancel]}
-                onPress={handleReasonCancel}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.reasonModalBtnCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.reasonModalBtn, styles.reasonModalBtnSubmit]}
-                onPress={handleReasonSubmit}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.reasonModalBtnSubmitText}>Submit</Text>
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
     </>
   );

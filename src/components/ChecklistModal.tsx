@@ -16,27 +16,40 @@ import {
   Dimensions,
   ActivityIndicator,
   TextInput,
-  Image,
-  Alert,
   KeyboardAvoidingView,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import Toast from 'react-native-toast-message';
-import { launchImageLibrary, launchCamera, ImagePickerResponse } from 'react-native-image-picker';
 import { COLORS } from '../theme/colors';
 import { useChecklistModal } from '../context/ChecklistModalContext';
 import { useAuth } from '../context/AuthContext';
+import { useDriverData } from '../context/DriverDataContext';
 import { PEAK_DEFAULT_PARAMS } from '../config/env';
 import {
   getChecklist,
   submitChecklist,
+  getChecklistItemsArray,
+  getChecklistItemsKey,
+  patchChecklistItemById,
+  normalizePeakChecklistItemType,
+  peakChecklistItemIsBoolean,
+  injectDriverNameIntoChecklistDocument,
+  applyChecklistDateTimeDefaults,
+  formatChecklistDateValue,
+  formatChecklistTimeValue12h,
+  isPeakChecklistDriverNameTextItem,
+  isPeakVehicleInspectionChecklistDocument,
   type ChecklistItemApi,
   type ChecklistSubmissionApi,
+  type PeakChecklistDocument,
+  type PeakNormalizedItemType,
 } from '../api/checklist.api';
+import ChecklistVehicleDamageDiagram from './checklist/ChecklistVehicleDamageDiagram';
+import { parseChecklistDamageMarks } from '../utils/checklistDamageMarks';
 
 type ItemStatus = 'pass' | 'fail' | 'na';
 
-export type ChecklistItemType = 'boolean' | 'number' | 'date' | 'string' | 'image' | 'group';
+export type ChecklistItemType = PeakNormalizedItemType;
 
 interface ChecklistItem {
   id: string;
@@ -46,7 +59,56 @@ interface ChecklistItem {
   category?: string;
   status: ItemStatus;
   value: string;
-  imageUri?: string;
+  /** API `required === '1'` — must be answered before submit. */
+  required: boolean;
+  /** Vehicle damage diagram asset id / URL (normalized `Vehicle Damage Image` row). */
+  itemUnit?: string;
+}
+
+function isChecklistItemRequiredFlag(required: unknown): boolean {
+  if (required === 1 || required === true) return true;
+  return String(required ?? '').trim() === '1';
+}
+
+/** Row id must match `patchChecklistItemById` / view `item.id`. */
+function checklistRowId(row: ChecklistItemApi, index: number): string {
+  return String(row.itemID ?? row.id ?? index + 1);
+}
+
+/**
+ * Returns map of row id → error message for items with `required: '1'` that are still empty / unset.
+ */
+function computeRequiredFieldErrorsFromDocument(doc: PeakChecklistDocument | null): Record<string, string> {
+  if (!doc) return {};
+  const list = getChecklistItemsArray(doc);
+  const out: Record<string, string> = {};
+  list.forEach((raw, index) => {
+    const row = raw as ChecklistItemApi;
+    if (!isChecklistItemRequiredFlag(row.required)) return;
+    const id = checklistRowId(row, index);
+    const t = normalizePeakChecklistItemType(row.itemType);
+    if (t === 'group') return;
+
+    if (t === 'boolean') {
+      const v = String(row.value ?? '');
+      if (v !== '0' && v !== '1') {
+        out[id] = 'Please select Pass or Fail before submitting.';
+      }
+      return;
+    }
+    if (t === 'image') {
+      if (parseChecklistDamageMarks(row.value).length === 0) {
+        out[id] = 'Please mark the vehicle diagram (at least one damage point) before submitting.';
+      }
+      return;
+    }
+    if (t === 'string' || t === 'number' || t === 'date' || t === 'time') {
+      if (!String(row.value ?? '').trim()) {
+        out[id] = 'This field is required.';
+      }
+    }
+  });
+  return out;
 }
 
 function decodeHtmlEntities(s: string): string {
@@ -58,30 +120,58 @@ function decodeHtmlEntities(s: string): string {
     .replace(/&gt;/g, '>');
 }
 
-function mapApiToItems(apiItems: ChecklistItemApi[], driverName?: string): ChecklistItem[] {
+function mapApiItemsToView(apiItems: ChecklistItemApi[], driverName?: string): ChecklistItem[] {
   const mapped = apiItems.map((a, index) => {
-    const id = String(a.itemID ?? a.id ?? index + 1);
-    const name = decodeHtmlEntities(a.itemName ?? a.name ?? 'Item');
-    const itemType = (a.itemType ?? 'string') as ChecklistItemType;
+    const id = checklistRowId(a, index);
+    const name = decodeHtmlEntities(String(a.itemName ?? a.name ?? 'Item'));
+    const itemType = normalizePeakChecklistItemType(a.itemType);
     const seq = typeof a.sequence === 'number' ? a.sequence : parseInt(String(a.sequence ?? index), 10) || index;
-    const isDriverName = /driver\s*name/i.test(name);
-    const value = itemType === 'string' && isDriverName && driverName ? driverName : '';
+
+    let status: ItemStatus = 'na';
+    if (itemType === 'boolean') {
+      const v = String(a.value ?? '');
+      if (v === '0') status = 'pass';
+      else if (v === '1') status = 'fail';
+    }
+
+    let value = String(a.value ?? '');
+    if (itemType === 'string' && isPeakChecklistDriverNameTextItem(a) && driverName) {
+      value = driverName;
+    }
+    if (itemType === 'number' && value === '') value = '';
+
+    let imageDamageValue = '';
+    if (itemType === 'image') {
+      const v = String(a.value ?? '').trim();
+      const looksLegacyPhoto =
+        v.startsWith('data:') || v.startsWith('file') || /^https?:\/\//i.test(v) || (/^[A-Za-z0-9+/=]+$/.test(v) && v.length > 80);
+      imageDamageValue = looksLegacyPhoto ? '' : String(a.value ?? '');
+    }
+
     return {
       id,
       name,
       itemType,
       sequence: Number.isNaN(seq) ? index : seq,
-      status: 'na' as ItemStatus,
-      value,
+      status,
+      value: itemType === 'image' ? imageDamageValue : value,
+      required: isChecklistItemRequiredFlag(a.required),
+      itemUnit: typeof a.itemUnit === 'string' ? a.itemUnit : String(a.itemUnit ?? ''),
     };
   });
   return mapped.sort((a, b) => a.sequence - b.sequence);
 }
 
+function documentToViewItems(doc: PeakChecklistDocument | null, driverName?: string): ChecklistItem[] {
+  if (!doc) return [];
+  return mapApiItemsToView(getChecklistItemsArray(doc), driverName);
+}
+
 const ChecklistModal: React.FC = () => {
   const { visible, close } = useChecklistModal();
   const { vehicleId, driver } = useAuth();
-  const [items, setItems] = useState<ChecklistItem[]>([]);
+  const { drivers } = useDriverData();
+  const [checklistDoc, setChecklistDoc] = useState<PeakChecklistDocument | null>(null);
   const [submissions, setSubmissions] = useState<ChecklistSubmissionApi[]>([]);
   const [showSubmissionsView, setShowSubmissionsView] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
@@ -89,16 +179,32 @@ const ChecklistModal: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checklistType, setChecklistType] = useState<'pre' | 'post'>('pre');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const { width } = Dimensions.get('window');
   const isTablet = width >= 600;
   const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
 
-  const driverName = driver?.name ?? (driver as { displayName?: string })?.displayName ?? '';
+  /** Prefer auth name; else match `driver.id` to agency driver list (`driverName`) so checklist POST includes a real name for admin. */
+  const driverName = React.useMemo(() => {
+    const fromAuth = (driver?.name ?? (driver as { displayName?: string })?.displayName ?? '').trim();
+    if (fromAuth && fromAuth !== 'Unassigned') return fromAuth;
+    if (driver?.id) {
+      const row = drivers.find((d) => String(d.driverID) === String(driver.id));
+      const apiName = row?.driverName != null ? String(row.driverName).trim() : '';
+      if (apiName) return apiName;
+    }
+    return fromAuth;
+  }, [driver, drivers]);
+
+  const items = React.useMemo(
+    () => documentToViewItems(checklistDoc, driverName),
+    [checklistDoc, driverName],
+  );
 
   const fetchChecklist = useCallback(() => {
     const vid = vehicleId?.trim() || '';
     if (!vid) {
-      setItems([]);
+      setChecklistDoc(null);
       setError('Select a vehicle first');
       return;
     }
@@ -107,37 +213,76 @@ const ChecklistModal: React.FC = () => {
     getChecklist(vid, agencyID)
       .then((data) => {
         console.log('Checklist data:', data);
-        setItems(mapApiToItems(data.items, driverName));
+        let doc = injectDriverNameIntoChecklistDocument(data.document, driverName);
+        if (!isPeakVehicleInspectionChecklistDocument(doc)) {
+          setError('Invalid checklist (expected checklistName and items from server).');
+          setChecklistDoc(null);
+          setSubmissions([]);
+          return;
+        }
+        doc = applyChecklistDateTimeDefaults(doc);
+        setChecklistDoc(doc);
         setSubmissions(data.results ?? []);
-        setExpandedIds({}); // start all collapsed so all question titles are visible
+        setExpandedIds({});
+        setFieldErrors({});
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : 'Failed to load checklist');
-        setItems([]);
+        setChecklistDoc(null);
         setSubmissions([]);
       })
       .finally(() => setLoading(false));
-  }, [vehicleId, agencyID, driverName, checklistType]);
+  }, [vehicleId, agencyID, driverName]);
 
   // When modal opens, fetch checklist; when it closes, reset submissions view
   useEffect(() => {
     if (!visible) {
       setShowSubmissionsView(false);
+      setChecklistDoc(null);
+      setFieldErrors({});
       return;
     }
     fetchChecklist();
   }, [visible, fetchChecklist]);
 
   const handleClear = useCallback(() => {
-    setItems((prev) =>
-      prev.map((i) => ({
-        ...i,
-        status: 'na' as ItemStatus,
-        value: /driver\s*name/i.test(i.name) ? driverName : '',
-        imageUri: undefined,
-      }))
-    );
+    setChecklistDoc((prev) => {
+      if (!prev) return prev;
+      const key = getChecklistItemsKey(prev);
+      if (!key) return prev;
+      const list = (prev[key] as ChecklistItemApi[]).map((row) => {
+        const copy = { ...row };
+        const t = normalizePeakChecklistItemType(copy.itemType);
+        if (t === 'boolean') {
+          copy.value = '';
+        } else if (t === 'date') {
+          copy.value = formatChecklistDateValue();
+        } else if (t === 'time') {
+          copy.value = formatChecklistTimeValue12h();
+        } else if (t === 'string' || t === 'number') {
+          const isDriverName = isPeakChecklistDriverNameTextItem(copy);
+          if (t === 'string' && isDriverName && driverName) {
+            copy.value = driverName;
+          } else {
+            copy.value = '';
+          }
+        } else if (t === 'image') {
+          copy.value = '';
+        }
+        return copy;
+      });
+      return { ...prev, [key]: list };
+    });
+    setFieldErrors({});
   }, [driverName]);
+
+  const clearFieldError = useCallback((id: string) => {
+    setFieldErrors((prev) => {
+      if (!prev[id]) return prev;
+      const { [id]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!driver || driver.role === 'unassigned') {
@@ -149,7 +294,7 @@ const ChecklistModal: React.FC = () => {
       });
       return;
     }
-    if (!vehicleId) {
+    if (!vehicleId?.trim()) {
       close();
       Toast.show({
         type: 'error',
@@ -158,32 +303,54 @@ const ChecklistModal: React.FC = () => {
       });
       return;
     }
-    const payload = items.map((i) => {
-      const entry: { itemID: string; status?: number; value?: string | number } = {
-        itemID: i.id,
-      };
-      if (i.itemType === 'boolean') {
-        entry.status = i.status === 'pass' ? 1 : i.status === 'fail' ? 0 : -1;
-      }
-      if (i.itemType === 'string' || i.itemType === 'number' || i.itemType === 'date') {
-        if (i.value !== '') entry.value = i.itemType === 'number' ? Number(i.value) || 0 : i.value;
-      }
-      if (i.itemType === 'image') {
-        if (i.imageUri) {
-          entry.value = i.imageUri;
-        }
-      }
-      console.log('Entry:', entry);
-      return entry;
-    });
-    const hasFail = items.some((i) => i.status === 'fail') ? 1 : 0;
-    console.log('Payload:', payload);
-    console.log('Has Fail:', hasFail);
+    if (!checklistDoc) {
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'No checklist loaded',
+      });
+      return;
+    }
+    const docToSubmit = applyChecklistDateTimeDefaults(
+      injectDriverNameIntoChecklistDocument(checklistDoc, driverName),
+    );
+    const requiredErrors = computeRequiredFieldErrorsFromDocument(docToSubmit);
+    if (Object.keys(requiredErrors).length > 0) {
+      setFieldErrors(requiredErrors);
+      setExpandedIds((prev) => {
+        const next = { ...prev };
+        Object.keys(requiredErrors).forEach((id) => {
+          next[id] = true;
+        });
+        return next;
+      });
+      // Toast.show({
+      //   type: 'error',
+      //   text1: 'Required items',
+      //   text2: 'Please complete all required fields before submitting.',
+      // });
+      return;
+    }
+    setFieldErrors({});
     setSubmitting(true);
     try {
-      await submitChecklist(vehicleId, driver.id, agencyID, hasFail as 0 | 1, payload);
-      Toast.show({ type: 'success', text1: 'Success', text2: `${checklistType === 'pre' ? 'Pre-Trip' : 'Post-Trip'} checklist submitted` });
-      close();
+      const result = await submitChecklist(vehicleId.trim(), String(driver.id), agencyID, docToSubmit);
+      if (result.success) {
+        Toast.show({
+          type: 'success',
+          text1: 'Success',
+          text2: `${checklistType === 'pre' ? 'Pre-Trip' : 'Post-Trip'} checklist submitted`,
+        });
+        close();
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Submit rejected',
+          text2: typeof result.raw === 'object' && result.raw !== null
+            ? JSON.stringify(result.raw).slice(0, 200)
+            : 'Server returned success: false',
+        });
+      }
     } catch (e) {
       Toast.show({
         type: 'error',
@@ -193,7 +360,7 @@ const ChecklistModal: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [vehicleId, driver?.id, agencyID, items, close]);
+  }, [vehicleId, driver, agencyID, checklistDoc, close, checklistType, driverName]);
 
   const handleSubmissions = () => {
     setShowSubmissionsView(true);
@@ -221,50 +388,26 @@ const ChecklistModal: React.FC = () => {
   };
 
   const setItemStatus = (id: string, status: ItemStatus) => {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, status } : i)));
+    clearFieldError(id);
+    setChecklistDoc((prev) => {
+      if (!prev) return prev;
+      return patchChecklistItemById(prev, id, (it) => {
+        if (!peakChecklistItemIsBoolean(it)) return;
+        if (status === 'pass') it.value = '0';
+        else if (status === 'fail') it.value = '1';
+        else it.value = '';
+      });
+    });
   };
 
   const setItemValue = (id: string, value: string) => {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, value } : i)));
-  };
-
-  const setItemImage = (id: string, imageUri: string | undefined) => {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, imageUri } : i)));
-  };
-  const handleImagePickerResponse = (itemId: string, response: ImagePickerResponse) => {
-    if (response.didCancel) return;
-    if (response.errorCode) {
-      Alert.alert('Error', response.errorCode === 'camera_unavailable' ? 'Camera not available on this device.' : 'Failed to get image.');
-      return;
-    }
-    const uri = response.assets?.[0]?.uri;
-    console.log('Image URI:', uri);
-    if (uri) {
-      setItemImage(itemId, uri);
-    }
-  };
-
-  const pickImage = (itemId: string) => {
-    // We use a small delay after the Alert choice to ensure the native dialog has 
-    // fully dismissed before launching the next native activity (Camera/Library).
-    // This prevents crashes on many Android/iOS devices when chaining native intents.
-    const launch = (method: typeof launchCamera | typeof launchImageLibrary, options: any) => {
-      setTimeout(() => {
-        method(options).then(res => handleImagePickerResponse(itemId, res));
-      }, 300);
-    };
-
-    Alert.alert('Add Photo', 'Take a new photo or choose from gallery', [
-      {
-        text: 'Take Photo',
-        onPress: () => launch(launchCamera, { mediaType: 'photo', quality: 0.8 })
-      },
-      {
-        text: 'Choose from Library',
-        onPress: () => launch(launchImageLibrary, { mediaType: 'photo', selectionLimit: 1, quality: 0.8 })
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    clearFieldError(id);
+    setChecklistDoc((prev) => {
+      if (!prev) return prev;
+      return patchChecklistItemById(prev, id, (it) => {
+        it.value = value;
+      });
+    });
   };
 
   const toggleExpanded = (id: string) => {
@@ -291,6 +434,11 @@ const ChecklistModal: React.FC = () => {
         ? `${items.length} item(s)`
         : 'Empty (no vehicle or API returned nothing)';
 
+  const checklistName =
+    checklistDoc && typeof checklistDoc.checklistName === 'string'
+      ? (checklistDoc.checklistName as string)
+      : null;
+
   return (
     <Modal
       visible={visible}
@@ -315,7 +463,14 @@ const ChecklistModal: React.FC = () => {
             <View style={styles.modalInner}>
               <View style={styles.header}>
                 <View style={styles.headerTop}>
-                  <Text style={styles.headerTitle}>Inspection Checklist</Text>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.headerTitle}>Inspection Checklist</Text>
+                    {checklistName ? (
+                      <Text style={styles.headerSubtitle} numberOfLines={2}>
+                        {checklistName}
+                      </Text>
+                    ) : null}
+                  </View>
                   <TouchableOpacity onPress={close} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                     <MaterialIcons name="close" size={24} color={COLORS.textSecondary} />
                   </TouchableOpacity>
@@ -431,7 +586,10 @@ const ChecklistModal: React.FC = () => {
                             onPress={() => toggleExpanded(item.id)}
                             activeOpacity={0.7}
                           >
-                            <Text style={styles.accordionHeaderText} numberOfLines={1}>{item.name}</Text>
+                            <Text style={styles.accordionHeaderText} numberOfLines={1}>
+                              {item.name}
+                              {item.required ? <Text style={styles.requiredMark}> *</Text> : null}
+                            </Text>
                             <MaterialIcons
                               name={expanded ? 'expand-less' : 'expand-more'}
                               size={24}
@@ -441,63 +599,98 @@ const ChecklistModal: React.FC = () => {
                           {expanded ? (
                             <View style={styles.accordionBody}>
                               {item.itemType === 'boolean' && (
-                                <View style={styles.itemActions}>
-                                  <TouchableOpacity
-                                    style={[styles.statusBtn, item.status === 'pass' && styles.statusBtnPass]}
-                                    onPress={() => setItemStatus(item.id, 'pass')}
-                                  >
-                                    <Text style={[styles.statusBtnText, item.status === 'pass' && styles.statusBtnTextActive]}>Pass</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={[styles.statusBtn, item.status === 'fail' && styles.statusBtnFail]}
-                                    onPress={() => setItemStatus(item.id, 'fail')}
-                                  >
-                                    <Text style={[styles.statusBtnText, item.status === 'fail' && styles.statusBtnTextActive]}>Fail</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={[styles.statusBtn, item.status === 'na' && styles.statusBtnNa]}
-                                    onPress={() => setItemStatus(item.id, 'na')}
-                                  >
-                                    <Text style={[styles.statusBtnText, item.status === 'na' && styles.statusBtnTextActive]}>N/A</Text>
-                                  </TouchableOpacity>
-                                </View>
+                                <>
+                                  <View style={styles.itemActions}>
+                                    <TouchableOpacity
+                                      style={[styles.statusBtn, item.status === 'pass' && styles.statusBtnPass]}
+                                      onPress={() => setItemStatus(item.id, 'pass')}
+                                    >
+                                      <Text style={[styles.statusBtnText, item.status === 'pass' && styles.statusBtnTextActive]}>Pass</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                      style={[styles.statusBtn, item.status === 'fail' && styles.statusBtnFail]}
+                                      onPress={() => setItemStatus(item.id, 'fail')}
+                                    >
+                                      <Text style={[styles.statusBtnText, item.status === 'fail' && styles.statusBtnTextActive]}>Fail</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                      style={[styles.statusBtn, item.status === 'na' && styles.statusBtnNa]}
+                                      onPress={() => setItemStatus(item.id, 'na')}
+                                    >
+                                      <Text style={[styles.statusBtnText, item.status === 'na' && styles.statusBtnTextActive]}>N/A</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                  {fieldErrors[item.id] ? (
+                                    <Text style={styles.fieldErrorText}>{fieldErrors[item.id]}</Text>
+                                  ) : null}
+                                </>
                               )}
                               {item.itemType === 'number' && (
-                                <TextInput
-                                  style={styles.input}
-                                  value={item.value}
-                                  onChangeText={(v) => setItemValue(item.id, v)}
-                                  placeholder="0"
-                                  placeholderTextColor={COLORS.textMuted}
-                                  keyboardType="number-pad"
-                                />
+                                <>
+                                  <TextInput
+                                    style={[styles.input, fieldErrors[item.id] ? styles.inputError : null]}
+                                    value={item.value}
+                                    onChangeText={(v) => setItemValue(item.id, v)}
+                                    placeholder="0"
+                                    placeholderTextColor={COLORS.textMuted}
+                                    keyboardType="number-pad"
+                                  />
+                                  {fieldErrors[item.id] ? (
+                                    <Text style={styles.fieldErrorText}>{fieldErrors[item.id]}</Text>
+                                  ) : null}
+                                </>
                               )}
                               {item.itemType === 'date' && (
-                                <TextInput
-                                  style={styles.input}
-                                  value={item.value}
-                                  onChangeText={(v) => setItemValue(item.id, v)}
-                                  placeholder="YYYY-MM-DD"
-                                  placeholderTextColor={COLORS.textMuted}
-                                />
+                                <>
+                                  <TextInput
+                                    style={[styles.input, fieldErrors[item.id] ? styles.inputError : null]}
+                                    value={item.value}
+                                    onChangeText={(v) => setItemValue(item.id, v)}
+                                    placeholder="YYYY-MM-DD"
+                                    placeholderTextColor={COLORS.textMuted}
+                                  />
+                                  {fieldErrors[item.id] ? (
+                                    <Text style={styles.fieldErrorText}>{fieldErrors[item.id]}</Text>
+                                  ) : null}
+                                </>
+                              )}
+                              {item.itemType === 'time' && (
+                                <>
+                                  <TextInput
+                                    style={[styles.input, fieldErrors[item.id] ? styles.inputError : null]}
+                                    value={item.value}
+                                    onChangeText={(v) => setItemValue(item.id, v)}
+                                    placeholder="hh:mm AM/PM"
+                                    placeholderTextColor={COLORS.textMuted}
+                                  />
+                                  {fieldErrors[item.id] ? (
+                                    <Text style={styles.fieldErrorText}>{fieldErrors[item.id]}</Text>
+                                  ) : null}
+                                </>
                               )}
                               {item.itemType === 'string' && (
-                                <TextInput
-                                  style={styles.input}
-                                  value={item.value}
-                                  onChangeText={(v) => setItemValue(item.id, v)}
-                                  placeholder={`Enter ${item.name.toLowerCase()}`}
-                                  placeholderTextColor={COLORS.textMuted}
-                                />
+                                <>
+                                  <TextInput
+                                    style={[styles.input, fieldErrors[item.id] ? styles.inputError : null]}
+                                    value={item.value}
+                                    onChangeText={(v) => setItemValue(item.id, v)}
+                                    placeholder={`Enter ${item.name.toLowerCase()}`}
+                                    placeholderTextColor={COLORS.textMuted}
+                                  />
+                                  {fieldErrors[item.id] ? (
+                                    <Text style={styles.fieldErrorText}>{fieldErrors[item.id]}</Text>
+                                  ) : null}
+                                </>
                               )}
                               {item.itemType === 'image' && (
                                 <>
-                                  <TouchableOpacity style={styles.imageButton} onPress={() => pickImage(item.id)}>
-                                    <MaterialIcons name="add-a-photo" size={24} color={COLORS.textSecondary} />
-                                    <Text style={styles.imageButtonText}>{item.imageUri ? 'Change photo' : 'Add photo'}</Text>
-                                  </TouchableOpacity>
-                                  {item.imageUri ? (
-                                    <Image source={{ uri: item.imageUri }} style={styles.imageThumbnail} resizeMode="cover" />
+                                  <ChecklistVehicleDamageDiagram
+                                    itemUnit={item.itemUnit}
+                                    value={item.value}
+                                    onChangeValue={(serialized) => setItemValue(item.id, serialized)}
+                                  />
+                                  {fieldErrors[item.id] ? (
+                                    <Text style={styles.fieldErrorText}>{fieldErrors[item.id]}</Text>
                                   ) : null}
                                 </>
                               )}
@@ -583,7 +776,7 @@ const styles = StyleSheet.create({
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 20,
     marginBottom: 8,
   },
@@ -591,6 +784,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: COLORS.textPrimary,
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.textMuted,
+    marginTop: 4,
   },
   tabs: {
     flexDirection: 'row',
@@ -647,6 +846,10 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
+  requiredMark: {
+    color: '#f87171',
+    fontWeight: '700',
+  },
   accordionBody: {
     paddingHorizontal: 20,
     paddingVertical: 12,
@@ -694,26 +897,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.textPrimary,
   },
-  imageButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 8,
+  inputError: {
+    borderColor: 'rgba(248, 113, 113, 0.85)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
   },
-  imageButtonText: {
-    fontSize: 15,
-    color: COLORS.textSecondary,
-  },
-  imageThumbnail: {
-    width: '100%',
-    height: 160,
-    borderRadius: 8,
+  fieldErrorText: {
     marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#f87171',
+    fontWeight: '500',
   },
   statusBar: {
     paddingHorizontal: 16,

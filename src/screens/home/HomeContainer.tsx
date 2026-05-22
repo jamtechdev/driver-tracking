@@ -19,7 +19,7 @@ const HomeContainer: React.FC<HomeContainerProps> = ({ navigation }) => {
       onTabChange={setCurrentTab}
     >
       <TabHeader />
-      <View style={styles.container}>
+      <View style={styles.container} testID="home-container">
         {currentTab === 'home' ? (
           <HomeScreen navigation={navigation} />
         ) : (

@@ -12,7 +12,18 @@
     "start": "react-native start",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
     "test:coverage": "jest --coverage",
+    "test:coverage:ci": "jest --coverage --ci --maxWorkers=2 --coverageReporters=text-summary --coverageReporters=lcov",
+    "e2e:build:ios": "detox build --configuration ios.sim.debug",
+    "e2e:test:ios": "detox test --configuration ios.sim.debug",
+    "e2e:build:android": "detox build --configuration android.emu.debug",
+    "e2e:test:android": "detox test --configuration android.emu.debug",
+    "e2e:build:android:attached": "detox build --configuration android.att.debug",
+    "e2e:test:android:attached": "detox test --configuration android.att.debug",
+    "test:e2e:appium:android": "node ./e2e/appium/run-sample.mjs android",
+    "test:e2e:appium:ios": "node ./e2e/appium/run-sample.mjs ios",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
@@ -26,6 +37,7 @@
     "build:ios:release": "cd ios && xcodebuild -workspace DriverTracking.xcworkspace -scheme DriverTracking -configuration Release -sdk iphoneos -archivePath build/DriverTracking.xcarchive archive && cd .."
   },
   "dependencies": {
+    "@reduxjs/toolkit": "^2.5.0",
     "@notifee/react-native": "^9.1.8",
     "@react-native-async-storage/async-storage": "^1.21.0",
     "@react-native-community/geolocation": "^3.4.0",
@@ -34,8 +46,10 @@
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/native-stack": "^6.9.17",
     "axios": "^1.13.4",
+    "date-fns": "^4.1.0",
     "react": "19.2.0",
     "react-native": "0.83.1",
+    "react-redux": "^9.2.0",
     "react-native-background-actions": "^4.0.1",
     "react-native-brightness-control": "^1.0.5",
     "react-native-device-battery": "^2.1.0",
@@ -82,7 +96,8 @@
     "postinstall-postinstall": "^2.1.0",
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "webdriverio": "^9.4.0"
   },
   "engines": {
     "node": ">=20"

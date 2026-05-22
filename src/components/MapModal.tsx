@@ -14,12 +14,17 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import Svg, { Path } from 'react-native-svg';
 import { COLORS } from '../theme/colors';
 import { useMapModal } from '../context/MapModalContext';
 import { useMapLocation } from '../context/MapLocationContext';
+import { useDriverModel } from '../context/DriverModelContext';
+import { useEmergency } from '../context/EmergencyContext';
 import { MAPS_CONFIG } from '../config/maps.config';
 import { useDriverData } from '../context/DriverDataContext';
+import { useMapAssignment } from '../hooks/useMapAssignment';
+import { TRANSPARENT_MAP_MARKER } from '../config/mapMarkers';
+import DirectionalArrow from './DirectionalArrow';
+import { getTabletMarkerBlinkMode, isEmergencyAlertActive } from '../utils/helpers';
 
 let MapView: any = null;
 let Marker: any = null;
@@ -32,8 +37,28 @@ try {
 const MapModal: React.FC = () => {
   const { visible, close } = useMapModal();
   const { location, heading, error } = useMapLocation();
-  const { agency } = useDriverData();
+  const { lastLocation, serverAlert } = useDriverModel();
+  const { emergencyActivated } = useEmergency();
+  const { agency, routes } = useDriverData();
+  const { effectiveRouteId, hasMapAssignment } = useMapAssignment();
   const [mapReady, setMapReady] = React.useState(false);
+  const [arrowBlink, setArrowBlink] = React.useState<0 | 1>(0);
+
+  const tabletHeading = lastLocation?.heading ?? heading ?? 0;
+  const tabletAlertActive = isEmergencyAlertActive(serverAlert) || emergencyActivated;
+  const tabletBlinkMode = getTabletMarkerBlinkMode(hasMapAssignment, tabletAlertActive);
+
+  const tabletRouteColor = React.useMemo(() => {
+    const route = routes.find(r => String(r.routeID) === String(effectiveRouteId));
+    return route?.color ? `#${route.color}` : COLORS.background;
+  }, [routes, effectiveRouteId]);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setArrowBlink(p => (p === 0 ? 1 : 0));
+    }, 600);
+    return () => clearInterval(timer);
+  }, []);
 
   const initialRegion = React.useMemo(() => {
     if (location) {
@@ -95,25 +120,23 @@ const MapModal: React.FC = () => {
                 >
                   {location && (
                     <Marker
+                      key={`tablet-marker-${location.latitude.toFixed(5)}-${location.longitude.toFixed(5)}-${Math.round(tabletHeading)}-${tabletBlinkMode === 'none' ? 0 : arrowBlink}`}
+                      image={TRANSPARENT_MAP_MARKER}
                       coordinate={{
                         latitude: location.latitude,
                         longitude: location.longitude,
                       }}
                       anchor={{ x: 0.5, y: 0.5 }}
-                      rotation={heading}
                       flat
+                      tracksViewChanges={false}
                     >
-                      <View style={styles.markerContainer}>
-                        <Svg width={30} height={30} viewBox="0 0 24 24" fill="none">
-                          <Path
-                            d="M12 2L19 21L12 17L5 21L12 2Z"
-                            fill={COLORS.background}
-                            stroke="white"
-                            strokeWidth="2"
-                            strokeLinejoin="round"
-                          />
-                        </Svg>
-                      </View>
+                      <DirectionalArrow
+                        heading={tabletHeading}
+                        color={hasMapAssignment ? tabletRouteColor : COLORS.background}
+                        blinkMode={tabletBlinkMode}
+                        blinkPhase={tabletBlinkMode === 'none' ? undefined : arrowBlink}
+                        size={30}
+                      />
                     </Marker>
                   )}
                 </MapView>

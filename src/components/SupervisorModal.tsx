@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -11,50 +11,36 @@ import {
     ScrollView,
     Alert,
     ActivityIndicator,
-    Animated,
 } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
-import Svg, { Path } from 'react-native-svg';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import DirectionalArrow from '@/components/DirectionalArrow';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS } from '../theme/colors';
 import { useDriverData } from '@/context/DriverDataContext';
 import { useAuth } from '@/context/AuthContext';
+import { useMapLocation } from '@/context/MapLocationContext';
+import { useDriverModel } from '@/context/DriverModelContext';
+import { useEmergency } from '@/context/EmergencyContext';
+import { useMapAssignment } from '@/hooks/useMapAssignment';
 import { useReportIncidentModal } from '@/context/ReportIncidentModalContext';
 import { assignVehicle, getAllVehicles } from '@/api/vehicle.api';
+import { TRANSPARENT_MAP_MARKER } from '@/config/mapMarkers';
+import {
+    createVehicleHeadingResolver,
+    getVehicleRouteColor,
+    isAssignedRouteId,
+    isVehicleLocationFresh,
+    parseRoutePoints,
+    parseVehicleCourse,
+    parseVehicleLatLng,
+    shouldAnimateVehicleArrow,
+    isVehicleEmergencyAlertActive,
+    getTabletMarkerBlinkMode,
+    isEmergencyAlertActive,
+} from '@/utils/helpers';
 import { useIncomingMessages } from '@/context/IncomingMessagesContext';
 import Toast from 'react-native-toast-message';
-
-const DirectionalArrow = ({ color }: { color: string }) => {
-    const heartbeat = useRef(new Animated.Value(1)).current;
-
-    // useEffect(() => {
-    //     Animated.loop(
-    //         Animated.sequence([
-    //             Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
-    //             Animated.timing(heartbeat, { toValue: 0.15, duration: 400, useNativeDriver: true }),
-    //             Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
-    //             Animated.timing(heartbeat, { toValue: 0.15, duration: 400, useNativeDriver: true }),
-    //             Animated.timing(heartbeat, { toValue: 1, duration: 100, useNativeDriver: true }),
-    //             Animated.delay(700),
-    //         ])
-    //     ).start();
-    // }, [heartbeat]);
-
-    return (
-        <Animated.View style={{ width: 50, height: 50, alignItems: 'center', justifyContent: 'center', opacity: heartbeat }}>
-            <Svg width={60} height={60} viewBox="0 0 24 24" fill="none">
-                <Path
-                    d="M12 2L19 21L12 17L5 21L12 2Z"
-                    fill={color}
-                    stroke="white"
-                    strokeWidth="1"
-                    strokeLinejoin="round"
-                />
-            </Svg>
-        </Animated.View>
-    );
-};
 
 const ITEM_HEIGHT = 44;
 const VISIBLE_ITEMS = 3;
@@ -138,42 +124,30 @@ interface SupervisorModalProps {
 const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) => {
     const { agency, vehicles, routes, drivers, stops } = useDriverData();
     // console.log("agency", agency);
-    const { logout } = useAuth();
+    const { logout, driver } = useAuth();
+    const { location, heading } = useMapLocation();
+    const { lastLocation, serverAlert } = useDriverModel();
+    const { emergencyActivated } = useEmergency();
+    const { effectiveRouteId, hasMapAssignment } = useMapAssignment();
     const { open: openReportIncidentModal } = useReportIncidentModal();
+
+    const tabletHeading = lastLocation?.heading ?? heading ?? 0;
+    const tabletAlertActive = isEmergencyAlertActive(serverAlert) || emergencyActivated;
+    const tabletBlinkMode = getTabletMarkerBlinkMode(hasMapAssignment, tabletAlertActive);
+    const tabletRouteColor = useMemo(() => {
+        const route = routes.find(r => String(r.routeID) === String(effectiveRouteId));
+        return route?.color ? `#${route.color}` : COLORS.background;
+    }, [routes, effectiveRouteId]);
 
     const onlyDrivers = drivers.filter(driver => driver.supervisor !== '1');
     const [polledVehicles, setPolledVehicles] = useState<any[]>([]);
+    const resolveVehicleHeading = useRef(createVehicleHeadingResolver()).current;
     const [isAssigning, setIsAssigning] = useState(false);
     const [selectedVehicleForAssign, setSelectedVehicleForAssign] = useState<any>(null);
     const [viewMode, setViewMode] = useState<'list' | 'assign'>('list');
     const [showIncomingMessages, setShowIncomingMessages] = useState(false);
-    const [routeStops, setRouteStop] = useState<any[]>([]);
-    const [routeColor, setRouteColor] = useState<string>('');
-    const [selectedRoutePoints, setSelectedRoutePoints] = useState<{ latitude: number, longitude: number }[]>([]);
+    const [arrowBlink, setArrowBlink] = useState<0 | 1>(0);
     const mapRef = useRef<MapView>(null);
-
-    const parseRoutePoints = (pointsStr: any): { latitude: number, longitude: number }[] => {
-        if (!pointsStr || typeof pointsStr !== 'string') return [];
-        try {
-            // Robust parsing: find all floating point numbers
-            const coords = pointsStr.match(/-?\d+\.\d+/g);
-            if (!coords || coords.length < 2) return [];
-
-            const result = [];
-            for (let i = 0; i < coords.length; i += 2) {
-                if (coords[i + 1]) {
-                    result.push({
-                        latitude: parseFloat(coords[i]),
-                        longitude: parseFloat(coords[i + 1]),
-                    });
-                }
-            }
-            return result;
-        } catch (e) {
-            console.error('Error parsing points string:', e);
-            return [];
-        }
-    };
 
     // Assignment States
     const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
@@ -190,24 +164,96 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
         ...routes
     ], [routes]);
 
-    // Effect to update points when route selection changes in assign mode
-    useEffect(() => {
-        if (viewMode === 'assign' && routesWithOOS[selectedRouteIndex]) {
-            const route = routesWithOOS[selectedRouteIndex];
-            const parsed = parseRoutePoints(route.points);
-            setRouteColor(String(route.color));
-            setSelectedRoutePoints(parsed);
+    const routeColorMap = useMemo(() => {
+        const map: Record<string, string> = {};
+        routes.forEach(r => {
+            map[String(r.routeID)] = r.color ? `#${r.color}` : COLORS.primary;
+        });
+        return map;
+    }, [routes]);
 
-            if (parsed.length > 0 && mapRef.current) {
-                mapRef.current.fitToCoordinates(parsed, {
-                    edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-                    animated: true,
-                });
-            }
-        } else if (viewMode === 'list') {
-            setSelectedRoutePoints([]);
+    const getRouteStops = useCallback((route: Record<string, unknown> | null | undefined) => {
+        const rStops = route?.routeStops;
+        if (!rStops || !Array.isArray(rStops) || stops.length === 0) return [];
+        return stops.filter(stop =>
+            rStops.some((id: unknown) => String(id) === String(stop.stopID)),
+        );
+    }, [stops]);
+
+    /** All valid routes with parsed polyline points (shown by default). */
+    const allRoutesWithPoints = useMemo(
+        () =>
+            routes
+                .filter(r => isAssignedRouteId(r.routeID) && r.points)
+                .map(r => ({
+                    routeID: String(r.routeID),
+                    color: r.color ? `#${r.color}` : COLORS.primary,
+                    points: parseRoutePoints(r.points as string),
+                }))
+                .filter(r => r.points.length > 0),
+        [routes],
+    );
+
+    /** Route focused after table selection or assign picker (zoom target). */
+    const focusedRouteId = useMemo(() => {
+        if (viewMode === 'assign' && routesWithOOS[selectedRouteIndex]) {
+            const id = routesWithOOS[selectedRouteIndex].routeID;
+            return isAssignedRouteId(id) ? String(id) : null;
         }
-    }, [selectedRouteIndex, viewMode, routesWithOOS]);
+        if (selectedVehicleForAssign && isAssignedRouteId(selectedVehicleForAssign.routeID)) {
+            return String(selectedVehicleForAssign.routeID);
+        }
+        return null;
+    }, [viewMode, selectedRouteIndex, routesWithOOS, selectedVehicleForAssign]);
+
+    const focusedRoutePoints = useMemo(() => {
+        if (!focusedRouteId) return [];
+        return allRoutesWithPoints.find(r => r.routeID === focusedRouteId)?.points ?? [];
+    }, [focusedRouteId, allRoutesWithPoints]);
+
+    const focusedRouteStops = useMemo(() => {
+        if (!focusedRouteId) return [];
+        const route = routes.find(r => String(r.routeID) === focusedRouteId);
+        return getRouteStops(route as Record<string, unknown> | undefined);
+    }, [focusedRouteId, routes, getRouteStops]);
+
+    const focusedRouteColor = useMemo(() => {
+        if (!focusedRouteId) return COLORS.primary;
+        if (selectedVehicleForAssign && String(selectedVehicleForAssign.routeID) === focusedRouteId) {
+            const fromVehicle = getVehicleRouteColor(selectedVehicleForAssign, routeColorMap);
+            if (fromVehicle) return fromVehicle;
+        }
+        return routeColorMap[focusedRouteId] ?? COLORS.primary;
+    }, [focusedRouteId, selectedVehicleForAssign, routeColorMap]);
+
+    const freshVehicles = useMemo(
+        () => polledVehicles.filter(isVehicleLocationFresh),
+        [polledVehicles],
+    );
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setArrowBlink(p => (p === 0 ? 1 : 0));
+        }, 600);
+        return () => clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
+        if (!visible || !mapRef.current) return;
+        const zoomCoords =
+            focusedRoutePoints.length > 0
+                ? focusedRoutePoints
+                : allRoutesWithPoints.flatMap(r => r.points);
+        if (zoomCoords.length === 0) return;
+
+        const t = setTimeout(() => {
+            mapRef.current?.fitToCoordinates(zoomCoords, {
+                edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+                animated: true,
+            });
+        }, focusedRouteId ? 300 : 600);
+        return () => clearTimeout(t);
+    }, [visible, focusedRouteId, focusedRoutePoints, allRoutesWithPoints, selectedVehicleForAssign?.vehicleID, selectedRouteIndex]);
 
     const hours = useMemo(() => Array.from({ length: 12 }, (_, i) => i + 1), []);
     const minutes = useMemo(() => Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0')), []);
@@ -220,7 +266,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
             const data = await getAllVehicles();
 
             if (data && data.length > 0) {
-                setPolledVehicles(data);
+                setPolledVehicles([...data]);
             }
         };
 
@@ -237,42 +283,14 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
     const handleVehiclePress = (item: any) => {
         if (item.vehicleNumber === '-') return;
         setSelectedVehicleForAssign(item);
-        const selectedRoute = routes.find(route => route.routeID === item.routeID);
 
-
-
-        if (selectedRoute) {
-
-            const filteredStops = stops.filter(stop =>
-                selectedRoute?.routeStops.includes(stop.stopID)
-            );
-            console.log('filteredStops====>>>>', filteredStops);
-            setRouteStop(filteredStops);
-            const parsedPoints = parseRoutePoints(selectedRoute.points);
-            setSelectedRoutePoints(parsedPoints);
-
-            // Set the route index in the picker
-            const rIdx = routesWithOOS.findIndex(r => r.routeID === item.routeID);
-            if (rIdx !== -1) {
-                setSelectedRouteIndex(rIdx);
-            }
-            //  else {
-            //     setSelectedRouteIndex(0); // Default to "Out of Service" if not found
-            // }
-
-            if (parsedPoints.length > 0 && mapRef.current) {
-                setTimeout(() => {
-                    mapRef.current?.fitToCoordinates(parsedPoints, {
-                        edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-                        animated: true,
-                    });
-                }, 500);
-            }
-        } else {
-            setSelectedRoutePoints([]);
+        const rIdx = routesWithOOS.findIndex(r => String(r.routeID) === String(item.routeID));
+        if (rIdx !== -1) {
+            setSelectedRouteIndex(rIdx);
+        } else if (!isAssignedRouteId(item.routeID)) {
+            setSelectedRouteIndex(0);
         }
 
-        console.log('route====>>>>', selectedRoute?.points);
         // Initialize assignment time to now
         const now = new Date();
         const currentHour = now.getHours();
@@ -397,60 +415,93 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                         longitudeDelta: 0.0421,
                                     }}
                                 >
-                                    {selectedRoutePoints.length > 0 && (
-                                        <Polyline
-                                            coordinates={selectedRoutePoints}
-                                            strokeColor={`#${routeColor}` || COLORS.primary}
-                                            strokeWidth={4}
-                                            lineJoin="round"
-                                            lineCap="round"
-                                        />
-                                    )}
-                                    {/* Route stop markers */}
-                                    {routeStops.map((stop) => {
-                                        const lat = typeof stop.lat === 'number' ? stop.lat : parseFloat(stop.lat);
-                                        const lng = typeof stop.lng === 'number' ? stop.lng : parseFloat(stop.lng);
+                                    {allRoutesWithPoints.map(r => {
+                                        const isFocused = focusedRouteId === r.routeID;
+                                        return (
+                                            <Polyline
+                                                key={`route-path-${r.routeID}`}
+                                                coordinates={r.points}
+                                                strokeColor={isFocused ? r.color : r.color + '66'}
+                                                strokeWidth={isFocused ? 5 : 3}
+                                                lineJoin="round"
+                                                lineCap="round"
+                                            />
+                                        );
+                                    })}
+                                    {focusedRouteStops.map((stop) => {
+                                        const lat = typeof stop.lat === 'number' ? stop.lat : parseFloat(String(stop.lat));
+                                        const lng = typeof stop.lng === 'number' ? stop.lng : parseFloat(String(stop.lng));
                                         if (isNaN(lat) || isNaN(lng)) return null;
                                         return (
                                             <Marker
-                                                key={`stop-${stop.stopID}`}
+                                                key={`stop-${focusedRouteId}-${stop.stopID}`}
+                                                image={TRANSPARENT_MAP_MARKER}
                                                 coordinate={{ latitude: lat, longitude: lng }}
                                                 anchor={{ x: 0.5, y: 1 }}
-                                                title={stop.longName || `Stop ${stop.stopID}`}
+                                                tracksViewChanges={false}
+                                                title={String(stop.longName || `Stop ${stop.stopID}`)}
                                                 description={`Stop ID: ${stop.stopID}`}
                                             >
-
-                                                <View style={styles.stopMarker}>
-                                                    {/* <MaterialIcons name="directions-bus" size={14} color="#FFF" /> */}
-                                                </View>
+                                                <View style={[styles.stopMarker, { backgroundColor: focusedRouteColor, borderColor: '#FFF' }]} />
                                             </Marker>
                                         );
                                     })}
-                                    {polledVehicles.map((vehicle) => {
-                                        const lat = parseFloat(vehicle.lat);
-                                        const lng = parseFloat(vehicle.lng);
-                                        if (!isNaN(lat) && !isNaN(lng)) {
-                                            const vehicleRoute = routes.find(r => r.routeID === vehicle.routeID);
-                                            // console.log('vehicleRoute', vehicleRoute);
-                                            const arrowColor = vehicleRoute?.color ? `#${vehicleRoute?.color}` : '#000000';
-                                            // console.log('arrowColor', arrowColor);
+                                    {location && driver && (
+                                        <Marker
+                                            key={`tablet-marker-${location.latitude.toFixed(6)}-${location.longitude.toFixed(6)}-${Math.round(tabletHeading)}-${tabletBlinkMode === 'none' ? 0 : arrowBlink}`}
+                                            image={TRANSPARENT_MAP_MARKER}
+                                            coordinate={{
+                                                latitude: location.latitude,
+                                                longitude: location.longitude,
+                                            }}
+                                            title="You"
+                                            description={`Accuracy: ${Math.round(location.accuracy)} m`}
+                                            anchor={{ x: 0.5, y: 0.5 }}
+                                            flat
+                                            tracksViewChanges={false}
+                                        >
+                                            <DirectionalArrow
+                                                heading={tabletHeading}
+                                                color={hasMapAssignment ? tabletRouteColor : COLORS.background}
+                                                blinkMode={tabletBlinkMode}
+                                                blinkPhase={tabletBlinkMode === 'none' ? undefined : arrowBlink}
+                                            />
+                                        </Marker>
+                                    )}
+                                    {freshVehicles.map((vehicle) => {
+                                        const coord = parseVehicleLatLng(vehicle);
+                                        if (!coord) return null;
 
-                                            return (
-                                                <Marker
-                                                    key={vehicle.vehicleID}
-                                                    coordinate={{ latitude: lat, longitude: lng }}
-                                                    anchor={{ x: 0.5, y: 0.5 }}
-                                                    rotation={parseFloat(vehicle.bearing || vehicle.heading) || 0}
-                                                    flat
-                                                    tracksViewChanges={true}
-                                                    pinColor={arrowColor}
-                                                    description={vehicle.vehicleID}
-                                                >
-                                                    <DirectionalArrow color={arrowColor} />
-                                                </Marker>
-                                            );
-                                        }
-                                        return null;
+                                        const course = parseVehicleCourse(vehicle);
+                                        const bear = resolveVehicleHeading(String(vehicle.vehicleID), coord, course);
+                                        const vehicleAnimates = shouldAnimateVehicleArrow(vehicle, routeColorMap);
+                                        const arrowColor = getVehicleRouteColor(vehicle, routeColorMap) ?? COLORS.background;
+                                        const roundedBear = Math.round(bear);
+                                        const vehicleAlertBlink = isVehicleEmergencyAlertActive(vehicle);
+                                        const markerBlinks = vehicleAlertBlink || vehicleAnimates;
+                                        const markerKey = `vehicle-${vehicle.vehicleID}-${coord.lat.toFixed(6)}-${coord.lng.toFixed(6)}-${roundedBear}${markerBlinks ? `-${arrowBlink}` : ''}`;
+
+                                        return (
+                                            <Marker
+                                                key={markerKey}
+                                                image={TRANSPARENT_MAP_MARKER}
+                                                coordinate={{ latitude: coord.lat, longitude: coord.lng }}
+                                                title={String(vehicle.vehicleName || vehicle.vehicleNumber || `Vehicle ${vehicle.vehicleID}`)}
+                                                description={`Route: ${vehicle.routeShortName || vehicle.routeID || '—'}`}
+                                                anchor={{ x: 0.5, y: 0.5 }}
+                                                flat
+                                                tracksViewChanges={false}
+                                            >
+                                                <DirectionalArrow
+                                                    heading={bear}
+                                                    color={arrowColor}
+                                                    blinkMode={vehicleAlertBlink ? 'alert' : undefined}
+                                                    unassigned={vehicleAlertBlink ? false : vehicleAnimates}
+                                                    blinkPhase={markerBlinks ? arrowBlink : undefined}
+                                                    size={40}
+                                                />
+                                            </Marker>
+                                        );
                                     })}
                                 </MapView>
                             </View>
@@ -535,13 +586,9 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                         <View style={styles.formHeader}>
                                             <Text style={styles.formTitle}>{selectedVehicleForAssign?.vehicleName || selectedVehicleForAssign?.vehicleID}</Text>
                                             <TouchableOpacity onPress={() => {
-                                                setSelectedRoutePoints([])
-                                                setRouteStop([])
-                                                // setSelectedVehicleForAssign(null)
-                                                setSelectedRouteIndex(0)
-                                                // setSelectedDriverIndex(0)
-                                                setViewMode('list')
-
+                                                setSelectedVehicleForAssign(null);
+                                                setSelectedRouteIndex(0);
+                                                setViewMode('list');
                                             }} style={styles.formCancelBtn}>
                                                 <Text style={styles.formCancelText}>Cancel</Text>
                                             </TouchableOpacity>

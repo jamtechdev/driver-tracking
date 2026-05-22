@@ -24,7 +24,7 @@ interface AppConstants {
 const constants: AppConstants = {
   APP_ID: 'DR',
   APP_KEY: '005b0274ca5e97ceb3d804077113792c',
-  AGENCY_ID: '121'
+  AGENCY_ID: '29'
 };
 
 /** Base URL for Peak Transit APIs (no query string). Append &controller=...&action=...&params */
@@ -48,7 +48,7 @@ export const DRIVER_DATA_API_URL =
 export const INCOMING_MESSAGES_BASE_URL =
   `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=driver&action=getMessages`;
 
-/** Base URL for get checklist. Append &vehicleID=...&agencyID=... */
+/** Base URL for get checklist. Append &vehicleID=...&agencyID=... — confirm app_id/key/agencyID with backend. */
 export const CHECKLIST_GET_BASE_URL =
   `https://api.peaktransit.com/v5/index.php/?app_id=${constants.APP_ID}&key=${constants.APP_KEY}&controller=driver&action=getchecklist`;
 

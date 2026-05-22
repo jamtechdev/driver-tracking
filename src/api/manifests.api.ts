@@ -141,24 +141,25 @@ export async function assignBlockManifest(
 //   return json.success && Array.isArray(json.manifestAssignments) ? json.manifestAssignments : [];
 // }
 
-export async function getManifestAssignmentsByVehicle(
-  vehicleID: string,
-  date?: string
+/** All manifest assignments for a given date. */
+export async function getManifestAssignmentsForToday(
+  date?: string,
 ): Promise<ManifestAssignment[]> {
   const d = date ?? todayDateString();
-
-  // Fetch all assignments for the date (without vehicleID)
   const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=list&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&startDate=${d}&endDate=${d}`;
-  // console.log('URL ------->>>', url);
   const res = await fetch(url);
   const json: ManifestAssignmentsResponse = await res.json();
-
-  // Filter assignments locally for the given vehicleID
-  const allAssignments = json.success && Array.isArray(json.manifestAssignments)
+  return json.success && Array.isArray(json.manifestAssignments)
     ? json.manifestAssignments
     : [];
-  // console.log('All Manifest Assignments for Today ------->>>', allAssignments);
-  return allAssignments.filter(a => String(a.vehicleID) == String(vehicleID));
+}
+
+export async function getManifestAssignmentsByVehicle(
+  vehicleID: string,
+  date?: string,
+): Promise<ManifestAssignment[]> {
+  const allAssignments = await getManifestAssignmentsForToday(date);
+  return allAssignments.filter(a => String(a.vehicleID) === String(vehicleID));
 }
 
 /** Delete a manifest assignment */

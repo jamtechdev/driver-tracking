@@ -12,6 +12,7 @@ import React, {
   useRef,
   useCallback,
   useEffect,
+  useMemo,
 } from 'react';
 import { Platform, AppState, AppStateStatus, PermissionsAndroid } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -27,6 +28,7 @@ import DeviceInfo from 'react-native-device-info';
 import NetInfo from '@react-native-community/netinfo';
 import { getRouteSchedule } from '@/api/schedule.api';
 import { calculateDistance } from '@/utils/helpers';
+import { parseVehicleUpdateMinsLate, shouldApplyMinsLateUpdate } from '@/utils/gaugeImage';
 import { notificationService } from '@/services/notification.service';
 import BackgroundService from 'react-native-background-actions';
 import { backgroundTrackingService } from '@/services/background-tracking.service';
@@ -330,6 +332,13 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return true;
   }, [trackingMode, lastLocation, isAcquiringSat, vehicleId]);
 
+  const applyMinsLateFromResponse = useCallback((resp: unknown) => {
+    const parsed = parseVehicleUpdateMinsLate(resp);
+    if (!shouldApplyMinsLateUpdate(minsLateRef.current, parsed)) return;
+    minsLateRef.current = parsed;
+    setMinsLate(parsed);
+  }, []);
+
   // Send vehicle update (throttled 5s). Pass position from callback to use latest fix.
   const trySendVehicleUpdate = useCallback(async (position?: LastLocation | null) => {
     const loc = position ?? lastLocation;
@@ -359,9 +368,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       console.log('[DriverModel] vehicle update params--==--===>>>>', params);
       const resp: any = await vehicleUpdate(params);
       console.log('[DriverModel] vehicle update response--==--===>>>>', resp);
-      if (resp && typeof resp.minsLate !== 'undefined') {
-        setMinsLate(Number(resp.minsLate));
-      }
+      applyMinsLateFromResponse(resp);
       if (resp && typeof resp.alert !== 'undefined') {
         setServerAlert(Number(resp.alert));
       }
@@ -393,6 +400,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     agencyID,
     batteryLevel,
     batteryState,
+    applyMinsLateFromResponse,
   ]);
 
   trySendVehicleUpdateRef.current = trySendVehicleUpdate;
@@ -647,9 +655,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
             vehicleUpdate(bgParams)
               .then((resp: any) => {
                 lastVehicleSendRef.current = now;
-                if (resp && typeof resp.minsLate !== 'undefined') {
-                  minsLateRef.current = Number(resp.minsLate);
-                }
+                applyMinsLateFromResponse(resp);
               })
               .catch(() => { });
           }
@@ -744,22 +750,40 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     onLocationXmitRef.current = cb;
   }, []);
 
-  const value: DriverModelContextType = {
-    lastLocation,
-    isAcquiringSat,
-    trackingMode,
-    setTrackingMode,
-    lastVehicleSendTime,
-    locationError,
-    batteryLevel,
-    batteryState,
-    setOnLocationXmit,
-    serverAlert,
-    minsLate: minsLate,
-    schedule,
-    nextStop,
-    linkAverages,
-  };
+  const value = useMemo<DriverModelContextType>(
+    () => ({
+      lastLocation,
+      isAcquiringSat,
+      trackingMode,
+      setTrackingMode,
+      lastVehicleSendTime,
+      locationError,
+      batteryLevel,
+      batteryState,
+      setOnLocationXmit,
+      serverAlert,
+      minsLate,
+      schedule,
+      nextStop,
+      linkAverages,
+    }),
+    [
+      lastLocation,
+      isAcquiringSat,
+      trackingMode,
+      setTrackingMode,
+      lastVehicleSendTime,
+      locationError,
+      batteryLevel,
+      batteryState,
+      setOnLocationXmit,
+      serverAlert,
+      minsLate,
+      schedule,
+      nextStop,
+      linkAverages,
+    ],
+  );
 
   return (
     <DriverModelContext.Provider value={value}>

@@ -16,7 +16,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
   }, []);
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="splash-screen">
       <Image
         source={require('../assets/app-logo.png')}
         style={[styles.logo, isLandscape ? styles.logoLandscape : styles.logoPortrait]}
