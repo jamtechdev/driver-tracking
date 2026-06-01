@@ -1,11 +1,21 @@
+/**
+ * Background GPS task (react-native-geolocation-service + background-actions).
+ * Sends MDT heartbeat only — vehicle updates stay in DriverModelContext.
+ */
+
 import Geolocation from 'react-native-geolocation-service';
 import BackgroundService from 'react-native-background-actions';
-import { AppState, Platform } from 'react-native';
-import { mdtUpdate, vehicleUpdate, speedMpsToMph, type MdtUpdateParams, type VehicleUpdateParams } from '@/api/position.api';
+import { Platform } from 'react-native';
+import { mdtUpdate, speedMpsToMph, type MdtUpdateParams } from '@/api/position.api';
 import DeviceInfo from 'react-native-device-info';
 import NetInfo from '@react-native-community/netinfo';
 import { deviceService } from './device.service';
-import { PEAK_DEFAULT_PARAMS } from '@/config/env';
+import { notificationService } from './notification.service';
+import { APP_CONSTANTS } from '@/utils/constants';
+import { GEOLOCATION_WATCH_OPTIONS, type GeolocationResponse } from './location.service';
+
+const MDT_INTERVAL_MS = 10000;
+const HORIZ_ACCUR_UPPER_LIMIT = APP_CONSTANTS.LOCATION_ACCURACY_THRESHOLD ?? 50;
 
 export interface BackgroundTrackingData {
   agencyID: string;
@@ -16,15 +26,17 @@ export interface BackgroundTrackingData {
   minsLate: number;
 }
 
+export type BackgroundLocationPayload = GeolocationResponse;
+
 class BackgroundTrackingService {
   private static instance: BackgroundTrackingService;
   private currentData: BackgroundTrackingData | null = null;
   private lastMdtSendTime = 0;
-  private lastVehicleSendTime = 0;
   private watchId: number | null = null;
   private isRunning = false;
+  private onLocationUpdate: ((loc: BackgroundLocationPayload) => void) | null = null;
 
-  private constructor() { }
+  private constructor() {}
 
   public static getInstance(): BackgroundTrackingService {
     if (!BackgroundTrackingService.instance) {
@@ -33,27 +45,45 @@ class BackgroundTrackingService {
     return BackgroundTrackingService.instance;
   }
 
-  /**
-   * Check if the background tracking service is running
-   */
   public isTracking(): boolean {
     return this.isRunning;
   }
 
-  /**
-   * Get the current tracking data
-   */
   public getCurrentData(): BackgroundTrackingData | null {
     return this.currentData;
   }
 
-  /**
-   * Start the background tracking service
-   */
-  public async start(data: BackgroundTrackingData) {
-    if (this.isRunning) return;
-    this.currentData = data;
+  public setLocationUpdateHandler(handler: ((loc: BackgroundLocationPayload) => void) | null): void {
+    this.onLocationUpdate = handler;
+  }
+
+  public updateTrackingData(partial: Partial<BackgroundTrackingData>): void {
+    if (!this.currentData) return;
+    this.currentData = { ...this.currentData, ...partial };
+  }
+
+  public async start(data: BackgroundTrackingData): Promise<boolean> {
+    if (this.isRunning) {
+      this.updateTrackingData(data);
+      return true;
+    }
+
+    if (Platform.OS === 'ios') {
+      try {
+        const auth = await Geolocation.requestAuthorization('always');
+        if (auth !== 'granted' && auth !== 'restricted') {
+          console.warn('[BackgroundTrackingService] iOS location authorization:', auth);
+          return false;
+        }
+      } catch (e) {
+        console.warn('[BackgroundTrackingService] iOS authorization failed:', e);
+        return false;
+      }
+    }
+
+    this.currentData = { ...data };
     this.isRunning = true;
+    this.lastMdtSendTime = 0;
 
     const options = {
       taskName: 'DriverTracking',
@@ -66,23 +96,24 @@ class BackgroundTrackingService {
       color: '#000000',
       linkingURI: 'drivertracking://',
       parameters: {
-        delay: 5000,
+        delay: 1000,
       },
     };
 
     try {
       await BackgroundService.start(this.trackingTask.bind(this), options);
       console.log('[BackgroundTrackingService] Service started');
+      return true;
     } catch (error) {
       console.error('[BackgroundTrackingService] Failed to start:', error);
       this.isRunning = false;
+      this.currentData = null;
+      await notificationService.stopTrackingIndicator().catch(() => {});
+      return false;
     }
   }
 
-  /**
-   * Stop the background tracking service
-   */
-  public async stop() {
+  public async stop(): Promise<void> {
     if (!this.isRunning) return;
 
     if (this.watchId !== null) {
@@ -90,16 +121,21 @@ class BackgroundTrackingService {
       this.watchId = null;
     }
 
-    await BackgroundService.stop();
+    try {
+      await BackgroundService.stop();
+    } catch (e) {
+      console.warn('[BackgroundTrackingService] stop error:', e);
+    }
+
+    await notificationService.stopTrackingIndicator().catch(() => {});
+
     this.isRunning = false;
+    this.currentData = null;
     console.log('[BackgroundTrackingService] Service stopped');
   }
 
-  /**
-   * The actual task that runs in the background
-   */
-  private async trackingTask() {
-    return new Promise<void>(async (resolve) => {
+  private async trackingTask(): Promise<void> {
+    await new Promise<void>((resolve) => {
       this.watchId = Geolocation.watchPosition(
         async (position) => {
           await this.handleLocationUpdate(position);
@@ -107,87 +143,44 @@ class BackgroundTrackingService {
         (error) => {
           console.warn('[BackgroundTrackingService] Location error:', error);
         },
-        {
-          enableHighAccuracy: true,
-          distanceFilter: 5,
-          interval: 5000,
-          fastestInterval: 2000,
-          showsBackgroundLocationIndicator: true,
-          forceRequestLocation: true,
-        }
+        GEOLOCATION_WATCH_OPTIONS,
       );
 
-      // Keep the task alive
-      while (BackgroundService.isRunning()) {
-        await new Promise(r => setTimeout(r, 1000));
-      }
-      resolve();
+      const keepAlive = async () => {
+        while (BackgroundService.isRunning()) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        resolve();
+      };
+      keepAlive();
     });
   }
 
-  /**
-   * Handle incoming location updates and decide which APIs to call
-   */
-  private async handleLocationUpdate(position: Geolocation.GeoPosition) {
+  private async handleLocationUpdate(position: Geolocation.GeoPosition): Promise<void> {
     if (!this.currentData) return;
 
-    const now = Date.now();
-    const { latitude, longitude, accuracy, heading, speed } = position.coords;
-
-    // 1. Vehicle Update (Throttled 5s)
-    if (now - this.lastVehicleSendTime >= 5000) {
-      await this.sendVehicleUpdate(position);
-      this.lastVehicleSendTime = now;
+    const { accuracy } = position.coords;
+    if (accuracy > HORIZ_ACCUR_UPPER_LIMIT) {
+      return;
     }
 
-    // 2. MDT Heartbeat (Throttled 10s)
-    if (now - this.lastMdtSendTime >= 10000) {
+    this.onLocationUpdate?.({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy,
+      heading: position.coords.heading ?? undefined,
+      speed: position.coords.speed ?? undefined,
+      altitude: position.coords.altitude ?? undefined,
+    });
+
+    const now = Date.now();
+    if (now - this.lastMdtSendTime >= MDT_INTERVAL_MS - 500) {
       await this.sendMdtUpdate(position);
       this.lastMdtSendTime = now;
     }
   }
 
-  /**
-   * Call the Vehicle Update API
-   */
-  private async sendVehicleUpdate(position: Geolocation.GeoPosition) {
-    if (!this.currentData) return;
-
-    try {
-      const batteryLevel = await deviceService.getBrightness(); // Wait, deviceService has setBrightness/getBrightness but also isCharging
-      // Actually let's use a more direct way if deviceService is for brightness
-      const powerState = await DeviceInfo.getPowerState();
-
-      const params: VehicleUpdateParams = {
-        agencyID: this.currentData.agencyID,
-        vehicleID: this.currentData.vehicleID,
-        routeID: this.currentData.routeID,
-        driverID: this.currentData.driverID,
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-        course: position.coords.heading != null ? Math.round(position.coords.heading) : 0,
-        speed: Math.round(speedMpsToMph(position.coords.speed)),
-        batteryLevel: Math.round((powerState.batteryLevel ?? 1) * 100),
-        batteryState: powerState.batteryState === 'charging' ? 2 : 1,
-        source: 'MDT',
-        d: 1,
-        minsLate: this.currentData.minsLate,
-      };
-
-      console.log('[BackgroundTrackingService] Sending Vehicle Update:', params);
-      const resp: any = await vehicleUpdate(params);
-      if (resp && typeof resp.minsLate !== 'undefined') {
-        this.currentData.minsLate = Number(resp.minsLate);
-      }
-    } catch (error) {
-      console.warn('[BackgroundTrackingService] Vehicle update failed:', error);
-    }
-  }
-
-  /**
-   * Call the MDT Heartbeat Update API
-   */
-  private async sendMdtUpdate(position: Geolocation.GeoPosition) {
+  private async sendMdtUpdate(position: Geolocation.GeoPosition): Promise<void> {
     if (!this.currentData) return;
 
     try {
@@ -214,19 +207,18 @@ class BackgroundTrackingService {
         d: 1,
         screenBrightness: brightness,
         connectionType: netState.type,
-        ssid: (netState.details as any)?.ssid || '',
+        ssid: (netState.details as { ssid?: string })?.ssid || '',
         mdtUUID: this.currentData.mdtUuid,
-        deviceSerial: deviceSerial,
-        deviceName: deviceName,
+        deviceSerial,
+        deviceName,
         appVersion: DeviceInfo.getVersion(),
         updating: false,
         isLocationServiceOn: 1,
         locationAuthStatus: 'always',
       };
 
-      console.log('[BackgroundTrackingService] Sending MDT Update:', params);
-      const resp: any = await mdtUpdate(params);
-      if (resp && resp.vehicleID) {
+      const resp: { vehicleID?: string | number } = await mdtUpdate(params);
+      if (resp?.vehicleID) {
         this.currentData.vehicleID = String(resp.vehicleID);
       }
     } catch (error) {

@@ -86,7 +86,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const isTablet = !isMobile;
   const isPortrait = height > width;
   const isLandscape = width > height;
-  const centerGaugeVertically = isMobile || (isTablet && isPortrait);
   const insets = useSafeAreaInsets();
   // Responsive UI Scaling
   const rs = Math.min(width, height) / 400;
@@ -369,25 +368,20 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           }
         }}
       >
-        <View
-          style={[
-            styles.centerSection,
-            centerGaugeVertically && styles.centerSectionPhone,
-          ]}
-        >
-          <View
-            style={[
-              styles.gaugeSection,
-              centerGaugeVertically && styles.gaugeSectionPhone,
-            ]}
-          >
+        <View style={styles.centerSection}>
+          <View style={styles.gaugeOverlay}>
             <View
               style={[
                 styles.gaugeWrapper,
-                { width: containerSize, height: containerSize, justifyContent: 'center' },
+                { width: containerSize, minHeight: containerSize },
               ]}
             >
-              <Text style={styles.nextStopText}>{nextStopName}</Text>
+              <Text
+                style={[styles.nextStopText, { maxWidth: gaugeImageWidth }]}
+                numberOfLines={2}
+              >
+                {nextStopName}
+              </Text>
               <ScheduleGaugeImage
                 minsLate={minsLate}
                 role={driver?.role}
@@ -536,14 +530,13 @@ const styles = StyleSheet.create({
   },
   centerSection: {
     flex: 1,
-    justifyContent: 'flex-start',
+    position: 'relative',
+  },
+  gaugeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 8,
-  },
-  centerSectionPhone: {
-    justifyContent: 'center',
-    paddingTop: 0,
   },
   timeDisplayCenter: {
     fontSize: 28,
@@ -702,15 +695,9 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
   },
-  gaugeSection: {
-    alignItems: 'center',
-    marginTop: 0,
-  },
-  gaugeSectionPhone: {
-    marginTop: 0,
-  },
   gaugeWrapper: {
     alignItems: 'center',
+    justifyContent: 'center',
   },
   gaugeArc: {
     overflow: 'hidden',
@@ -924,7 +911,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-    marginTop: 10
+    textAlign: 'center',
+    alignSelf: 'center',
+    marginBottom: 8,
   },
 
 

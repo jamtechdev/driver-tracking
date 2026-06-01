@@ -136,4 +136,6 @@ dependencies {
     androidTestImplementation("androidx.test:rules:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // Align with react-native-maps + react-native-geolocation-service (background GPS).
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 }

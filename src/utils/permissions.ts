@@ -61,8 +61,19 @@
 
 
 import { Platform, PermissionsAndroid, Linking, Alert } from 'react-native';
+import Geolocation from 'react-native-geolocation-service';
 
 export const requestLocationPermission = async (): Promise<boolean> => {
+  if (Platform.OS === 'ios') {
+    try {
+      const auth = await Geolocation.requestAuthorization('always');
+      return auth === 'granted' || auth === 'restricted';
+    } catch (err) {
+      console.warn(err);
+      return false;
+    }
+  }
+
   if (Platform.OS !== 'android') return true;
 
   try {
@@ -80,6 +91,14 @@ export const requestLocationPermission = async (): Promise<boolean> => {
     return false;
   }
 };
+
+export async function hasBackgroundLocationPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  if (Platform.Version < 29) {
+    return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+  }
+  return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION);
+}
 
 export const requestBackgroundLocationPermission = async (): Promise<boolean> => {
   if (Platform.OS !== 'android') return true;

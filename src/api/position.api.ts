@@ -235,11 +235,17 @@ export async function vehicles2Alert(params: {
   return resp.data;
 }
 
+export type SelfUpdateDeleteResult = {
+  success: boolean;
+  errorMessage?: string;
+  [key: string]: unknown;
+};
+
 export async function selfUpdateDelete(params: {
   agencyID: string | number;
   vehicleID: string | number;
   driverID: string | number;
-}): Promise<any> {
+}): Promise<SelfUpdateDeleteResult> {
   const url = buildUrl({
     controller: 'vehicleassignments',
     action: 'selfupdatedelete',
@@ -249,6 +255,13 @@ export async function selfUpdateDelete(params: {
     driverID: params.driverID,
   });
   const resp = await axios.get(url, { timeout: TIMEOUT });
-  console.log('Self Update Delete Response:', resp.data);
-  return resp.data;
+  const data = resp.data ?? {};
+  const success = data.success === true || data.success === 'true';
+  return {
+    ...data,
+    success,
+    errorMessage: success
+      ? undefined
+      : String(data.errormsg ?? data.message ?? 'Failed to clear vehicle route assignment'),
+  };
 }

@@ -6,8 +6,11 @@ buildscript {
         targetSdkVersion = 36
         ndkVersion = "29.0.14206865"
         kotlinVersion = "2.1.20"
-        googlePlayServicesLocationVersion = "20.0.0"
-        googlePlayServicesVersion = "20.0.0"
+        // Must be 21+ so SettingsClient/FusedLocation match device GMS (avoids IncompatibleClassChangeError).
+        googlePlayServicesLocationVersion = "21.3.0"
+        googlePlayServicesVersion = "21.3.0"
+        playServicesLocationVersion = "21.3.0"
+        playServicesVersion = "21.3.0"
     }
     repositories {
         google()
@@ -26,6 +29,11 @@ allprojects {
         mavenCentral()
         maven {
             url("$rootDir/../node_modules/detox/Detox-android")
+        }
+    }
+    configurations.all {
+        resolutionStrategy {
+            force "com.google.android.gms:play-services-location:21.3.0"
         }
     }
 }

@@ -54,7 +54,9 @@ export const notificationService = {
     },
 
     /**
-     * Start the background tracking indicator (Foreground Service on Android)
+     * Optional Notifee foreground notification (Android).
+     * Background GPS uses react-native-background-actions' built-in notification instead —
+     * call this only if you are not using BackgroundService.start().
      */
     async startTrackingIndicator(title: string, description: string) {
         try {

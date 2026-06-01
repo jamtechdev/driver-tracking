@@ -16,7 +16,7 @@ export interface DirectionalArrowProps {
   blinkMode?: DirectionalArrowBlinkMode;
   size?: number;
   /**
-   * Driven by parent (e.g. map marker key) so blink works without tracksViewChanges.
+   * Driven by parent map screen (arrowBlink); requires Marker tracksViewChanges when blinking.
    * When omitted and blinking, toggles locally (non-map use).
    */
   blinkPhase?: 0 | 1;

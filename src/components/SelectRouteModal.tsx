@@ -26,13 +26,16 @@ import { BOTTOM_BAR_HEIGHT } from '../utils/constants';
 import { useDriverData } from '@/context/DriverDataContext';
 import {
   getAvailableBlockManifests,
-  assignBlockManifest,
+  getManifestsForToday,
+  assignBlockToVehicle,
   getManifestAssignmentsByVehicle,
   deleteManifestAssignment,
+  releaseVehicleForOutOfService,
   type BlockManifest,
 } from '@/api/manifests.api';
-import { selfUpdateAssignment, selfUpdateDelete } from '@/api/position.api';
+import { selfUpdateAssignment } from '@/api/position.api';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
+import { isAssignedRouteId } from '@/utils/helpers';
 import Toast from 'react-native-toast-message';
 
 const MIN_MODAL_WIDTH = 280;
@@ -59,7 +62,14 @@ interface SelectRouteModalProps {
 type Tab = 'route' | 'block';
 
 const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose }) => {
-  const { driver, selectedRoute, selectedManifestId, setSelectedManifestId, selectRouteOrStatus, vehicleId } = useAuth();
+  const {
+    driver,
+    selectedRoute,
+    selectedManifestId,
+    serviceStatus,
+    selectRouteOrStatus,
+    vehicleId,
+  } = useAuth();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { routes, isLoading: routesLoading, error: routesError, refetch } = useDriverData();
@@ -81,63 +91,149 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
   const [blocksLoading, setBlocksLoading] = useState(false);
   const [blocksError, setBlocksError] = useState<string | null>(null);
   const [assigningID, setAssigningID] = useState<number | null>(null);
-
+  /** Route row key while assigning: 'oos' or routeID string. */
+  const [assigningRouteKey, setAssigningRouteKey] = useState<string | null>(null);
+  /** Block assigned on server when auth selectedManifestId is not set yet. */
+  const [resolvedActiveManifestId, setResolvedActiveManifestId] = useState<number | null>(null);
   const fetchBlocks = useCallback(async () => {
     setBlocksLoading(true);
     setBlocksError(null);
     try {
-      const available = await getAvailableBlockManifests();
-      setBlocks(available);
+      const [available, allManifests] = await Promise.all([
+        getAvailableBlockManifests(),
+        getManifestsForToday(),
+      ]);
+
+      const byId = new Map<number, BlockManifest>();
+      for (const block of available) {
+        byId.set(block.manifestID, block);
+      }
+
+      let activeManifestId = selectedManifestId != null ? Number(selectedManifestId) : null;
+
+      if (activeManifestId == null && vehicleId && vehicleId !== '110') {
+        const assignments = await getManifestAssignmentsByVehicle(vehicleId);
+        const activeAssignment = assignments.find((a) => !a.disabled);
+        if (activeAssignment) {
+          activeManifestId = activeAssignment.manifestID;
+        }
+      }
+      setResolvedActiveManifestId(activeManifestId);
+
+      if (activeManifestId != null && !byId.has(activeManifestId)) {
+        const activeBlock = allManifests.find((m) => m.manifestID === activeManifestId);
+        if (activeBlock) {
+          byId.set(activeBlock.manifestID, activeBlock);
+        }
+      }
+
+      const sorted = [...byId.values()].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+      );
+      setBlocks(sorted);
     } catch (e) {
       setBlocksError(e instanceof Error ? e.message : 'Failed to load blocks');
     } finally {
       setBlocksLoading(false);
     }
-  }, []);
+  }, [selectedManifestId, vehicleId]);
 
-  const handleTabChange = useCallback((tab: Tab) => {
-    setActiveTab(tab);
-    if (tab === 'block' && blocks.length === 0 && !blocksLoading) {
-
-    }
-  }, [blocks.length, blocksLoading]);
+  const handleTabChange = useCallback(
+    (tab: Tab) => {
+      setActiveTab(tab);
+      if (tab === 'block' && !blocksLoading) {
+        fetchBlocks();
+      }
+    },
+    [blocksLoading, fetchBlocks],
+  );
 
   // Reset tab when modal opens
   React.useEffect(() => {
-
+    if (!visible) return;
     setActiveTab('route');
+    setResolvedActiveManifestId(null);
+    setAssigningRouteKey(null);
+    setAssigningID(null);
     fetchBlocks();
     setBlocksError(null);
-
-  }, [visible]);
+  }, [visible, fetchBlocks]);
 
   const handleSelectRoute = async (value: string, routeId?: string | null) => {
     if (value === 'Out of Service') {
-      if (vehicleId && vehicleId !== '110') {
-        selfUpdateDelete({
-          agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
-          vehicleID: vehicleId,
-          driverID: driver?.id || 0,
-        }).catch((e) => console.warn('[SelectRouteModal] Error calling selfUpdateDelete:', e));
+      if (!vehicleId || vehicleId === '110') {
+        selectRouteOrStatus('Out of Service', null, null);
+        onClose();
+        return;
       }
-    }
-    if (vehicleId && vehicleId !== '110') {
+
+      setAssigningRouteKey('oos');
       try {
-        // 1. Unassign any current block manifests for this vehicle
+        const result = await releaseVehicleForOutOfService({
+          vehicleID: vehicleId,
+          driverID: driver?.id == 'unassigned' ? '0' : String(driver?.id),
+        });
+        if (result.success) {
+          selectRouteOrStatus('Out of Service', null, null);
+          onClose();
+          Toast.show({
+            type: 'success',
+            text1: 'Success',
+            text2: 'Vehicle is now Out of Service',
+          });
+        } else {
+          Toast.show({
+            type: 'error',
+            text1: 'Error',
+            text2: result.errorMessage ?? 'Failed to set Out of Service',
+          });
+        }
+      } catch (e) {
+        console.error('[SelectRouteModal] Error setting Out of Service:', e);
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: 'Failed to set Out of Service',
+        });
+      } finally {
+        setAssigningRouteKey(null);
+      }
+      return;
+    }
+
+    const routeKey = routeId != null ? String(routeId) : value;
+    setAssigningRouteKey(routeKey);
+    try {
+      if (vehicleId && vehicleId !== '110') {
         const existing = await getManifestAssignmentsByVehicle(vehicleId);
         for (const assignment of existing) {
           if (!assignment.disabled) {
             await deleteManifestAssignment(assignment.manifestAssignmentID);
           }
         }
-      } catch (e) {
-        console.warn('[SelectRouteModal] Error clearing blocks before route selection:', e);
-      }
-    }
 
-    // 2. Update state to the selected route
-    selectRouteOrStatus(value, routeId, null);
-    onClose();
+        if (routeId != null && isAssignedRouteId(routeId)) {
+          await selfUpdateAssignment({
+            agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+            vehicleID: vehicleId,
+            routeID: routeId,
+            driverID: driver?.id == 'unassigned' ? '0' : String(driver?.id),
+          });
+        }
+      }
+
+      selectRouteOrStatus(value, routeId, null);
+      onClose();
+    } catch (e) {
+      console.error('[SelectRouteModal] Error assigning route:', e);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to assign route',
+      });
+    } finally {
+      setAssigningRouteKey(null);
+    }
   };
 
   const handleSelectBlock = async (block: BlockManifest) => {
@@ -147,31 +243,30 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
     }
 
     if (block.manifestID === -1) {
-      // HANDLE OUT OF SERVICE / UNASSIGN
       setAssigningID(-1);
       try {
-        // 1. Unassign any current block manifests
-        const existing = await getManifestAssignmentsByVehicle(vehicleId);
-        for (const assignment of existing) {
-          if (!assignment.disabled) {
-            await deleteManifestAssignment(assignment.manifestAssignmentID);
-          }
-        }
-
-        // 2. Clear route assignment on server
-        await selfUpdateDelete({
-          agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
+        const result = await releaseVehicleForOutOfService({
           vehicleID: vehicleId,
-          driverID: driver?.id || 0,
-        }).catch((e) => console.warn('[SelectRouteModal] Error calling selfUpdateDelete:', e));
-
-        // 3. Update local state
-        selectRouteOrStatus('Out of Service', null, null);
-        onClose();
-        Toast.show({ type: 'success', text1: 'Success', text2: 'Vehicle is now Out of Service' });
+          driverID: driver?.id == 'unassigned' ? '0' : String(driver?.id),
+        });
+        if (result.success) {
+          selectRouteOrStatus('Out of Service', null, null);
+          onClose();
+          Toast.show({
+            type: 'success',
+            text1: 'Success',
+            text2: 'Vehicle is now Out of Service',
+          });
+        } else {
+          Toast.show({
+            type: 'error',
+            text1: 'Error',
+            text2: result.errorMessage ?? 'Failed to set Out of Service',
+          });
+        }
       } catch (e) {
-        console.error('[SelectRouteModal] Error unassigning block:', e);
-        Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to unassign block' });
+        console.error('[SelectRouteModal] Error setting Out of Service:', e);
+        Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to set Out of Service' });
       } finally {
         setAssigningID(null);
       }
@@ -190,24 +285,24 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
         }
       }
 
-      // 2. Clear route assignment on server (set routeID to 0)
-      // await selfUpdateAssignment({
-      //   agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
-      //   vehicleID: vehicleId,
-      //   routeID: 0,
-      //   driverID: driver?.id || 0,
-      // }).catch((e) => console.warn('[SelectRouteModal] Error clearing route before block assignment:', e));
+      const result = await assignBlockToVehicle({
+        block,
+        vehicleID: vehicleId,
+        driverID: driver?.id == 'unassigned' ? '0' : String(driver?.id),
+      });
 
-      // 3. Assign the new block
-      const ok = await assignBlockManifest(block.manifestID, vehicleId);
-      console.log('Block Assigned Resp====>>>', ok);
-      if (ok) {
-        selectRouteOrStatus(block.name, null, block.manifestID);
+      if (result.success) {
+        selectRouteOrStatus(block.name, result.routeID, block.manifestID);
         onClose();
-        Toast.show({ type: 'success', text1: 'Success', text2: `Block "${block.name}" assigned successfully` });
+        Toast.show({
+          type: 'success',
+          text1: 'Success',
+          text2: `Block "${block.name}" assigned successfully`,
+        });
       } else {
-        setBlocksError('Assignment failed. Please try again.');
-        Toast.show({ type: 'error', text1: 'Error', text2: 'Assignment failed' });
+        const msg = result.errorMessage ?? 'Assignment failed. Please try again.';
+        setBlocksError(msg);
+        Toast.show({ type: 'error', text1: 'Error', text2: msg });
       }
     } catch (e) {
       setBlocksError(e instanceof Error ? e.message : 'Assignment failed');
@@ -261,56 +356,77 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
 
   // ── Render helpers ──────────────────────────────────────────────────────────
 
+  const isAssigningAny = assigningRouteKey !== null || assigningID !== null;
+
   const renderRouteItem = ({ item }: { item: typeof combinedRouteList[number] }) => {
     if (item.type === 'fixed') {
-      // console.log('Selected Route ===>>>', selectedRoute, item);
       const isSelected = selectedRoute === item.label;
+      const isAssigning = assigningRouteKey === 'oos';
       return (
         <TouchableOpacity
           style={[styles.listItem, isSelected && { backgroundColor: themeSurface }, { borderBottomColor: themeBorder }]}
           onPress={() => handleSelectRoute(item.label, null)}
           activeOpacity={0.7}
+          disabled={isAssigningAny}
         >
           <Text style={[styles.itemName, { color: themeTextColor }]}>{item.label}</Text>
-          {isSelected && <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />}
+          {isAssigning ? (
+            <ActivityIndicator size="small" color={COLORS.accentBlue} />
+          ) : isSelected ? (
+            <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
+          ) : null}
         </TouchableOpacity>
       );
     }
     const label = getRouteLabel(item.route);
-    // console.log('Selected Route ===>>>', selectedRoute, label);
+    const routeKey = String(item.route.routeID);
     const isSelected = selectedRoute === label;
+    const isAssigning = assigningRouteKey === routeKey;
     return (
       <TouchableOpacity
         style={[styles.listItem, isSelected && { backgroundColor: themeSurface }, item.disabled && styles.listItemDisabled, { borderBottomColor: themeBorder }]}
         onPress={() => { if (!item.disabled) handleSelectRoute(label, item.route.routeID); }}
         activeOpacity={item.disabled ? 1 : 0.7}
-        disabled={item.disabled}
+        disabled={item.disabled || isAssigningAny}
       >
         <Text style={[styles.itemName, { color: themeTextColor }, item.disabled && { color: themeMutedText }]}>{label}</Text>
-        {isSelected && <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />}
+        {isAssigning ? (
+          <ActivityIndicator size="small" color={COLORS.accentBlue} />
+        ) : isSelected ? (
+          <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
+        ) : null}
       </TouchableOpacity>
     );
   };
 
+  const activeBlockManifestId =
+    serviceStatus === 'out_of_service'
+      ? null
+      : selectedManifestId != null
+        ? Number(selectedManifestId)
+        : resolvedActiveManifestId;
+
   const renderBlockItem = ({ item }: { item: BlockManifest }) => {
     const isAssigning = assigningID === item.manifestID;
-    const isSelected = item.manifestID === -1
-      ? (selectedRoute === 'Out of Service' && !selectedManifestId)
-      : selectedManifestId === item.manifestID;
+    const isSelected =
+      item.manifestID === -1
+        ? serviceStatus === 'out_of_service'
+        : activeBlockManifestId != null &&
+          Number(item.manifestID) === activeBlockManifestId;
 
     return (
       <TouchableOpacity
         style={[styles.listItem, isSelected && { backgroundColor: themeSurface }, { borderBottomColor: themeBorder }]}
         onPress={() => handleSelectBlock(item)}
         activeOpacity={0.7}
-        disabled={assigningID !== null}
+        disabled={isAssigningAny}
       >
         <Text style={[styles.itemName, { color: themeTextColor }]}>{item.name}</Text>
-        {isAssigning
-          ? <ActivityIndicator size="small" color={COLORS.accentBlue} />
-          : isSelected
-            ? <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
-            : null}
+        {isAssigning ? (
+          <ActivityIndicator size="small" color={COLORS.accentBlue} />
+        ) : isSelected ? (
+          <MaterialIcons name="check" size={22} color={COLORS.accentBlue} />
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -359,7 +475,9 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
                 onPress={() => handleTabChange('block')}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.tabText, { color: themeMutedText }, activeTab === 'block' && styles.tabTextActive]}>Block</Text>
+                <Text style={[styles.tabText, { color: themeMutedText }, activeTab === 'block' && styles.tabTextActive]}>
+                  Block
+                </Text>
               </TouchableOpacity>
             </View>
 

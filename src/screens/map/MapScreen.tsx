@@ -16,6 +16,10 @@ import {
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import MainLayout from '../../components/MainLayout';
 import DirectionalArrow from '../../components/DirectionalArrow';
+import VehicleInfoOverlay from '../../components/map/VehicleInfoOverlay';
+import VehicleMapMarkerContent from '../../components/map/VehicleMapMarkerContent';
+import { useMapVehicleMarkerPress } from '../../hooks/useMapVehicleMarkerPress';
+import { useVehicleInfoWindow } from '../../hooks/useVehicleInfoWindow';
 import { COLORS } from '../../theme/colors';
 import { useDriverModel } from '../../context/DriverModelContext';
 import { useEmergency } from '../../context/EmergencyContext';
@@ -25,6 +29,7 @@ import { useDriverData } from '../../context/DriverDataContext';
 import { useMapAssignment } from '../../hooks/useMapAssignment';
 import { MAPS_CONFIG, isMapsApiKeyValid } from '../../config/maps.config';
 import { TRANSPARENT_MAP_MARKER } from '../../config/mapMarkers';
+import { buildTabletMarkerKey, buildVehicleMarkerKey } from '../../utils/mapMarkerKeys';
 import { getAllVehicles } from '../../api/vehicle.api';
 import {
   createVehicleHeadingResolver,
@@ -77,6 +82,24 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   });
   const [currentRegion, setCurrentRegion] = useState(initialRegion);
   const [arrowBlink, setArrowBlink] = useState<0 | 1>(0);
+  const {
+    selectedVehicle,
+    showVehicleInfo,
+    dismissVehicleInfo,
+    isVehicleInfoVisible,
+  } = useVehicleInfoWindow();
+  const liveInfoVehicle = useMemo(() => {
+    if (!selectedVehicle) return null;
+    const id = String(selectedVehicle.vehicleID);
+    return vehiclesPosition.find(v => String(v.vehicleID) === id) ?? selectedVehicle;
+  }, [selectedVehicle, vehiclesPosition]);
+
+  const handleVehiclePress = useCallback(
+    (vehicle: Record<string, unknown>) => {
+      showVehicleInfo(vehicle);
+    },
+    [showVehicleInfo],
+  );
 
   const tabletHeading = lastLocation?.heading ?? heading ?? 0;
   const tabletAlertActive = isEmergencyAlertActive(serverAlert) || emergencyActivated;
@@ -192,6 +215,10 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     return list;
   }, [vehiclesPosition, vehicleId, hasMapAssignment, effectiveRouteId, blockPeerVehicleIds]);
 
+  const { onMapMarkerPress, onVehicleMarkerPress } = useMapVehicleMarkerPress(
+    otherVehicles,
+    handleVehiclePress,
+  );
 
   const lastFittedRouteIdRef = useRef<string | null>(null);
   const hasInitialCenteredRef = useRef(false);
@@ -351,13 +378,15 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           <MaterialIcons name="arrow-back" size={28} color={COLORS.textPrimary} />
         </TouchableOpacity>
       )}
+      <View style={isTabView ? styles.mapHostWithHeader : styles.mapHost}>
       <MapView
         ref={mapRef}
-        style={isTabView ? styles.mapWithHeader : styles.map}
+        style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
         showsUserLocation={false}
         showsMyLocationButton={!isTabView || isMobile}
         onMapReady={() => setMapReady(true)}
+        onMarkerPress={onMapMarkerPress}
         onRegionChangeComplete={setCurrentRegion}
         zoomControlEnabled={!isTabView || isMobile}
       >
@@ -387,8 +416,10 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
                 anchor={{ x: 0.5, y: 0.5 }}
                 tracksViewChanges={false}
                 title={String(stop.longName || `Stop ${stop.stopID}`)}
+                description={`Stop ID: ${stop.stopID}`}
               >
-                <View style={[styles.stopMarker, { backgroundColor: r.color + '99', borderColor: r.color, width: 12, height: 12, borderRadius: 6 }]} />
+                <View style={[styles.stopMarker, { backgroundColor: r.color, borderColor: '#FFF' }]} />
+                {/* <View style={[styles.stopMarker, { backgroundColor: r.color, borderColor: r.color, width: 12, height: 12, borderRadius: 6 }]} /> */}
               </Marker>
             );
           });
@@ -427,17 +458,15 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
         {/* Tablet / device GPS marker — always shown when location is available */}
         {location && driver && (
           <Marker
-            key={`tablet-marker-${location.latitude.toFixed(6)}-${location.longitude.toFixed(6)}-${Math.round(tabletHeading)}-${tabletBlinkMode === 'none' ? 0 : arrowBlink}`}
+            key={buildTabletMarkerKey(tabletBlinkMode !== 'none', arrowBlink)}
             image={TRANSPARENT_MAP_MARKER}
             coordinate={{
               latitude: location.latitude,
               longitude: location.longitude,
             }}
-            title="You"
-            description={`Accuracy: ${Math.round(location.accuracy)} m`}
             anchor={{ x: 0.5, y: 0.5 }}
             flat
-            tracksViewChanges={false}
+            tracksViewChanges={tabletBlinkMode !== 'none'}
           >
             <DirectionalArrow
               heading={tabletHeading}
@@ -467,33 +496,50 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             vehicleAnimates = false;
           }
           vColor = vColor ?? COLORS.background;
-          const roundedBear = Math.round(bear);
           const vehicleAlertBlink = isVehicleEmergencyAlertActive(v);
           const markerBlinks = vehicleAlertBlink || vehicleAnimates;
-          const markerKey = `vehicle-${v.vehicleID}-${coord.lat.toFixed(6)}-${coord.lng.toFixed(6)}-${roundedBear}${markerBlinks ? `-${arrowBlink}` : ''}`;
+          const vId = String(v.vehicleID);
+          const infoOpen =
+            isVehicleInfoVisible && String(selectedVehicle?.vehicleID) === vId;
+          const markerKey = buildVehicleMarkerKey(
+            v.vehicleID,
+            markerBlinks,
+            arrowBlink,
+            infoOpen,
+          );
 
           return (
             <Marker
               key={markerKey}
+              identifier={vId}
               image={TRANSPARENT_MAP_MARKER}
               coordinate={{ latitude: coord.lat, longitude: coord.lng }}
-              title={String(v.vehicleName || v.vehicleNumber || `Vehicle ${v.vehicleID}`)}
-              description={`Route: ${v.routeShortName || v.routeID || '—'}`}
               anchor={{ x: 0.5, y: 0.5 }}
               flat
-              tracksViewChanges={false}
+              tracksViewChanges={markerBlinks || infoOpen}
+              zIndex={infoOpen ? 999 : 1}
+              onPress={() => onVehicleMarkerPress(v)}
             >
-              <DirectionalArrow
+              <VehicleMapMarkerContent
                 heading={bear}
                 color={vColor}
-                blinkMode={vehicleAlertBlink ? 'alert' : undefined}
-                unassigned={vehicleAlertBlink ? false : vehicleAnimates}
+                blinkMode={
+                  vehicleAlertBlink ? 'alert' : vehicleAnimates ? 'unassigned' : 'none'
+                }
                 blinkPhase={markerBlinks ? arrowBlink : undefined}
               />
             </Marker>
           );
         })}
       </MapView>
+
+      {isVehicleInfoVisible && liveInfoVehicle && (
+        <VehicleInfoOverlay
+          vehicle={liveInfoVehicle}
+          onClose={dismissVehicleInfo}
+        />
+      )}
+      </View>
 
       {isTabView && !isMobile && isLandscape && (
         <View style={styles.zoomControls}>
@@ -654,6 +700,14 @@ const styles = StyleSheet.create({
   },
   map: {
     ...StyleSheet.absoluteFillObject,
+  },
+  mapHost: {
+    flex: 1,
+    position: 'relative',
+  },
+  mapHostWithHeader: {
+    flex: 1,
+    position: 'relative',
   },
   mapWithHeader: {
     flex: 1,
@@ -831,9 +885,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   stopMarker: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: COLORS.emergency,
     alignItems: 'center',
     justifyContent: 'center',

@@ -158,14 +158,31 @@ jest.mock('react-native-sliders', () => {
   return { __esModule: true, default: (props) => React.createElement(View, props) };
 });
 
-jest.mock('react-native-geolocation-service', () => ({
-  __esModule: true,
-  default: {
-    watchPosition: jest.fn(() => 1),
-    clearWatch: jest.fn(),
-    getCurrentPosition: jest.fn(),
-  },
-}));
+jest.mock('react-native-geolocation-service', () => {
+  const getCurrentPosition = jest.fn((success) =>
+    success({
+      coords: {
+        latitude: 40.7128,
+        longitude: -74.006,
+        accuracy: 10,
+        heading: 0,
+        speed: 0,
+        altitude: 0,
+      },
+    }),
+  );
+  const watchPosition = jest.fn(() => 42);
+  const clearWatch = jest.fn();
+  return {
+    __esModule: true,
+    default: {
+      getCurrentPosition,
+      watchPosition,
+      clearWatch,
+      requestAuthorization: jest.fn(() => Promise.resolve('granted')),
+    },
+  };
+});
 
 jest.mock('react-native-background-actions', () => ({
   __esModule: true,

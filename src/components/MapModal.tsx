@@ -23,6 +23,7 @@ import { MAPS_CONFIG } from '../config/maps.config';
 import { useDriverData } from '../context/DriverDataContext';
 import { useMapAssignment } from '../hooks/useMapAssignment';
 import { TRANSPARENT_MAP_MARKER } from '../config/mapMarkers';
+import { buildTabletMarkerKey } from '../utils/mapMarkerKeys';
 import DirectionalArrow from './DirectionalArrow';
 import { getTabletMarkerBlinkMode, isEmergencyAlertActive } from '../utils/helpers';
 
@@ -120,7 +121,7 @@ const MapModal: React.FC = () => {
                 >
                   {location && (
                     <Marker
-                      key={`tablet-marker-${location.latitude.toFixed(5)}-${location.longitude.toFixed(5)}-${Math.round(tabletHeading)}-${tabletBlinkMode === 'none' ? 0 : arrowBlink}`}
+                      key={buildTabletMarkerKey(tabletBlinkMode !== 'none', arrowBlink)}
                       image={TRANSPARENT_MAP_MARKER}
                       coordinate={{
                         latitude: location.latitude,
@@ -128,7 +129,7 @@ const MapModal: React.FC = () => {
                       }}
                       anchor={{ x: 0.5, y: 0.5 }}
                       flat
-                      tracksViewChanges={false}
+                      tracksViewChanges={tabletBlinkMode !== 'none'}
                     >
                       <DirectionalArrow
                         heading={tabletHeading}

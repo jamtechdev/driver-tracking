@@ -40,5 +40,7 @@ export const MAPS_CONFIG = {
   },
   UPDATE_INTERVAL: 5000, // 5 seconds
   BACKGROUND_UPDATE_INTERVAL: 30000, // 30 seconds
+  /** How long the map vehicle info panel stays visible after tapping a vehicle arrow. */
+  VEHICLE_INFO_WINDOW_DISMISS_MS: 10000,
 };
 

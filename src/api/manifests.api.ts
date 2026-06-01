@@ -4,8 +4,8 @@
  */
 
 import { PEAK_BASE_URL, PEAK_DEFAULT_PARAMS } from '@/config/env';
-
-const AGENCY_ID = '121';
+import { selfUpdateAssignment, selfUpdateDelete } from '@/api/position.api';
+import { getPrimaryRouteIdFromManifestJson } from '@/utils/manifestMap';
 
 export interface BlockManifest {
   manifestID: number;
@@ -36,23 +36,55 @@ export interface ManifestAssignmentsResponse {
   success: boolean;
 }
 
+export type AssignBlockManifestResult = {
+  success: boolean;
+  errorMessage?: string;
+};
+
+/** Local calendar date YYYY-MM-DD (agency day, not UTC). */
 function todayDateString(): string {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function agencyId(): string {
+  return String(PEAK_DEFAULT_PARAMS.agencyID);
+}
+
+function buildManifestUrl(params: Record<string, string | number>): string {
+  const qs = Object.entries(params)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join('&');
+  return `${PEAK_BASE_URL}&${qs}`;
 }
 
 /** Step 1: Get active calendarIDs for today */
 export async function getCalendarIDs(date?: string): Promise<number[]> {
   const d = date ?? todayDateString();
-  const url = `${PEAK_BASE_URL}&controller=calendar&action=between&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&from=${d}&to=${d}`;
+  const url = buildManifestUrl({
+    controller: 'calendar',
+    action: 'between',
+    agencyID: agencyId(),
+    from: d,
+    to: d,
+  });
   const res = await fetch(url);
   const json = await res.json();
   const ids = json?.calendar?.calendarID;
-  return Array.isArray(ids) ? ids : [];
+  return Array.isArray(ids) ? ids : ids != null ? [ids] : [];
 }
 
 /** Step 2: Get block manifests for a single calendarID */
 async function getManifestsForCalendar(calendarID: number): Promise<BlockManifest[]> {
-  const url = `${PEAK_BASE_URL}&controller=manifests&action=list&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&calendarID=${calendarID}`;
+  const url = buildManifestUrl({
+    controller: 'manifests',
+    action: 'list',
+    agencyID: agencyId(),
+    calendarID,
+  });
   const res = await fetch(url);
   const json = await res.json();
   return Array.isArray(json?.manifests) ? json.manifests : [];
@@ -61,16 +93,27 @@ async function getManifestsForCalendar(calendarID: number): Promise<BlockManifes
 /** Step 3: Get manifestAssignmentIDs already assigned for today */
 async function getAssignedManifestIDs(date?: string): Promise<number[]> {
   const d = date ?? todayDateString();
-  const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=between&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&from=${d}&to=${d}`;
+  const url = buildManifestUrl({
+    controller: 'manifest_assignments',
+    action: 'between',
+    agencyID: agencyId(),
+    from: d,
+    to: d,
+  });
   const res = await fetch(url);
   const json = await res.json();
   const ids = json?.manifestAssignments?.manifestAssignmentID;
-  return Array.isArray(ids) ? ids : [];
+  return Array.isArray(ids) ? ids : ids != null ? [ids] : [];
 }
 
 /** Step 4: Get a single ManifestAssignment object */
 async function getManifestAssignment(manifestAssignmentID: number): Promise<ManifestAssignment | null> {
-  const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=list&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&manifestAssignmentID=${manifestAssignmentID}`;
+  const url = buildManifestUrl({
+    controller: 'manifest_assignments',
+    action: 'list',
+    agencyID: agencyId(),
+    manifestAssignmentID,
+  });
   const res = await fetch(url);
   const json = await res.json();
   const list = json?.manifestAssignments;
@@ -83,12 +126,13 @@ async function getManifestAssignment(manifestAssignmentID: number): Promise<Mani
 export async function getManifestsForToday(date?: string): Promise<BlockManifest[]> {
   const calendarIDs = await getCalendarIDs(date);
   const manifestArrays = await Promise.all(calendarIDs.map(getManifestsForCalendar));
-  return manifestArrays.flat().filter((m) => !m.disabled && !m.hidden);
+  return manifestArrays
+    .flat()
+    .filter((m) => !m.disabled && !m.hidden && m.type === 'block');
 }
 
 /**
- * Fetches all available (unassigned) block manifests for today.
- * Combines steps 1–4.
+ * Fetches block manifests for today that are not yet assigned.
  */
 export async function getAvailableBlockManifests(date?: string): Promise<BlockManifest[]> {
   const [calendarIDs, assignmentIDs] = await Promise.all([
@@ -96,57 +140,116 @@ export async function getAvailableBlockManifests(date?: string): Promise<BlockMa
     getAssignedManifestIDs(date),
   ]);
 
-  // Fetch all manifests across all calendars in parallel
   const manifestArrays = await Promise.all(calendarIDs.map(getManifestsForCalendar));
-  // console.log('All Manifest Array ------>>>>>.', manifestArrays);
+  const blockManifests = manifestArrays
+    .flat()
+    .filter((m) => !m.disabled && !m.hidden && m.type === 'block');
 
-  const allManifests = manifestArrays.flat().filter((m) => !m.disabled && !m.hidden);
+  if (assignmentIDs.length === 0) return blockManifests;
 
-  if (assignmentIDs.length === 0) return allManifests;
   const assignments = await Promise.all(assignmentIDs.map(getManifestAssignment));
+  const assignedManifestIDs = new Set(
+    assignments.filter(Boolean).map((a) => a!.manifestID),
+  );
 
-  //   console.log('All Assignments ------->>>', assignments);
-  return allManifests.filter((m) => m.type === 'block');
-  // Fetch all existing assignments in parallel to find already-assigned manifestIDs
-  // const assignedManifestIDs = new Set(
-  //   assignments.filter(Boolean).map((a) => a!.manifestID)
-  // );
-
-  // return allManifests.filter((m) => !assignedManifestIDs.has(m.manifestID));
+  return blockManifests.filter((m) => !assignedManifestIDs.has(m.manifestID));
 }
 
-/** Step 5: Assign a block manifest to a vehicle */
+/** Assign a block manifest to a vehicle (requires driverID for backend persistence). */
 export async function assignBlockManifest(
   manifestID: number,
   vehicleID: string,
-  date?: string
-): Promise<boolean> {
+  driverID: string | number,
+  date?: string,
+): Promise<AssignBlockManifestResult> {
   const d = date ?? todayDateString();
-  const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=assignvehicle&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&startDate=${d}&endDate=${d}&vehicleID=${vehicleID}&manifestID=${manifestID}`;
-  const res = await fetch(url);
-  const json = await res.json();
-  console.log('API Response Assign Block ----->>>>', json);
-  return json?.success === true;
+  const url = buildManifestUrl({
+    controller: 'manifest_assignments',
+    action: 'assignvehicle',
+    agencyID: agencyId(),
+    startDate: d,
+    endDate: d,
+    vehicleID,
+    manifestID,
+    driverID,
+  });
+
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json?.success === true) {
+      return { success: true };
+    }
+    return {
+      success: false,
+      errorMessage:
+        json?.errormsg || json?.message || 'Block assignment was rejected by the server',
+    };
+  } catch (e) {
+    return {
+      success: false,
+      errorMessage: e instanceof Error ? e.message : 'Network error during block assignment',
+    };
+  }
 }
 
-/** Fetch all manifest assignments for a vehicle on a specific date */
-// export async function getManifestAssignmentsByVehicle(
-//   vehicleID: string,
-//   date?: string
-// ): Promise<ManifestAssignment[]> {
-//   const d = date ?? todayDateString();
-//   const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=list&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&startDate=${d}&endDate=${d}&vehicleID=${vehicleID}`;
-//   const res = await fetch(url);
-//   const json: ManifestAssignmentsResponse = await res.json();
-//   return json.success && Array.isArray(json.manifestAssignments) ? json.manifestAssignments : [];
-// }
+/**
+ * Full block assignment: manifest_assignments + vehicle route self-update + verify persisted.
+ */
+export async function assignBlockToVehicle(params: {
+  block: BlockManifest;
+  vehicleID: string;
+  driverID: string | number;
+  date?: string;
+}): Promise<AssignBlockManifestResult & { routeID: string | null }> {
+  const { block, vehicleID, driverID, date } = params;
+
+  const assignResult = await assignBlockManifest(
+    block.manifestID,
+    vehicleID,
+    driverID,
+    date,
+  );
+  if (!assignResult.success) {
+    return { ...assignResult, routeID: null };
+  }
+
+  const routeID = getPrimaryRouteIdFromManifestJson(block.manifestJson);
+
+  const persisted = await getManifestAssignmentsByVehicle(vehicleID, date);
+  if (!persisted.some((a) => !a.disabled && a.manifestID === block.manifestID)) {
+    console.warn(
+      '[manifests.api] assignvehicle succeeded; manifest list not yet showing vehicle — continuing with route sync',
+    );
+  }
+  if (routeID) {
+    try {
+      await selfUpdateAssignment({
+        agencyID: agencyId(),
+        vehicleID,
+        routeID,
+        driverID,
+      });
+    } catch (e) {
+      console.warn('[manifests.api] selfUpdateAssignment after block assign failed:', e);
+    }
+  }
+
+  return { success: true, routeID };
+}
 
 /** All manifest assignments for a given date. */
 export async function getManifestAssignmentsForToday(
   date?: string,
 ): Promise<ManifestAssignment[]> {
   const d = date ?? todayDateString();
-  const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=list&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&startDate=${d}&endDate=${d}`;
+  const url = buildManifestUrl({
+    controller: 'manifest_assignments',
+    action: 'list',
+    agencyID: agencyId(),
+    startDate: d,
+    endDate: d,
+  });
   const res = await fetch(url);
   const json: ManifestAssignmentsResponse = await res.json();
   return json.success && Array.isArray(json.manifestAssignments)
@@ -158,13 +261,79 @@ export async function getManifestAssignmentsByVehicle(
   vehicleID: string,
   date?: string,
 ): Promise<ManifestAssignment[]> {
-  const allAssignments = await getManifestAssignmentsForToday(date);
-  return allAssignments.filter(a => String(a.vehicleID) === String(vehicleID));
+  const assignmentIDs = await getAssignedManifestIDs(date);
+  if (assignmentIDs.length === 0) return [];
+
+  const assignments = await Promise.all(assignmentIDs.map(getManifestAssignment));
+  return assignments
+    .filter((a): a is ManifestAssignment => a != null && !a.disabled)
+    .filter((a) => String(a.vehicleID) === String(vehicleID));
+}
+
+/**
+ * Fully release a vehicle (out of service): remove block manifests and clear route assignment.
+ * Use from Route tab or Block tab when selecting Out of Service.
+ */
+export async function releaseVehicleForOutOfService(params: {
+  vehicleID: string;
+  driverID: string | number;
+}): Promise<AssignBlockManifestResult> {
+  const { vehicleID, driverID } = params;
+  const errors: string[] = [];
+
+  try {
+    const existing = await getManifestAssignmentsByVehicle(vehicleID);
+    for (const assignment of existing) {
+      if (assignment.disabled) continue;
+      const deleted = await deleteManifestAssignment(assignment.manifestAssignmentID);
+      if (!deleted) {
+        errors.push(`Failed to remove block assignment ${assignment.manifestAssignmentID}`);
+      }
+    }
+  } catch (e) {
+    console.warn('[manifests.api] Error clearing block assignments:', e);
+    errors.push('Failed to clear block assignments');
+  }
+
+  try {
+    const deleteResult = await selfUpdateDelete({
+      agencyID: agencyId(),
+      vehicleID,
+      driverID,
+    });
+    if (!deleteResult.success) {
+      errors.push(deleteResult.errorMessage ?? 'Failed to clear route assignment');
+    }
+  } catch (e) {
+    console.warn('[manifests.api] selfUpdateDelete failed:', e);
+    errors.push('Failed to clear route assignment');
+  }
+
+  try {
+    await selfUpdateAssignment({
+      agencyID: agencyId(),
+      vehicleID,
+      routeID: 0,
+      driverID,
+    });
+  } catch (e) {
+    console.warn('[manifests.api] selfUpdateAssignment routeID 0 after OOS failed:', e);
+  }
+
+  return {
+    success: errors.length === 0,
+    errorMessage: errors.length > 0 ? errors.join('. ') : undefined,
+  };
 }
 
 /** Delete a manifest assignment */
 export async function deleteManifestAssignment(manifestAssignmentID: number): Promise<boolean> {
-  const url = `${PEAK_BASE_URL}&controller=manifest_assignments&action=delete&agencyID=${PEAK_DEFAULT_PARAMS.agencyID}&manifestAssignmentID=${manifestAssignmentID}`;
+  const url = buildManifestUrl({
+    controller: 'manifest_assignments',
+    action: 'delete',
+    agencyID: agencyId(),
+    manifestAssignmentID,
+  });
   const res = await fetch(url);
   const json = await res.json();
   return json.success === true;

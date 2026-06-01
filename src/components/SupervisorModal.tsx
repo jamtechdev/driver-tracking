@@ -15,6 +15,10 @@ import {
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import DirectionalArrow from '@/components/DirectionalArrow';
+import VehicleMapMarkerContent from '@/components/map/VehicleMapMarkerContent';
+import VehicleInfoOverlay from '@/components/map/VehicleInfoOverlay';
+import { useMapVehicleMarkerPress } from '@/hooks/useMapVehicleMarkerPress';
+import { useVehicleInfoWindow } from '@/hooks/useVehicleInfoWindow';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS } from '../theme/colors';
 import { useDriverData } from '@/context/DriverDataContext';
@@ -26,6 +30,7 @@ import { useMapAssignment } from '@/hooks/useMapAssignment';
 import { useReportIncidentModal } from '@/context/ReportIncidentModalContext';
 import { assignVehicle, getAllVehicles } from '@/api/vehicle.api';
 import { TRANSPARENT_MAP_MARKER } from '@/config/mapMarkers';
+import { buildTabletMarkerKey, buildVehicleMarkerKey } from '@/utils/mapMarkerKeys';
 import {
     createVehicleHeadingResolver,
     getVehicleRouteColor,
@@ -148,7 +153,12 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
     const [showIncomingMessages, setShowIncomingMessages] = useState(false);
     const [arrowBlink, setArrowBlink] = useState<0 | 1>(0);
     const mapRef = useRef<MapView>(null);
-
+    const {
+        selectedVehicle: mapInfoVehicle,
+        showVehicleInfo,
+        dismissVehicleInfo,
+        isVehicleInfoVisible,
+    } = useVehicleInfoWindow();
     // Assignment States
     const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
     const [selectedDriverIndex, setSelectedDriverIndex] = useState(0);
@@ -229,6 +239,24 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
     const freshVehicles = useMemo(
         () => polledVehicles.filter(isVehicleLocationFresh),
         [polledVehicles],
+    );
+
+    const liveInfoVehicle = useMemo(() => {
+        if (!mapInfoVehicle) return null;
+        const id = String(mapInfoVehicle.vehicleID);
+        return polledVehicles.find(v => String(v.vehicleID) === id) ?? mapInfoVehicle;
+    }, [mapInfoVehicle, polledVehicles]);
+
+    const handleMapVehiclePress = useCallback(
+        (vehicle: Record<string, unknown>) => {
+            showVehicleInfo(vehicle);
+        },
+        [showVehicleInfo],
+    );
+
+    const { onMapMarkerPress, onVehicleMarkerPress } = useMapVehicleMarkerPress(
+        freshVehicles,
+        handleMapVehiclePress,
     );
 
     useEffect(() => {
@@ -399,10 +427,12 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                         {/* Left Column: Map & Messages */}
                         <View style={styles.mapColumn}>
                             <View style={[styles.mapContent, showIncomingMessages && { flex: 0.80 }]}>
+                                <View style={styles.mapHost}>
                                 <MapView
                                     ref={mapRef}
                                     provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
-                                    style={styles.map}
+                                    style={StyleSheet.absoluteFill}
+                                    onMarkerPress={onMapMarkerPress}
                                     initialRegion={agency?.latitude && agency?.longitude ? {
                                         latitude: parseFloat(agency.latitude),
                                         longitude: parseFloat(agency.longitude),
@@ -448,7 +478,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                     })}
                                     {location && driver && (
                                         <Marker
-                                            key={`tablet-marker-${location.latitude.toFixed(6)}-${location.longitude.toFixed(6)}-${Math.round(tabletHeading)}-${tabletBlinkMode === 'none' ? 0 : arrowBlink}`}
+                                            key={buildTabletMarkerKey(tabletBlinkMode !== 'none', arrowBlink)}
                                             image={TRANSPARENT_MAP_MARKER}
                                             coordinate={{
                                                 latitude: location.latitude,
@@ -458,7 +488,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                             description={`Accuracy: ${Math.round(location.accuracy)} m`}
                                             anchor={{ x: 0.5, y: 0.5 }}
                                             flat
-                                            tracksViewChanges={false}
+                                            tracksViewChanges={tabletBlinkMode !== 'none'}
                                         >
                                             <DirectionalArrow
                                                 heading={tabletHeading}
@@ -476,27 +506,41 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                         const bear = resolveVehicleHeading(String(vehicle.vehicleID), coord, course);
                                         const vehicleAnimates = shouldAnimateVehicleArrow(vehicle, routeColorMap);
                                         const arrowColor = getVehicleRouteColor(vehicle, routeColorMap) ?? COLORS.background;
-                                        const roundedBear = Math.round(bear);
                                         const vehicleAlertBlink = isVehicleEmergencyAlertActive(vehicle);
                                         const markerBlinks = vehicleAlertBlink || vehicleAnimates;
-                                        const markerKey = `vehicle-${vehicle.vehicleID}-${coord.lat.toFixed(6)}-${coord.lng.toFixed(6)}-${roundedBear}${markerBlinks ? `-${arrowBlink}` : ''}`;
+                                        const vId = String(vehicle.vehicleID);
+                                        const infoOpen =
+                                            isVehicleInfoVisible &&
+                                            String(mapInfoVehicle?.vehicleID) === vId;
+                                        const markerKey = buildVehicleMarkerKey(
+                                            vehicle.vehicleID,
+                                            markerBlinks,
+                                            arrowBlink,
+                                            infoOpen,
+                                        );
 
                                         return (
                                             <Marker
                                                 key={markerKey}
+                                                identifier={vId}
                                                 image={TRANSPARENT_MAP_MARKER}
                                                 coordinate={{ latitude: coord.lat, longitude: coord.lng }}
-                                                title={String(vehicle.vehicleName || vehicle.vehicleNumber || `Vehicle ${vehicle.vehicleID}`)}
-                                                description={`Route: ${vehicle.routeShortName || vehicle.routeID || '—'}`}
                                                 anchor={{ x: 0.5, y: 0.5 }}
                                                 flat
-                                                tracksViewChanges={false}
+                                                tracksViewChanges={markerBlinks || infoOpen}
+                                                zIndex={infoOpen ? 999 : 1}
+                                                onPress={() => onVehicleMarkerPress(vehicle)}
                                             >
-                                                <DirectionalArrow
+                                                <VehicleMapMarkerContent
                                                     heading={bear}
                                                     color={arrowColor}
-                                                    blinkMode={vehicleAlertBlink ? 'alert' : undefined}
-                                                    unassigned={vehicleAlertBlink ? false : vehicleAnimates}
+                                                    blinkMode={
+                                                        vehicleAlertBlink
+                                                            ? 'alert'
+                                                            : vehicleAnimates
+                                                              ? 'unassigned'
+                                                              : 'none'
+                                                    }
                                                     blinkPhase={markerBlinks ? arrowBlink : undefined}
                                                     size={40}
                                                 />
@@ -504,6 +548,14 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                         );
                                     })}
                                 </MapView>
+
+                                {isVehicleInfoVisible && liveInfoVehicle && (
+                                    <VehicleInfoOverlay
+                                        vehicle={liveInfoVehicle}
+                                        onClose={dismissVehicleInfo}
+                                    />
+                                )}
+                                </View>
                             </View>
 
                             {/* Message Header / Footer (same as given image) */}
@@ -744,6 +796,10 @@ const styles = StyleSheet.create({
     mapContent: {
         flex: 1,
     },
+    mapHost: {
+        flex: 1,
+        position: 'relative',
+    },
     map: {
         ...StyleSheet.absoluteFillObject,
     },
@@ -980,9 +1036,9 @@ const styles = StyleSheet.create({
         fontWeight: '700',
     },
     stopMarker: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
+        width: 18,
+        height: 18,
+        borderRadius: 9,
         backgroundColor: COLORS.emergency,
         alignItems: 'center',
         justifyContent: 'center',
