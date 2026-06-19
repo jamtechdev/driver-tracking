@@ -69,7 +69,13 @@ const DirectionalArrow: React.FC<DirectionalArrowProps> = ({
         transform: [{ rotate: `${rotation}deg` }],
       }}
     >
-      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Svg
+        key={shouldBlink ? `${blinkMode}-${phase}` : 'static'}
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+      >
         <Path
           d={ARROW_PATH}
           fill={fill}

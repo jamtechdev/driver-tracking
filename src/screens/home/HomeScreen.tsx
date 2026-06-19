@@ -57,6 +57,8 @@ const HOLD_DURATION_MS = 5000;
 const DEFAULT_STOP_ID = '0';
 
 import ScheduleGaugeImage from '../../components/ScheduleGaugeImage';
+import GeofenceAlertBanner from '../../components/GeofenceAlertBanner';
+import { resolveStopDisplayName } from '@/utils/stopDisplayName';
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const { driver, passengerCount, setPassengerCount, selectedRouteId, hasShownSupervisorModal, setHasShownSupervisorModal, vehicleId, apcCount, selectedRoute } = useAuth();
@@ -64,11 +66,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const { emergencyActivated, activateEmergency, openDeactivateReasonModal } = useEmergency();
   const { open: openReportIncidentModal } = useReportIncidentModal();
   const { width, height } = useWindowDimensions();
-  const { minsLate, lastLocation, nextStop, schedule, setOnLocationXmit } = useDriverModel();
+  const {
+    minsLate,
+    lastLocation,
+    nextStop,
+    schedule,
+    setOnLocationXmit,
+    geofenceAlert,
+    currentStopGeofence,
+  } = useDriverModel();
   // console.log('nextStop======>>>>>>', nextStop);
   const [isGpsFlashing, setIsGpsFlashing] = useState(false);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { fareCategories, stops } = useDriverData();
+  const { fareCategories } = useDriverData();
   const [isCharging, setIsCharging] = useState(true);
   const [showPassengerModal, setShowPassengerModal] = useState(false);
   const [showPassengerInline, setShowPassengerInline] = useState(false);
@@ -102,62 +112,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [mdtId, setMdtId] = useState<string>('');
   const MDT_ID_KEY = '@driver_tracking:mdt_id';
 
-  type Stop = {
-    id: string | number;
-    name: string;
-    lat: number;
-    lng: number;
-  };
-
-  // useFocusEffect(
-  //   useCallback(() => {
-  //     requestBackgroundLocationPermission();
-
-  //     return () => {
-  //     };
-  //   }, [])
-  // );
-
-  const deg2rad = (deg: number) => (deg * Math.PI) / 180;
-
-  const distanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371000; // meters
-    const dLat = deg2rad(lat2 - lat1);
-    const dLon = deg2rad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(deg2rad(lat1)) *
-      Math.cos(deg2rad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
-
-  const getNearestStopName = (stops: Stop[] | undefined, lastLocation: { latitude: number; longitude: number } | null) => {
-    if (!stops || !stops.length || !lastLocation || selectedRoute === 'Out of Service') return '...';
-
-    let best: { name: string; dist: number } | null = null;
-
-    for (const stop of stops as any[]) {
-      if (stop.lat == null || stop.lng == null) continue;
-      const d = distanceMeters(
-        lastLocation.latitude,
-        lastLocation.longitude,
-        stop.lat,
-        stop.lng,
-      );
-      if (!best || d < best.dist) {
-        best = { name: stop.name ?? stop.longName ?? String(stop.id), dist: d };
-      }
-    }
-
-    return best ? best.name : '...';
-  };
-
   const nextStopName = useMemo(
-    () => getNearestStopName(stops as any[], lastLocation),
-    [stops, lastLocation, selectedRoute]
+    () =>
+      resolveStopDisplayName({
+        selectedRoute,
+        currentStopGeofence,
+        nextStop,
+      }),
+    [selectedRoute, currentStopGeofence, nextStop],
   );
 
   // Responsive gauge size from device dimensions (no scroll: fit in viewport)
@@ -376,12 +338,16 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
                 { width: containerSize, minHeight: containerSize },
               ]}
             >
-              <Text
-                style={[styles.nextStopText, { maxWidth: gaugeImageWidth }]}
-                numberOfLines={2}
-              >
-                {nextStopName}
-              </Text>
+              {geofenceAlert ? (
+                <GeofenceAlertBanner alert={geofenceAlert} />
+              ) : (
+                <Text
+                  style={[styles.nextStopText, { maxWidth: gaugeImageWidth }]}
+                  numberOfLines={2}
+                >
+                  {nextStopName}
+                </Text>
+              )}
               <ScheduleGaugeImage
                 minsLate={minsLate}
                 role={driver?.role}

@@ -3,6 +3,8 @@
  * manifestJson is a JSON array of trip/exception entries; trips include routeID.
  */
 
+import { isAssignedRouteId } from '@/utils/helpers';
+
 export interface ManifestJsonEntry {
   type?: string;
   routeID?: number | string;
@@ -61,4 +63,19 @@ export const getPrimaryRouteIdFromManifestJson = (
     }
   }
   return best;
+};
+
+/**
+ * Route ID used for vehicle updates / schedule when a block is assigned.
+ * Prefers explicit route selection; falls back to primary trip route from manifestJson.
+ */
+export const resolveEffectiveRouteId = (
+  selectedRouteId: string | null | undefined,
+  manifestJson?: string | null,
+): string | null => {
+  if (isAssignedRouteId(selectedRouteId)) {
+    return String(selectedRouteId);
+  }
+  const fromManifest = getPrimaryRouteIdFromManifestJson(manifestJson);
+  return isAssignedRouteId(fromManifest) ? fromManifest : null;
 };

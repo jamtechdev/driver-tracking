@@ -62,10 +62,10 @@ export const assignVehicle = async (params: {
             message: data?.errormsg || data?.message || 'Assignment failed'
         };
     } catch (error: any) {
-        console.error('[VehicleAPI] Error assigning vehicle:', error.response.data);
+        console.error('[VehicleAPI] Error assigning vehicle:', error?.response?.data ?? error?.message ?? error);
         return {
             success: false,
-            message: error.response.data || 'Network error'
+            message: error?.response?.data?.errormsg || error?.response?.data?.message || error?.message || 'Network error'
         };
     }
 };
@@ -106,21 +106,26 @@ export const getAllVehicles = async (): Promise<any[]> => {
     try {
         console.log('[VehicleAPI] Fetching all vehicles from:', VEHICLE_LIST_URL);
         const response = await axios.get(VEHICLE_LIST_URL, { timeout: API_CONFIG.TIMEOUT });
-        const data = response.data;
+        const data = response?.data;
+
+        if (data == null) {
+            console.warn('[VehicleAPI] Empty response from vehicle list endpoint');
+            return [];
+        }
 
         let list: any[] = [];
         if (Array.isArray(data)) {
             list = data;
-        } else if (data && Array.isArray(data.vehicle)) {
+        } else if (Array.isArray(data.vehicle)) {
             list = data.vehicle;
-        } else if (data && data.vehicle && typeof data.vehicle === 'object') {
+        } else if (data.vehicle && typeof data.vehicle === 'object') {
             list = [data.vehicle];
         }
 
-        console.log(`[VehicleAPI] Fetched vehicles`, list);
+        console.log(`[VehicleAPI] Fetched ${list.length} vehicles`);
         return list;
-    } catch (error) {
-        console.error('[VehicleAPI] Error fetching all vehicles:', error);
+    } catch (error: any) {
+        console.error('[VehicleAPI] Error fetching all vehicles:', error?.response?.data ?? error?.message ?? error);
         return [];
     }
 };

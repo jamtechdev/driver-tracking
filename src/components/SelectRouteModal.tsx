@@ -36,6 +36,7 @@ import {
 import { selfUpdateAssignment } from '@/api/position.api';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import { isAssignedRouteId } from '@/utils/helpers';
+import { getPrimaryRouteIdFromManifestJson } from '@/utils/manifestMap';
 import Toast from 'react-native-toast-message';
 
 const MIN_MODAL_WIDTH = 280;
@@ -68,6 +69,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
     selectedManifestId,
     serviceStatus,
     selectRouteOrStatus,
+    markRouteManualSelection,
     vehicleId,
   } = useAuth();
   const { width, height } = useWindowDimensions();
@@ -160,9 +162,10 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
   }, [visible, fetchBlocks]);
 
   const handleSelectRoute = async (value: string, routeId?: string | null) => {
+    markRouteManualSelection();
     if (value === 'Out of Service') {
       if (!vehicleId || vehicleId === '110') {
-        selectRouteOrStatus('Out of Service', null, null);
+        selectRouteOrStatus('Out of Service', null, null, { manual: true });
         onClose();
         return;
       }
@@ -174,7 +177,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
           driverID: driver?.id == 'unassigned' ? '0' : String(driver?.id),
         });
         if (result.success) {
-          selectRouteOrStatus('Out of Service', null, null);
+          selectRouteOrStatus('Out of Service', null, null, { manual: true });
           onClose();
           Toast.show({
             type: 'success',
@@ -222,7 +225,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
         }
       }
 
-      selectRouteOrStatus(value, routeId, null);
+      selectRouteOrStatus(value, routeId, null, { manual: true });
       onClose();
     } catch (e) {
       console.error('[SelectRouteModal] Error assigning route:', e);
@@ -237,6 +240,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
   };
 
   const handleSelectBlock = async (block: BlockManifest) => {
+    markRouteManualSelection();
     if (!vehicleId || vehicleId === '110') {
       Toast.show({ type: 'error', text1: 'Error', text2: 'Please select a vehicle' });
       return;
@@ -250,7 +254,7 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
           driverID: driver?.id == 'unassigned' ? '0' : String(driver?.id),
         });
         if (result.success) {
-          selectRouteOrStatus('Out of Service', null, null);
+          selectRouteOrStatus('Out of Service', null, null, { manual: true });
           onClose();
           Toast.show({
             type: 'success',
@@ -292,7 +296,12 @@ const SelectRouteModal: React.FC<SelectRouteModalProps> = ({ visible, onClose })
       });
 
       if (result.success) {
-        selectRouteOrStatus(block.name, result.routeID, block.manifestID);
+        selectRouteOrStatus(
+          block.name,
+          result.routeID ?? getPrimaryRouteIdFromManifestJson(block.manifestJson),
+          block.manifestID,
+          { manual: true },
+        );
         onClose();
         Toast.show({
           type: 'success',

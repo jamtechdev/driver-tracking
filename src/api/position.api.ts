@@ -6,8 +6,17 @@
 import axios from 'axios';
 import { PEAK_BASE_URL } from '@/config/env';
 import { API_CONFIG } from '@/config/api.config';
+import { coerceDriverIdForApi } from '@/utils/outboundDriverId';
+import { mdtUuidForApi } from '@/utils/mdtId';
 
 const TIMEOUT = API_CONFIG.TIMEOUT;
+
+function readAxiosData<T>(resp: { data?: T } | undefined | null, label: string): T {
+  if (resp == null || resp.data === undefined) {
+    throw new Error(`${label}: empty HTTP response`);
+  }
+  return resp.data;
+}
 
 /** Build a GET URL with query params (numbers and strings encoded). */
 function buildUrl(params: Record<string, string | number | boolean | undefined>): string {
@@ -57,7 +66,7 @@ export async function mdtUpdate(params: MdtUpdateParams): Promise<any> {
     agencyID: params.agencyID,
     vehicleID: params.vehicleID,
     vehicleAssignmentUpdated: params.vehicleAssignmentUpdated ?? 0,
-    driverID: params.driverID,
+    driverID: coerceDriverIdForApi(params.driverID),
     lat: params.lat,
     lng: params.lng,
     // course: params.course ?? 0,
@@ -72,7 +81,7 @@ export async function mdtUpdate(params: MdtUpdateParams): Promise<any> {
     screenBrightness: (params.screenBrightness ?? 100) / 100,
     connectionType: params.connectionType ?? 'wifi',
     ssid: params.ssid ?? '',
-    mdtUUID: params.mdtUUID ?? '',
+    mdtUUID: mdtUuidForApi(params.mdtUUID),
     deviceSerial: params.deviceSerial ?? '',
     deviceName: params.deviceName ?? 'MDT',
     appVersion: params.appVersion ?? '0.0.1',
@@ -81,7 +90,7 @@ export async function mdtUpdate(params: MdtUpdateParams): Promise<any> {
     locationAuthStatus: params.locationAuthStatus ?? 'authorized',
   });
   const resp = await axios.get(url, { timeout: TIMEOUT });
-  return resp.data;
+  return readAxiosData(resp, 'mdtUpdate');
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +125,7 @@ export async function vehicleUpdate(params: VehicleUpdateParams): Promise<void> 
     agencyID: params.agencyID,
     vehicleID: params.vehicleID,
     routeID: params.routeID ?? 0,
-    driverID: params.driverID,
+    driverID: coerceDriverIdForApi(params.driverID),
     lat: params.lat,
     lng: params.lng,
     course: Math.round(Number(params.course ?? 0)),
@@ -130,13 +139,13 @@ export async function vehicleUpdate(params: VehicleUpdateParams): Promise<void> 
   // console.log('Vehicle Update Params:', params);
   // console.log('Vehicle Update URL:', JSON.stringify(url));
   const resp = await axios.get(url, { timeout: TIMEOUT });
-  console.log('Vehicle Update Response:', JSON.stringify(resp.data));
-  return resp.data;
+  console.log('Vehicle Update Response:', JSON.stringify(resp?.data));
+  return readAxiosData(resp, 'vehicleUpdate');
 }
 
 /** Convert speed from m/s (Geolocation) to mph for vehicle update API. */
 export function speedMpsToMph(mps: number | undefined | null): number {
-  if (mps == null || !Number.isFinite(mps)) return 0;
+  if (mps == null || !Number.isFinite(mps) || mps < 0) return 0;
   return mps * MPS_TO_MPH;
 }
 
@@ -144,9 +153,20 @@ export function speedMpsToMph(mps: number | undefined | null): number {
 // Assignment & schedule (map data)
 // ---------------------------------------------------------------------------
 
+/** Assignment object from controller=driver&action=assignment (iOS DriverModel). */
+export interface VehicleAssignmentPayload {
+  routeID?: string | number;
+  driverID?: string | number;
+  locked?: boolean | number | string;
+  [key: string]: unknown;
+}
+
 /** Current route/driver assignment for the vehicle. */
 export interface AssignmentResponse {
   success?: boolean;
+  hasAssignment?: boolean | number | string;
+  assignment?: VehicleAssignmentPayload;
+  currentRouteID?: string | number;
   vehicleID?: string | number;
   routeID?: string | number;
   driverID?: string | number;
@@ -163,8 +183,120 @@ export async function getAssignment(
     vehicleID,
     agencyID,
   });
-  const { data } = await axios.get<AssignmentResponse>(url, { timeout: TIMEOUT });
+  console.log('Assignment URL:', url);
+  const resp = await axios.get<AssignmentResponse>(url, { timeout: TIMEOUT });
+  const data = readAxiosData(resp, 'getAssignment');
+  console.log('Assignment Response:', JSON.stringify(data));
   return data;
+}
+
+/** Tablet-initiated driver login (iOS selectDriverID manual path). */
+export async function driverLogin(params: {
+  agencyID: string | number;
+  vehicleID: string | number;
+  driverID: string | number;
+}): Promise<unknown> {
+  const url = buildUrl({
+    controller: 'vehicleassignments',
+    action: 'driverlogin',
+    source: 'MDT',
+    agencyID: params.agencyID,
+    vehicleID: params.vehicleID,
+    driverID: params.driverID,
+  });
+  const resp = await axios.get(url, { timeout: TIMEOUT });
+  return readAxiosData(resp, 'driverLogin');
+}
+
+export function isPeakApiSuccess(data: unknown): boolean {
+  if (data == null || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  return (
+    d.success === true ||
+    d.success === 'true' ||
+    d.success === 1 ||
+    d.success === '1'
+  );
+}
+
+export function peakApiErrorMessage(data: unknown, fallback: string): string {
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>;
+    const msg = d.errormsg ?? d.message ?? d.errorMessage;
+    if (msg != null && String(msg).trim()) return String(msg);
+  }
+  return fallback;
+}
+
+/** Tablet-initiated driver logout (iOS selectDriverID unassign / sync path). */
+export async function driverLogout(params: {
+  agencyID: string | number;
+  vehicleID: string | number;
+  driverID: string | number;
+}): Promise<unknown> {
+  const url = buildUrl({
+    controller: 'vehicleassignments',
+    action: 'driverlogout',
+    source: 'MDT',
+    agencyID: params.agencyID,
+    vehicleID: params.vehicleID,
+    driverID: params.driverID,
+  });
+  if (__DEV__) {
+    console.log('[position.api] driverlogout', url);
+  }
+  const resp = await axios.get(url, { timeout: TIMEOUT });
+  const data = readAxiosData(resp, 'driverLogout');
+  if (__DEV__) {
+    console.log('[position.api] driverlogout response', data);
+  }
+  return data;
+}
+
+/**
+ * Clear driver on the server vehicle assignment (dashboard reads this record).
+ * driverlogout alone does not always clear assignment.driverID — selfupdate with driverID 0 does.
+ */
+export async function clearServerDriverAssignment(params: {
+  agencyID: string | number;
+  vehicleID: string | number;
+  routeID: string | number;
+  previousDriverID: string | number;
+}): Promise<{ success: boolean; errorMessage?: string }> {
+  const errors: string[] = [];
+
+  try {
+    await driverLogout({
+      agencyID: params.agencyID,
+      vehicleID: params.vehicleID,
+      driverID: params.previousDriverID,
+    });
+  } catch (e) {
+    console.warn('[position.api] driverlogout during unassign failed:', e);
+    errors.push('Driver logout failed');
+  }
+
+  try {
+    const resp = await selfUpdateAssignment({
+      agencyID: params.agencyID,
+      vehicleID: params.vehicleID,
+      routeID: params.routeID,
+      driverID: 0,
+    });
+    const data = resp ?? {};
+    const ok = data.success === true || data.success === 'true' || data.success === 1;
+    if (!ok) {
+      errors.push(String(data.errormsg ?? data.message ?? 'Failed to clear driver on assignment'));
+    }
+  } catch (e) {
+    console.warn('[position.api] selfUpdate driverID 0 during unassign failed:', e);
+    errors.push('Failed to update assignment');
+  }
+
+  return {
+    success: errors.length === 0,
+    errorMessage: errors.length > 0 ? errors.join('. ') : undefined,
+  };
 }
 
 /** Schedule/route for driver (links, schedule items – for “where am I on the route”). */
@@ -186,8 +318,8 @@ export async function getRouteForDriver(
     routeID,
     agencyID,
   });
-  const { data } = await axios.get<RouteForDriverResponse>(url, { timeout: TIMEOUT });
-  return data;
+  const resp = await axios.get<RouteForDriverResponse>(url, { timeout: TIMEOUT });
+  return readAxiosData(resp, 'getRouteForDriver');
 }
 
 // ---------------------------------------------------------------------------
@@ -210,8 +342,9 @@ export async function selfUpdateAssignment(params: {
     driverID: params.driverID,
   });
   const resp = await axios.get(url, { timeout: TIMEOUT });
-  console.log('Self Update Assignment Response:', resp.data);
-  return resp.data;
+  const data = readAxiosData(resp, 'selfUpdateAssignment');
+  console.log('Self Update Assignment Response:', data);
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,8 +364,9 @@ export async function vehicles2Alert(params: {
     alert: params.alert,
   });
   const resp = await axios.get(url, { timeout: TIMEOUT });
-  console.log('Vehicles2 Alert Response:', resp.data);
-  return resp.data;
+  const data = readAxiosData(resp, 'vehicles2Alert');
+  console.log('Vehicles2 Alert Response:', data);
+  return data;
 }
 
 export type SelfUpdateDeleteResult = {
@@ -255,7 +389,7 @@ export async function selfUpdateDelete(params: {
     driverID: params.driverID,
   });
   const resp = await axios.get(url, { timeout: TIMEOUT });
-  const data = resp.data ?? {};
+  const data = readAxiosData(resp, 'selfUpdateDelete') ?? {};
   const success = data.success === true || data.success === 'true';
   return {
     ...data,

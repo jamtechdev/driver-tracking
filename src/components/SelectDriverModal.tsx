@@ -42,7 +42,14 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
   onClose,
   navigation,
 }) => {
-  const { driver: currentDriver, login } = useAuth();
+  const {
+    driver: currentDriver,
+    driverForTab,
+    login,
+    markUserRequestedUnassign,
+    markDriverManualSelection,
+    acceptDashboardAssignment,
+  } = useAuth();
   const { open: openPinEntry } = usePinEntryModal();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -56,7 +63,7 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
   const themeSeparator = isDarkMode ? 'rgba(177, 174, 174, 0.08)' : 'rgba(0,0,0,0.05)';
   const themeBorder = isDarkMode ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.15)';
 
-  // Map raw API drivers → Driver shape and prepend Unassigned
+  // Map raw API drivers → Driver shape; iOS prepends Unassigned + "(Assigned)" row
   const drivers: Driver[] = useMemo(() => {
     const mapped: Driver[] = rawDrivers.map((d) => ({
       id: String(d.driverID),
@@ -65,18 +72,45 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
       requiresPin: !!d.code,
       pin: d.code ?? undefined,
     }));
-    return [
+
+    const rows: Driver[] = [
       { id: 'unassigned', name: 'Unassigned', role: 'unassigned', requiresPin: false },
-      ...mapped,
     ];
-  }, [rawDrivers]);
+
+    const showAssignedRow =
+      driverForTab.role !== 'unassigned' &&
+      (currentDriver?.role === 'unassigned' ||
+        String(currentDriver?.id) !== String(driverForTab.id));
+
+    if (showAssignedRow) {
+      rows.push({
+        id: '__assigned__',
+        name: `${driverForTab.name} (Assigned)`,
+        role: driverForTab.role,
+        requiresPin: driverForTab.requiresPin,
+        pin: driverForTab.pin,
+      });
+    }
+
+    return [...rows, ...mapped];
+  }, [rawDrivers, driverForTab, currentDriver]);
 
   const handleSelectDriver = async (driver: Driver) => {
     onClose();
     if (driver.role === 'unassigned') {
-      login(driver);
+      markUserRequestedUnassign();
+      await login(driver);
       return;
     }
+    if (driver.id === '__assigned__') {
+      if (driverForTab.requiresPin) {
+        openPinEntry(driverForTab);
+      } else {
+        acceptDashboardAssignment();
+      }
+      return;
+    }
+    markDriverManualSelection();
     if (driver.requiresPin) {
       openPinEntry(driver);
     } else {
@@ -151,7 +185,11 @@ const SelectDriverModal: React.FC<SelectDriverModalProps> = ({
                 data={drivers}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => {
-                  const isSelected = currentDriver?.id === item.id;
+                  const isSelected =
+                    item.id === '__assigned__'
+                      ? currentDriver?.role !== 'unassigned' &&
+                        String(currentDriver?.id) === String(driverForTab.id)
+                      : currentDriver?.id === item.id;
                   return (
                     <TouchableOpacity
                       style={[

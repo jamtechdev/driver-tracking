@@ -87,6 +87,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PEAK_BASE_URL } from '@/config/env';
 import { API_CONFIG } from '@/config/api.config';
 import NetInfo from '@react-native-community/netinfo';
+import { mdtUuidForApi } from '@/utils/mdtId';
 
 const MDT_ID_KEY = '@driver_tracking:mdt_id';
 
@@ -104,7 +105,7 @@ export interface MdtStatusParams {
  */
 export const reportMdtStatusAfterLogin = async (params: MdtStatusParams) => {
     try {
-        const mdtUUID = (await AsyncStorage.getItem(MDT_ID_KEY))?.replace('BPT-', '') || '';
+        const mdtUUID = mdtUuidForApi(await AsyncStorage.getItem(MDT_ID_KEY));
         const deviceSerial = DeviceInfo.getUniqueIdSync();
         const systemVersion = DeviceInfo.getSystemVersion();
         const batteryLevelPercent = Math.round((await DeviceInfo.getBatteryLevel()) * 100);

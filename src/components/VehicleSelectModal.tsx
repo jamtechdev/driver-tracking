@@ -88,7 +88,7 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
       : undefined;
     const label = displayLabel(item);
 
-    setVehicleId(id);
+    setVehicleId(id, { fromTablet: true });
     setVehicleName(name ?? label);
     onClose();
   };

@@ -1,34 +1,41 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { formatMapVehicleInfo } from '@/utils/mapVehicleInfo';
 
 type VehicleInfoCalloutProps = {
   vehicle: Record<string, unknown>;
   onClose: () => void;
+  maxWidth?: number;
 };
 
 /** White info bubble (vehicle + route only), with bottom pointer. */
-const VehicleInfoCallout: React.FC<VehicleInfoCalloutProps> = ({ vehicle, onClose }) => {
+const VehicleInfoCallout: React.FC<VehicleInfoCalloutProps> = ({
+  vehicle,
+  onClose,
+  maxWidth = 280,
+}) => {
   const { vehicleId, routeLabel } = useMemo(() => formatMapVehicleInfo(vehicle), [vehicle]);
+  const minWidth = Math.min(160, Math.floor(maxWidth * 0.72));
 
   return (
-    <View style={styles.wrapper}>
-      <View style={styles.card}>
-        <TouchableOpacity
+    <View style={[styles.wrapper, { maxWidth }]}>
+      <View style={[styles.card, { minWidth, maxWidth }]}>
+        <Pressable
           style={styles.closeBtn}
           onPress={onClose}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           accessibilityLabel="Close vehicle info"
+          accessibilityRole="button"
         >
           <MaterialIcons name="close" size={20} color="#4A4A4A" />
-        </TouchableOpacity>
+        </Pressable>
         <Text style={styles.line}>
           <Text style={styles.label}>Vehicle: </Text>
           <Text style={styles.value}>{vehicleId}</Text>
         </Text>
         <Text style={[styles.line, styles.routeLine]}>
-          <Text style={styles.label}>Route: </Text>
+          {/* <Text style={styles.label}>Route: </Text> */}
           <Text style={styles.value}>{routeLabel}</Text>
         </Text>
       </View>
@@ -40,7 +47,7 @@ const VehicleInfoCallout: React.FC<VehicleInfoCalloutProps> = ({ vehicle, onClos
 const styles = StyleSheet.create({
   wrapper: {
     alignItems: 'center',
-    maxWidth: 280,
+    width: '100%',
   },
   card: {
     backgroundColor: '#FFFFFF',
@@ -49,7 +56,7 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     paddingLeft: 16,
     paddingRight: 36,
-    minWidth: 200,
+    width: '100%',
     ...Platform.select({
       ios: {
         shadowColor: '#000',

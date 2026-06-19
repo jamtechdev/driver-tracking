@@ -2,6 +2,7 @@ import {
   getPrimaryRouteIdFromManifestJson,
   getRouteIdsFromManifestJson,
   parseManifestJsonEntries,
+  resolveEffectiveRouteId,
 } from '@/utils/manifestMap';
 
 const SAMPLE_MANIFEST_JSON = JSON.stringify([
@@ -30,5 +31,12 @@ describe('manifestMap', () => {
     expect(parseManifestJsonEntries('not-json')).toEqual([]);
     expect(getPrimaryRouteIdFromManifestJson(null)).toBeNull();
     expect(getRouteIdsFromManifestJson('')).toEqual([]);
+  });
+
+  it('resolveEffectiveRouteId prefers selected route over manifest', () => {
+    expect(resolveEffectiveRouteId('12518', SAMPLE_MANIFEST_JSON)).toBe('12518');
+    expect(resolveEffectiveRouteId(null, SAMPLE_MANIFEST_JSON)).toBe('12937');
+    expect(resolveEffectiveRouteId('0', SAMPLE_MANIFEST_JSON)).toBe('12937');
+    expect(resolveEffectiveRouteId(null, null)).toBeNull();
   });
 });

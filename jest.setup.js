@@ -47,6 +47,20 @@ jest.mock('react-native-tts', () => ({
   setDefaultVoice: jest.fn(() => Promise.resolve()),
   setDefaultRate: jest.fn(() => Promise.resolve()),
   setDefaultPitch: jest.fn(() => Promise.resolve()),
+  setIgnoreSilentSwitch: jest.fn(() => Promise.resolve(true)),
+  voices: jest.fn(() =>
+    Promise.resolve([
+      {
+        id: 'com.apple.voice.compact.en-US.Samantha',
+        name: 'Samantha',
+        language: 'en-US',
+        quality: 300,
+        latency: 100,
+        networkConnectionRequired: false,
+        notInstalled: false,
+      },
+    ])
+  ),
   speak: jest.fn(),
   stop: jest.fn(),
   requestInstallEngine: jest.fn(),

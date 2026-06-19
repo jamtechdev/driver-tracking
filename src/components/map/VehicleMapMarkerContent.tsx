@@ -1,10 +1,14 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Pressable, Platform } from 'react-native';
 import DirectionalArrow, {
   type DirectionalArrowBlinkMode,
 } from '../DirectionalArrow';
 
 const HIT_SIZE = 64;
+const DEFAULT_ARROW_SIZE = 40;
+
+export const VEHICLE_MARKER_HIT_SIZE = HIT_SIZE;
+export const VEHICLE_MARKER_ARROW_SIZE = DEFAULT_ARROW_SIZE;
 
 type VehicleMapMarkerContentProps = {
   heading: number;
@@ -12,6 +16,8 @@ type VehicleMapMarkerContentProps = {
   blinkMode: DirectionalArrowBlinkMode;
   blinkPhase?: 0 | 1;
   size?: number;
+  /** iOS: inner Pressable is required for custom marker taps on Apple Maps. */
+  onPress?: () => void;
 };
 
 /**
@@ -23,8 +29,9 @@ const VehicleMapMarkerContent: React.FC<VehicleMapMarkerContentProps> = ({
   blinkMode,
   blinkPhase,
   size = 40,
-}) => (
-  <View style={styles.hit} collapsable={false}>
+  onPress,
+}) => {
+  const arrow = (
     <DirectionalArrow
       heading={heading}
       color={color}
@@ -32,8 +39,22 @@ const VehicleMapMarkerContent: React.FC<VehicleMapMarkerContentProps> = ({
       blinkPhase={blinkPhase}
       size={size}
     />
-  </View>
-);
+  );
+
+  if (onPress && Platform.OS === 'ios') {
+    return (
+      <Pressable onPress={onPress} style={styles.hit} collapsable={false}>
+        {arrow}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.hit} collapsable={false}>
+      {arrow}
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
   hit: {

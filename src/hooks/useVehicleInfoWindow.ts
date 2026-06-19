@@ -4,7 +4,7 @@ import { MAPS_CONFIG } from '@/config/maps.config';
 const DISMISS_MS = MAPS_CONFIG.VEHICLE_INFO_WINDOW_DISMISS_MS ?? 10000;
 
 /**
- * Vehicle info popup state — React overlay only (no native Map Callout).
+ * Vehicle info popup state — bubble is rendered on the map marker so it pans with the vehicle.
  * Dismisses exactly once after DISMISS_MS unless the user taps close.
  */
 export function useVehicleInfoWindow() {

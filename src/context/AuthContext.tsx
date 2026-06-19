@@ -3,18 +3,60 @@
  * Persists session so user stays logged in after app reload until they logout.
  */
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Driver } from '../data/drivers';
 import { DRIVERS } from '../data/drivers';
 import { getDriverData } from '@/api/driverData.api';
+import { lookupVehicleName, setAgencyVehicles } from '@/utils/vehicleLookup';
 import { getVehiclesByDriver, getVehicleAssignment } from '@/api/vehicle.api';
 import { getManifestAssignmentsByVehicle, getManifestsForToday } from '@/api/manifests.api';
+import { getPrimaryRouteIdFromManifestJson } from '@/utils/manifestMap';
+import { isAssignedRouteId } from '@/utils/helpers';
 import { reportMdtStatusAfterLogin } from '@/api/mdt.api';
 import { deviceService } from '@/services/device.service';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
+import { useAssignmentSync } from '@/hooks/useAssignmentSync';
+import {
+  applyDriverManualIos,
+  applyDriverUnassignedIos,
+  selectDriverFromAssignmentIos,
+} from '@/services/driverAssignment.service';
+import { getAssignment } from '@/api/position.api';
+import {
+  getAssignedDriverIdFromResult,
+  parseAssignmentDriverId,
+  resolveVehicleAssignmentSources,
+} from '@/utils/assignmentDriverId';
+import { hasServerAssignment, ASSIGNMENT_ROUTE_STICKY_MS, getRouteIdFromAssignmentResult } from '@/utils/assignmentSync';
+import { getMdtRouteIdForVehicleUpdate } from '@/utils/resolveOutboundRouteId';
+import {
+  findDriverById,
+  lookupDriverByIdFromRoster,
+  subscribeAgencyDriversUpdated,
+} from '@/utils/driverLookup';
+import {
+  getMdtDriverIdFromSelectedDriver,
+  getTelemetryDriverIdFromAssignmentApi,
+} from '@/utils/mdtTelemetry';
+import { coerceDriverIdForApi } from '@/utils/outboundDriverId';
+import {
+  findRouteLabelById,
+  isDisplayableRouteLabel,
+  lookupRouteLabelById,
+  subscribeAgencyRoutesUpdated,
+} from '@/utils/routeLookup';
+import {
+  findBlockNameById,
+  lookupBlockNameById,
+  setTodayManifests,
+  subscribeTodayManifestsUpdated,
+} from '@/utils/manifestLookup';
+import type { AssignmentResponse, VehicleAssignmentPayload } from '@/api/position.api';
 
 const AUTH_STORAGE_KEY = '@driver_tracking:auth_state';
+/** iOS NSUserDefaults vehicleAssignmentUpdated — 0 means use admin portal assignment on MDT. */
+const VEHICLE_ASSIGNMENT_UPDATED_KEY = '@driver_tracking:vehicle_assignment_updated';
 
 interface AuthState {
   driver: Driver | null;
@@ -36,10 +78,39 @@ interface AuthContextType extends AuthState {
   login: (driver: Driver, pin?: string) => Promise<boolean>;
   logout: () => void;
   selectDriver: (driver: Driver) => Promise<void>;
-  setVehicleId: (id: string | null) => void;
+  setVehicleId: (id: string | null, options?: { fromTablet?: boolean }) => void;
   setVehicleName: (name: string | null) => void;
   setServiceStatus: (status: 'in_service' | 'out_of_service') => void;
-  selectRouteOrStatus: (value: string, routeId?: string | null, manifestId?: number | null) => void;
+  selectRouteOrStatus: (
+    value: string,
+    routeId?: string | null,
+    manifestId?: number | null,
+    options?: { manual?: boolean },
+  ) => void;
+  /** Call before tablet-initiated driver change (sets override like iOS selectDriverID). */
+  markDriverManualSelection: () => void;
+  /** Call before login(select unassigned) so launch restore does not clear dashboard assignments. */
+  markUserRequestedUnassign: () => void;
+  /** False until cold-start assignment bootstrap finishes (MDT should wait). */
+  isAssignmentBootstrapDone: boolean;
+  /** driverID for MDT / vehicle update from assignment API (hasAssignment 1/0). */
+  getMdtDriverId: () => string | number;
+  /** routeID for vehicle/update — iOS selectedRoute (sticky assignment when local briefly OOS). */
+  getMdtRouteId: () => string | number;
+  /** iOS NSUserDefaults vehicleAssignmentUpdated for MDT. */
+  getVehicleAssignmentUpdated: () => number;
+  /** Driver name for bottom-bar tab (includes dashboard assignment when UI is Unassigned). */
+  driverTabLabel: string;
+  /** Route/block name for bottom-bar tab (resolves from IDs when label is missing). */
+  routeTabLabel: string;
+  /** Driver shown in tab — local selection or assignment from server. */
+  driverForTab: Driver;
+  /** Run updateAssignment now (e.g. after vehicle select). */
+  syncAssignmentNow: () => void;
+  /** iOS selectDriverID(-2): accept dashboard-assigned driver without manual override. */
+  acceptDashboardAssignment: () => void;
+  /** Call before tablet-initiated route change (sets override like iOS manualSelectRouteID). */
+  markRouteManualSelection: () => void;
   setSelectedManifestId: (id: number | null) => void;
   setPassengerCount: (count: number | ((prev: number) => number)) => void;
   setHasShownSupervisorModal: (shown: boolean) => void;
@@ -76,25 +147,89 @@ function isDriverLike(obj: unknown): obj is Driver {
   );
 }
 
+function parseStoredId(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  const s = String(value).trim();
+  return s.length > 0 ? s : null;
+}
+
+function parseStoredManifestId(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function needsRouteLabelResolution(
+  state: Pick<AuthState, 'selectedRoute' | 'selectedRouteId' | 'selectedManifestId' | 'serviceStatus'>,
+): boolean {
+  if (state.serviceStatus !== 'in_service') return false;
+  if (isDisplayableRouteLabel(state.selectedRoute, state.selectedRouteId, state.selectedManifestId)) {
+    return false;
+  }
+  return isAssignedRouteId(state.selectedRouteId) || state.selectedManifestId != null;
+}
+
+async function resolveStoredRouteLabel(input: {
+  selectedRouteId: string | null;
+  selectedManifestId: number | null;
+}): Promise<string | null> {
+  if (input.selectedManifestId != null) {
+    const blockName = await lookupBlockNameById(input.selectedManifestId);
+    if (blockName) return blockName;
+  }
+
+  if (isAssignedRouteId(input.selectedRouteId)) {
+    return lookupRouteLabelById(input.selectedRouteId!);
+  }
+
+  return null;
+}
+
 function parseStoredState(raw: string | null): AuthState | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<AuthState> & { driver?: unknown };
-    console.log('parsed', parsed);
-    if (!parsed || !isDriverLike(parsed.driver)) return null;
+    if (!parsed) return null;
+
+    const storedDriver = isDriverLike(parsed.driver) ? (parsed.driver as Driver) : initialState.driver;
+
+    const passengerRaw = parsed.passengerCount;
+    const passengerCount =
+      typeof passengerRaw === 'number'
+        ? passengerRaw
+        : typeof passengerRaw === 'string'
+          ? parseInt(passengerRaw, 10) || 0
+          : initialState.passengerCount;
+
     return {
-      driver: parsed.driver as Driver,
+      driver: storedDriver,
       isAuthenticated: parsed.isAuthenticated ?? true,
       isSupervisorMode: parsed.isSupervisorMode ?? false,
-      vehicleId: typeof parsed.vehicleId === 'string' ? parsed.vehicleId : initialState.vehicleId,
-      vehicleName: typeof parsed.vehicleName === 'string' || parsed.vehicleName === null ? parsed.vehicleName : initialState.vehicleName,
-      serviceStatus: parsed.serviceStatus === 'in_service' || parsed.serviceStatus === 'out_of_service' ? parsed.serviceStatus : initialState.serviceStatus,
-      selectedRoute: typeof parsed.selectedRoute === 'string' ? parsed.selectedRoute : initialState.selectedRoute,
-      selectedRouteId: typeof parsed.selectedRouteId === 'string' || parsed.selectedRouteId === null ? parsed.selectedRouteId : initialState.selectedRouteId,
-      selectedManifestId: typeof parsed.selectedManifestId === 'number' || parsed.selectedManifestId === null ? parsed.selectedManifestId : initialState.selectedManifestId,
-      passengerCount: typeof parsed.passengerCount === 'number' || typeof parsed.passengerCount === 'string' ? parsed.passengerCount : initialState.passengerCount,
-      apcCount: typeof parsed.apcCount === 'number' ? parsed.apcCount : (typeof parsed.passengerCount === 'number' ? parsed.passengerCount : initialState.apcCount),
-      hasShownSupervisorModal: typeof parsed.hasShownSupervisorModal === 'boolean' ? parsed.hasShownSupervisorModal : initialState.hasShownSupervisorModal,
+      vehicleId: parseStoredId(parsed.vehicleId),
+      vehicleName:
+        parsed.vehicleName == null
+          ? null
+          : typeof parsed.vehicleName === 'string'
+            ? parsed.vehicleName
+            : typeof parsed.vehicleName === 'number'
+              ? String(parsed.vehicleName)
+              : initialState.vehicleName,
+      serviceStatus:
+        parsed.serviceStatus === 'in_service' || parsed.serviceStatus === 'out_of_service'
+          ? parsed.serviceStatus
+          : initialState.serviceStatus,
+      selectedRoute: typeof parsed.selectedRoute === 'string'
+        ? parsed.selectedRoute
+        : initialState.selectedRoute,
+      selectedRouteId: parseStoredId(parsed.selectedRouteId),
+      selectedManifestId: parseStoredManifestId(parsed.selectedManifestId),
+      passengerCount,
+      apcCount: typeof parsed.apcCount === 'number'
+        ? parsed.apcCount
+        : passengerCount,
+      hasShownSupervisorModal: typeof parsed.hasShownSupervisorModal === 'boolean'
+        ? parsed.hasShownSupervisorModal
+        : initialState.hasShownSupervisorModal,
       isSyncingVehicle: false,
     };
   } catch {
@@ -106,25 +241,329 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<AuthState>(initialState);
+  const [isAssignmentBootstrapDone, setIsAssignmentBootstrapDone] = useState(false);
+  const [routeLabelTick, setRouteLabelTick] = useState(0);
   const hasRestored = useRef(false);
+  /** When true, assignment poll must not overwrite driver (iOS driverOverride). */
+  const driverOverrideRef = useRef(false);
+  /** After tablet Unassigned: hold selectDriverID(-2) until server clears assignment driver. */
+  const manualUnassignActiveRef = useRef(false);
+  /** Server driver ID we are clearing via unassign — new admin assignment with a different ID is allowed. */
+  const manualUnassignBlockedDriverIdRef = useRef<string | null>(null);
+  /** True only when the user tapped Unassigned this session (never on cold start). */
+  const userRequestedServerUnassignRef = useRef(false);
+  const assignmentBootstrapDoneRef = useRef(false);
+  const assignmentSyncRunRef = useRef<(() => void) | null>(null);
+  const assignmentAdoptGraceClearRef = useRef<(() => void) | null>(null);
+  const [assignmentTabDriver, setAssignmentTabDriver] = useState<Driver | null>(null);
+  /** When true, assignment poll must not overwrite route (iOS routeOverride). */
+  const routeOverrideRef = useRef(false);
+  const routeLastSelectedRef = useRef(0);
+  const assignmentRef = useRef<VehicleAssignmentPayload | null>(null);
+  /** MDT/vehicle driverID from last assignment API response. */
+  const assignmentApiDriverIdRef = useRef<string | number>(0);
+  const lastServerAssignmentAtRef = useRef(0);
+  const lastAssignmentRouteIdRef = useRef<string | null>(null);
+  const lastAssignmentCurrentRouteIdRef = useRef<string | null>(null);
+  const routeOverrideRefForTelemetry = useRef(false);
+  const serviceStatusRef = useRef(state.serviceStatus);
+  const vehicleIdRef = useRef<string | null>(state.vehicleId);
+  const driverRef = useRef<Driver | null>(state.driver);
+  const selectedRouteIdRef = useRef<string | null>(state.selectedRouteId);
+  const selectedManifestIdRef = useRef<number | null>(state.selectedManifestId);
+  const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
 
-  const resolveVehicleName = async (vId: string): Promise<string> => {
-    try {
-      const data = await getDriverData();
+  useEffect(() => {
+    vehicleIdRef.current = state.vehicleId;
+    driverRef.current = state.driver;
+    selectedRouteIdRef.current = state.selectedRouteId;
+    selectedManifestIdRef.current = state.selectedManifestId;
+    serviceStatusRef.current = state.serviceStatus;
+    routeOverrideRefForTelemetry.current = routeOverrideRef.current;
+  }, [state.vehicleId, state.driver, state.selectedRouteId, state.selectedManifestId, state.serviceStatus]);
 
-      const vehicles = Array.isArray(data?.vehicle) ? data.vehicle : [];
+  const prevVehicleIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevVehicleIdRef.current;
+    prevVehicleIdRef.current = state.vehicleId;
+    if (prev != null && prev !== state.vehicleId) {
+      manualUnassignActiveRef.current = false;
+      manualUnassignBlockedDriverIdRef.current = null;
+      driverOverrideRef.current = false;
+      setAssignmentTabDriver(null);
+    }
+  }, [state.vehicleId]);
 
-      const match = vehicles.find(v => String(v.vehicleID) === String(vId) || String(v.vehicleNumber) === String(vId));
-      if (match) {
-        return match.vehicleName || match.vehicleNumber || String(match.vehicleID) || vId;
+  const applyAssignmentApiTelemetry = useCallback((result: AssignmentResponse) => {
+    const active = hasServerAssignment(result);
+    if (active) {
+      lastServerAssignmentAtRef.current = Date.now();
+    }
+
+    const routeFromApi = getRouteIdFromAssignmentResult(
+      result,
+      result.assignment ?? assignmentRef.current,
+    );
+    if (routeFromApi) {
+      lastAssignmentCurrentRouteIdRef.current = routeFromApi;
+      lastAssignmentRouteIdRef.current = routeFromApi;
+    }
+
+    if (!driverOverrideRef.current) {
+      assignmentApiDriverIdRef.current = getTelemetryDriverIdFromAssignmentApi(result);
+    }
+    if (result.assignment) {
+      assignmentRef.current = result.assignment;
+      const ar = parseAssignmentDriverId(result.assignment.routeID);
+      if (isAssignedRouteId(ar)) {
+        lastAssignmentRouteIdRef.current = ar;
       }
+    } else if (
+      !active &&
+      Date.now() - lastServerAssignmentAtRef.current > ASSIGNMENT_ROUTE_STICKY_MS
+    ) {
+      assignmentRef.current = null;
+      lastAssignmentRouteIdRef.current = null;
+      lastAssignmentCurrentRouteIdRef.current = null;
+    }
+
+    if (driverOverrideRef.current) return;
+
+    const assignedId = getAssignedDriverIdFromResult(
+      result,
+      result.assignment ?? assignmentRef.current,
+    );
+    const local = driverRef.current;
+    const localUnassigned = !local || local.role === 'unassigned';
+
+    if (!assignedId) {
+      if (!hasServerAssignment(result)) {
+        setAssignmentTabDriver(null);
+      }
+      return;
+    }
+
+    if (localUnassigned) {
+      const tabDriver = findDriverById(assignedId);
+      if (tabDriver) {
+        setAssignmentTabDriver(tabDriver);
+      } else {
+        void lookupDriverByIdFromRoster(assignedId).then((fromRoster: Driver | null) => {
+          if (!fromRoster || driverOverrideRef.current) return;
+          const stillUnassigned =
+            !driverRef.current || driverRef.current.role === 'unassigned';
+          if (!stillUnassigned) return;
+          setAssignmentTabDriver(fromRoster);
+        });
+      }
+    }
+  }, []);
+
+  /** iOS selectDriverID(-2): assignment ref + refs before route work; UI via setDriverFromSync. */
+  const adoptDriverFromAssignment = useCallback((
+    resolved: Driver,
+    assignment: VehicleAssignmentPayload,
+  ) => {
+    assignmentRef.current = assignment;
+    manualUnassignActiveRef.current = false;
+    manualUnassignBlockedDriverIdRef.current = null;
+    driverRef.current = resolved;
+  }, []);
+
+  const syncTelemetryDriverIdFromLocal = useCallback((driver: Driver | null) => {
+    assignmentApiDriverIdRef.current = getMdtDriverIdFromSelectedDriver(driver);
+  }, []);
+
+  const getMdtRouteId = useCallback((): string | number => {
+    return getMdtRouteIdForVehicleUpdate({
+      selectedRouteId: selectedRouteIdRef.current,
+      serviceStatus: serviceStatusRef.current,
+      routeOverride: routeOverrideRefForTelemetry.current,
+      assignment: assignmentRef.current,
+      stickyAssignmentRouteId: lastAssignmentRouteIdRef.current,
+      currentRouteIdFromApi: lastAssignmentCurrentRouteIdRef.current,
+    });
+  }, []);
+
+  /** iOS selectedDriver for manual pick; assignment API when tablet is unassigned. */
+  const getMdtDriverId = useCallback((): string | number => {
+    const fromSelected = getMdtDriverIdFromSelectedDriver(driverRef.current);
+    if (fromSelected !== 0 && fromSelected !== '0') {
+      return fromSelected;
+    }
+    return coerceDriverIdForApi(assignmentApiDriverIdRef.current);
+  }, []);
+
+  const getVehicleAssignmentUpdated = useCallback(() => {
+    return vehicleAssignmentUpdatedRef.current;
+  }, []);
+
+  const syncAssignmentNow = useCallback(() => {
+    assignmentSyncRunRef.current?.();
+  }, []);
+
+  const registerAssignmentSync = useCallback((run: (() => void) | null) => {
+    assignmentSyncRunRef.current = run;
+  }, []);
+
+  const registerAdoptGraceClear = useCallback((clear: (() => void) | null) => {
+    assignmentAdoptGraceClearRef.current = clear;
+  }, []);
+
+  const vehicleAssignmentUpdatedRef = useRef(0);
+
+  const driverForTab = useMemo((): Driver => {
+    const local = state.driver ?? unassignedDriver;
+    if (local.role !== 'unassigned') {
+      return local;
+    }
+    if (assignmentTabDriver) {
+      return assignmentTabDriver;
+    }
+    return local;
+  }, [state.driver, assignmentTabDriver]);
+
+  const driverTabLabel = driverForTab.name;
+
+  const routeTabLabel = useMemo(() => {
+    if (isDisplayableRouteLabel(state.selectedRoute, state.selectedRouteId, state.selectedManifestId)) {
+      return state.selectedRoute!.trim();
+    }
+    if (state.serviceStatus === 'in_service') {
+      if (state.selectedManifestId != null) {
+        const blockName = findBlockNameById(state.selectedManifestId);
+        if (blockName) return blockName;
+        return '...';
+      }
+      if (isAssignedRouteId(state.selectedRouteId)) {
+        const routeName = findRouteLabelById(state.selectedRouteId);
+        if (routeName) return routeName;
+        return '...';
+      }
+    }
+    return 'Out of Service';
+  }, [
+    state.selectedRoute,
+    state.selectedRouteId,
+    state.selectedManifestId,
+    state.serviceStatus,
+    routeLabelTick,
+  ]);
+
+  useEffect(() => {
+    getManifestsForToday()
+      .then((list) => setTodayManifests(list))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const unsubRoutes = subscribeAgencyRoutesUpdated(() => {
+      setRouteLabelTick((t) => t + 1);
+    });
+    const unsubManifests = subscribeTodayManifestsUpdated(() => {
+      setRouteLabelTick((t) => t + 1);
+    });
+    return () => {
+      unsubRoutes();
+      unsubManifests();
+    };
+  }, []);
+
+  const notifyManualDriverChange = useCallback(async (
+    previousDriver: Driver | null,
+    nextDriver: Driver,
+    vehicleId: string | null,
+  ) => {
+    if (!vehicleId || vehicleId === '110') return;
+
+    if (nextDriver.role === 'unassigned') {
+      const clearServer = userRequestedServerUnassignRef.current;
+      userRequestedServerUnassignRef.current = false;
+      manualUnassignActiveRef.current = clearServer;
+      driverOverrideRef.current = false;
+      const fromAssignment = assignmentRef.current?.driverID;
+      manualUnassignBlockedDriverIdRef.current =
+        previousDriver != null && previousDriver.role !== 'unassigned'
+          ? String(previousDriver.id).trim()
+          : fromAssignment != null && String(fromAssignment) !== '0'
+            ? String(fromAssignment).trim()
+            : null;
+      if (clearServer) {
+        try {
+          const result = await applyDriverUnassignedIos({
+            vehicleId,
+            currentDriver: previousDriver,
+            selectedRouteId: selectedRouteIdRef.current,
+            selectedManifestId: selectedManifestIdRef.current,
+            clearAssignmentRecord: true,
+          });
+          assignmentRef.current = null;
+          setAssignmentTabDriver(null);
+          if (!result.success) {
+            console.error('[AuthContext] Unassign driver failed:', result.errorMessage);
+          } else if (__DEV__) {
+            console.log('[AuthContext] Driver unassigned on server');
+          }
+        } catch (e) {
+          console.error('[AuthContext] Unassign driver failed:', e);
+        }
+      }
+      return;
+    }
+
+    manualUnassignActiveRef.current = false;
+    driverOverrideRef.current = true;
+    driverRef.current = nextDriver;
+    syncTelemetryDriverIdFromLocal(nextDriver);
+    try {
+      await applyDriverManualIos({ vehicleId, driver: nextDriver });
     } catch (e) {
-      console.error('[AuthContext] resolveVehicleName failed:', e);
+      console.warn('[AuthContext] Manual driver login failed:', e);
+    }
+  }, [syncTelemetryDriverIdFromLocal]);
+
+  const resolveVehicleName = useCallback(async (vId: string): Promise<string> => {
+    const cached = lookupVehicleName(vId);
+    if (cached) return cached;
+
+    try {
+      const data = await getDriverData({ silent: true });
+      setAgencyVehicles(Array.isArray(data?.vehicle) ? data.vehicle : []);
+      const resolved = lookupVehicleName(vId);
+      if (resolved) return resolved;
+    } catch (e) {
+      if (__DEV__) {
+        console.warn('[AuthContext] resolveVehicleName failed:', e);
+      }
     }
     return vId;
-  };
+  }, []);
 
-  // Restore session from storage on mount
+  const applyRestoredSessionRefs = useCallback((restored: AuthState) => {
+    driverRef.current = restored.driver;
+    vehicleIdRef.current = restored.vehicleId;
+    selectedRouteIdRef.current = restored.selectedRouteId;
+    selectedManifestIdRef.current = restored.selectedManifestId;
+    const hasActiveRoute =
+      restored.serviceStatus === 'in_service' &&
+      (
+        (restored.selectedRoute && restored.selectedRoute !== 'Out of Service') ||
+        isAssignedRouteId(restored.selectedRouteId) ||
+        restored.selectedManifestId != null
+      );
+    if (hasActiveRoute) {
+      routeOverrideRef.current = true;
+      routeLastSelectedRef.current = Date.now() / 1000;
+    }
+
+    const restoredDriver = restored.driver;
+    if (restoredDriver && restoredDriver.role !== 'unassigned') {
+      driverOverrideRef.current = true;
+      assignmentApiDriverIdRef.current = getMdtDriverIdFromSelectedDriver(restoredDriver);
+    }
+  }, []);
+
+  // Restore session from storage on mount — hydrate UI immediately, then sync assignment in background
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -132,45 +571,71 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const stored = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
         if (cancelled) return;
         const restored = parseStoredState(stored);
-        if (restored) {
-          if (restored.driver && restored.driver.role !== 'unassigned') {
-            setState({ ...restored, isSyncingVehicle: true });
 
-            // Trigger MDT update immediately on launch
-            const deviceBrightness = await deviceService.getBrightness();
-            reportMdtStatusAfterLogin({
-              agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
-              vehicleID: restored.vehicleId || '0',
-              driverID: String(restored.driver.id),
-              screenBrightness: deviceBrightness / 100,
-            }).then(async (resp) => {
-              if (!cancelled && resp && resp.vehicleID) {
-                const resolvedName = await resolveVehicleName(String(resp.vehicleID));
-                setState(prev => ({
-                  ...prev,
-                  vehicleId: String(resp.vehicleID),
-                  vehicleName: resolvedName,
-                  isSyncingVehicle: false
-                }));
-              } else {
-                if (!cancelled) setState(prev => ({ ...prev, isSyncingVehicle: false }));
+        if (restored) {
+          applyRestoredSessionRefs(restored);
+          setState(restored);
+          hasRestored.current = true;
+
+          if (restored.vehicleId && !restored.vehicleName) {
+            resolveVehicleName(restored.vehicleId).then((name) => {
+              if (!cancelled) {
+                setState((s) => ({ ...s, vehicleName: name }));
               }
-            }).catch((err) => {
-              console.error('[AuthContext] Launch MDT sync failed:', err);
-              if (!cancelled) setState(prev => ({ ...prev, isSyncingVehicle: false }));
-            });
-          } else {
-            setState(restored);
+            }).catch(() => {});
           }
+
+          if (needsRouteLabelResolution(restored)) {
+            resolveStoredRouteLabel(restored).then((label) => {
+              if (!cancelled && label) {
+                setState((s) => ({ ...s, selectedRoute: label }));
+              }
+            }).catch(() => {});
+          }
+
+          const vId = restored.vehicleId;
+          if (vId && vId !== '110') {
+            try {
+              const assignmentResp = await getAssignment(vId, agencyID);
+              if (cancelled) return;
+              applyAssignmentApiTelemetry(assignmentResp);
+
+              if (restored.driver?.role === 'unassigned') {
+                const resolved = await resolveVehicleAssignmentSources(vId, assignmentResp);
+                if (resolved.assignedDriverId && resolved.assignment) {
+                  const adopted = await selectDriverFromAssignmentIos({
+                    vehicleId: vId,
+                    currentDriver: null,
+                    assignment: resolved.assignment,
+                  });
+                  if (adopted && !cancelled) {
+                    adoptDriverFromAssignment(adopted, resolved.assignment);
+                    setState((s) => ({ ...s, driver: adopted }));
+                  }
+                }
+              }
+
+              if (__DEV__) {
+                console.log('[AuthContext] Launch assignment telemetry driverID:', assignmentApiDriverIdRef.current);
+              }
+            } catch (e) {
+              console.warn('[AuthContext] Launch assignment bootstrap failed:', e);
+            }
+          }
+        } else {
+          hasRestored.current = true;
         }
+
+        assignmentBootstrapDoneRef.current = true;
+        if (!cancelled) setIsAssignmentBootstrapDone(true);
       } catch (_e) {
-        // keep initialState
-      } finally {
-        if (!cancelled) hasRestored.current = true;
+        hasRestored.current = true;
+        assignmentBootstrapDoneRef.current = true;
+        if (!cancelled) setIsAssignmentBootstrapDone(true);
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [applyRestoredSessionRefs, adoptDriverFromAssignment, applyAssignmentApiTelemetry, resolveVehicleName]);
 
   // Persist state whenever it changes (after first restore)
   useEffect(() => {
@@ -200,7 +665,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const lastVehicle = vehicles[vehicles.length - 1];
         const vId = lastVehicle.vehicleID || lastVehicle.vehicleNumber;
         if (vId) {
-          const resolvedName = await resolveVehicleName(String(vId));
+          const resolvedName =
+            (lastVehicle.vehicleName && String(lastVehicle.vehicleName).trim()) ||
+            (lastVehicle.vehicleNumber && String(lastVehicle.vehicleNumber).trim()) ||
+            (await resolveVehicleName(String(vId)));
           const updates: any = {
             vehicleId: String(vId),
             vehicleName: resolvedName,
@@ -224,10 +692,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const driverData = await getDriverData();
               const routes = Array.isArray(driverData?.route) ? driverData.route : [];
               const match = routes.find((r: any) => String(r.routeID) === String(assignment.routeID));
-              if (match) {
-                updates.selectedRoute = match.shortName || String(assignment.routeID);
-                updates.serviceStatus = 'in_service';
+              const routeLabel =
+                findRouteLabelById(String(assignment.routeID)) ||
+                (match ? (match.shortName || match.longName) : null);
+              if (routeLabel) {
+                updates.selectedRoute = routeLabel;
               }
+              updates.serviceStatus = 'in_service';
             } catch (e) {
               console.error('[AuthContext] Error finding route name:', e);
             }
@@ -235,10 +706,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Find the most recent active manifest assignment
             const activeManifest = manifests[0];
             updates.selectedManifestId = activeManifest.manifestID;
-            updates.selectedRouteId = null;
 
-            // Try to find the manifest name
             const match = allManifests.find((m) => m.manifestID === activeManifest.manifestID);
+            const blockRouteId = getPrimaryRouteIdFromManifestJson(match?.manifestJson);
+            updates.selectedRouteId = isAssignedRouteId(blockRouteId) ? blockRouteId : null;
+
             if (match) {
               updates.selectedRoute = match.name;
               updates.serviceStatus = 'in_service';
@@ -257,9 +729,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   };
 
+  const markUserRequestedUnassign = useCallback(() => {
+    userRequestedServerUnassignRef.current = true;
+    assignmentAdoptGraceClearRef.current?.();
+  }, []);
+
   const login = useCallback(async (driver: Driver, pin?: string): Promise<boolean> => {
     if (driver.role === 'unassigned') {
-      setState((s) => ({ ...s, driver, isAuthenticated: true, isSupervisorMode: false }));
+      const prev = driverRef.current;
+      const vId = vehicleIdRef.current;
+      const clearServer = userRequestedServerUnassignRef.current;
+      userRequestedServerUnassignRef.current = false;
+      manualUnassignActiveRef.current = clearServer;
+      driverOverrideRef.current = false;
+      const fromAssignment = assignmentRef.current?.driverID;
+      manualUnassignBlockedDriverIdRef.current =
+        prev != null && prev.role !== 'unassigned'
+          ? String(prev.id).trim()
+          : fromAssignment != null && String(fromAssignment) !== '0'
+            ? String(fromAssignment).trim()
+            : null;
+
+      if (clearServer && vId && vId !== '110') {
+        try {
+          const result = await applyDriverUnassignedIos({
+            vehicleId: vId,
+            currentDriver: prev?.role !== 'unassigned' ? prev : null,
+            selectedRouteId: selectedRouteIdRef.current,
+            selectedManifestId: selectedManifestIdRef.current,
+            clearAssignmentRecord: true,
+          });
+          assignmentRef.current = null;
+          setAssignmentTabDriver(null);
+          if (!result.success) {
+            console.error('[AuthContext] Unassign driver failed:', result.errorMessage);
+          } else if (__DEV__) {
+            console.log('[AuthContext] Driver unassigned on server (login)');
+          }
+        } catch (e) {
+          console.error('[AuthContext] Unassign driver failed:', e);
+        }
+      }
+
+      setState((s) => ({
+        ...s,
+        driver,
+        isAuthenticated: true,
+        isSupervisorMode: false,
+      }));
       return true;
     }
 
@@ -291,6 +808,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return false;
     }
 
+    const previousDriver = driverRef.current;
+    driverOverrideRef.current = true;
+    driverRef.current = resolvedDriver;
+    syncTelemetryDriverIdFromLocal(resolvedDriver);
     // UPDATE DRIVER IMMEDIATELY so the UI (like BottomBar) shows the name right away
     setState((s) => ({
       ...s,
@@ -304,6 +825,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (async () => {
       try {
         const vehicleUpdates = resolvedDriver?.role !== 'supervisor' && await fetchAndSetVehicle(resolvedDriver.id);
+        const vIdForDriver =
+          (vehicleUpdates && (vehicleUpdates as { vehicleId?: string }).vehicleId) ||
+          vehicleIdRef.current;
+        if (resolvedDriver.role !== 'supervisor') {
+          await notifyManualDriverChange(previousDriver, resolvedDriver, vIdForDriver ?? null);
+        }
         const deviceBrightness = await deviceService.getBrightness();
 
         // Call MDT status update after login (proactively)
@@ -314,7 +841,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             reportMdtStatusAfterLogin({
               agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
               vehicleID: String(vId),
-              driverID: String(resolvedDriver.id),
+              driverID: String(coerceDriverIdForApi(getMdtDriverIdFromSelectedDriver(resolvedDriver))),
               screenBrightness: deviceBrightness / 100,
             }).then(async (resp) => {
               if (resp && resp.vehicleID) {
@@ -371,6 +898,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [state.passengerCount, state.apcCount, state.vehicleId, state.vehicleName]);
   const selectDriver = useCallback(async (driver: Driver) => {
+    if (driver.role === 'unassigned') {
+      userRequestedServerUnassignRef.current = true;
+      await login(driver);
+      return;
+    }
+    const previousDriver = driverRef.current;
     let mapped: Driver = driver;
     try {
       const data = await getDriverData();
@@ -391,6 +924,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('[AuthContext] Driver data fetch failed in selectDriver:', e);
     }
 
+    driverOverrideRef.current = true;
+    driverRef.current = mapped;
+    syncTelemetryDriverIdFromLocal(mapped);
     // UPDATE DRIVER IMMEDIATELY
     setState((s) => ({
       ...s,
@@ -398,11 +934,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isSupervisorMode: mapped.role === 'supervisor',
       hasShownSupervisorModal: false,
     }));
+    if (mapped.role !== 'unassigned') {
+      manualUnassignActiveRef.current = false;
+    }
 
     // Fetch vehicles for the selected driver and pick the last one in background
     (async () => {
       try {
         const vehicleUpdates = await fetchAndSetVehicle(mapped.id);
+        const vId =
+          (vehicleUpdates && (vehicleUpdates as { vehicleId?: string }).vehicleId) ||
+          vehicleIdRef.current;
+        if (mapped.role !== 'supervisor') {
+          await notifyManualDriverChange(previousDriver, mapped, vId ?? null);
+        }
         setState((s) => ({
           ...s,
           // Reset to defaults first
@@ -419,9 +964,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })();
   }, []);
 
-  const setVehicleId = useCallback((vehicleId: string | null) => {
+  const setVehicleId = useCallback((
+    vehicleId: string | null,
+    options?: { fromTablet?: boolean },
+  ) => {
+    vehicleIdRef.current = vehicleId;
+    if (options?.fromTablet && vehicleId && vehicleId !== '110') {
+      const ts = Math.floor(Date.now() / 1000);
+      vehicleAssignmentUpdatedRef.current = ts;
+      AsyncStorage.setItem(VEHICLE_ASSIGNMENT_UPDATED_KEY, String(ts)).catch(() => {});
+    }
     setState((s) => ({ ...s, vehicleId }));
-  }, []);
+    if (vehicleId && vehicleId !== '110') {
+      syncAssignmentNow();
+    }
+  }, [syncAssignmentNow]);
 
   const setVehicleName = useCallback((vehicleName: string | null) => {
     setState((s) => ({ ...s, vehicleName }));
@@ -431,12 +988,151 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setState((s) => ({ ...s, serviceStatus }));
   }, []);
 
-  const selectRouteOrStatus = useCallback((value: string, routeId?: string | null, manifestId?: number | null) => {
+  const markDriverManualSelection = useCallback(() => {
+    driverOverrideRef.current = true;
+  }, []);
+
+  const markRouteManualSelection = useCallback(() => {
+    routeOverrideRef.current = true;
+    routeOverrideRefForTelemetry.current = true;
+    routeLastSelectedRef.current = Date.now() / 1000;
+  }, []);
+
+  const applyRouteFromServer = useCallback((
+    label: string,
+    routeId: string | null,
+    manifestId: number | null,
+    serviceStatus: 'in_service' | 'out_of_service',
+  ) => {
+    setState((s) => {
+      if (
+        s.selectedRoute === label &&
+        s.selectedRouteId === routeId &&
+        s.selectedManifestId === manifestId &&
+        s.serviceStatus === serviceStatus
+      ) {
+        return s;
+      }
+      return {
+        ...s,
+        selectedRoute: label,
+        selectedRouteId: routeId,
+        selectedManifestId: manifestId,
+        serviceStatus,
+      };
+    });
+  }, []);
+
+  const setDriverFromSync = useCallback((driver: Driver) => {
+    driverRef.current = driver;
+    if (manualUnassignActiveRef.current && driver.role !== 'unassigned') {
+      manualUnassignActiveRef.current = false;
+      manualUnassignBlockedDriverIdRef.current = null;
+    }
+    if (driver.role !== 'unassigned') {
+      setAssignmentTabDriver(null);
+    }
+    setState((s) => ({
+      ...s,
+      driver,
+      isSupervisorMode: driver.role === 'supervisor',
+    }));
+  }, []);
+
+  const acceptDashboardAssignment = useCallback(() => {
+    const assigned = driverForTab.role !== 'unassigned' ? driverForTab : null;
+    if (!assigned) return;
+    driverOverrideRef.current = false;
+    manualUnassignActiveRef.current = false;
+    manualUnassignBlockedDriverIdRef.current = null;
+    setDriverFromSync(assigned);
+    syncAssignmentNow();
+  }, [driverForTab, setDriverFromSync, syncAssignmentNow]);
+
+  useEffect(() => {
+    return subscribeAgencyDriversUpdated(() => {
+      const assignedId = parseAssignmentDriverId(assignmentRef.current?.driverID);
+      if (!assignedId || driverOverrideRef.current) return;
+
+      const fromRoster = findDriverById(assignedId);
+      if (!fromRoster) return;
+
+      const current = driverRef.current;
+      if (
+        current &&
+        current.role !== 'unassigned' &&
+        String(current.id).trim() === assignedId
+      ) {
+        if (current.name !== fromRoster.name) {
+          setDriverFromSync(fromRoster);
+        }
+        return;
+      }
+
+      if (!current || current.role === 'unassigned') {
+        setAssignmentTabDriver(fromRoster);
+        if (assignmentRef.current && !manualUnassignActiveRef.current) {
+          syncAssignmentNow();
+        }
+      }
+    });
+  }, [syncAssignmentNow, setDriverFromSync]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(VEHICLE_ASSIGNMENT_UPDATED_KEY).then((stored) => {
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!Number.isNaN(parsed)) {
+          vehicleAssignmentUpdatedRef.current = parsed;
+        }
+      }
+    }).catch(() => {});
+  }, []);
+
+  useAssignmentSync({
+    vehicleId: state.vehicleId,
+    isSupervisorMode: state.isSupervisorMode,
+    driver: state.driver,
+    setDriver: setDriverFromSync,
+    applyRouteFromServer,
+    driverOverrideRef,
+    routeOverrideRef,
+    routeLastSelectedRef,
+    assignmentRef,
+    manualUnassignActiveRef,
+    manualUnassignBlockedDriverIdRef,
+    assignmentBootstrapDone: isAssignmentBootstrapDone,
+    adoptDriverFromAssignment,
+    registerAssignmentSync,
+    registerAdoptGraceClear,
+    onAssignmentApiResponse: applyAssignmentApiTelemetry,
+    lastServerAssignmentAtRef,
+    selectedManifestIdRef,
+    selectedManifestId: state.selectedManifestId,
+  });
+
+  const selectRouteOrStatus = useCallback((
+    value: string,
+    routeId?: string | null,
+    manifestId?: number | null,
+    options?: { manual?: boolean },
+  ) => {
+    if (options?.manual) {
+      routeOverrideRef.current = true;
+      routeOverrideRefForTelemetry.current = true;
+      routeLastSelectedRef.current = Date.now() / 1000;
+    }
     const isOutOfService = value === 'Out of Service';
+    if (isOutOfService && options?.manual) {
+      lastAssignmentRouteIdRef.current = null;
+      lastAssignmentCurrentRouteIdRef.current = null;
+    }
+    const resolvedRouteId =
+      isOutOfService || isAssignedRouteId(routeId) ? (routeId ?? null) : null;
     setState((s) => ({
       ...s,
       selectedRoute: value,
-      selectedRouteId: isOutOfService ? null : (routeId ?? null),
+      selectedRouteId: isOutOfService ? null : resolvedRouteId,
       selectedManifestId: isOutOfService ? null : (manifestId ?? null),
       serviceStatus: isOutOfService ? 'out_of_service' : 'in_service',
       ...(isOutOfService ? {
@@ -444,6 +1140,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } : {}),
     }));
   }, []);
+
+  // Resolve route/block display name when we have IDs but the tab label is missing.
+  useEffect(() => {
+    if (!needsRouteLabelResolution(state)) return;
+
+    let cancelled = false;
+    resolveStoredRouteLabel(state).then((label) => {
+      if (!cancelled && label) {
+        setState((s) => (s.selectedRoute === label ? s : { ...s, selectedRoute: label }));
+      }
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.selectedRoute, state.selectedRouteId, state.selectedManifestId, state.serviceStatus]);
+
+  // Block assignments may persist with manifestId but no routeId — resolve for OTP / vehicle updates.
+  useEffect(() => {
+    const manifestId = state.selectedManifestId;
+    const routeId = state.selectedRouteId;
+    if (!manifestId || isAssignedRouteId(routeId)) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const manifests = await getManifestsForToday();
+        if (cancelled) return;
+        const match = manifests.find((m) => m.manifestID === manifestId);
+        const resolved = getPrimaryRouteIdFromManifestJson(match?.manifestJson);
+        if (!resolved || resolved === routeId) return;
+        setState((s) => ({
+          ...s,
+          selectedRouteId: resolved,
+          selectedRoute:
+            s.selectedRoute && s.selectedRoute !== 'Out of Service'
+              ? s.selectedRoute
+              : (match?.name || s.selectedRoute),
+        }));
+      } catch (e) {
+        console.warn('[AuthContext] Failed to resolve block route ID:', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.selectedManifestId, state.selectedRouteId]);
 
   const setSelectedManifestId = useCallback((selectedManifestId: number | null) => {
     setState((s) => ({ ...s, selectedManifestId }));
@@ -457,15 +1201,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const syncVehicleAssignment = useCallback(async () => {
-    if (!state.driver || state.driver.role === 'unassigned') return;
+    if (manualUnassignActiveRef.current) return;
+    const vId = state.vehicleId;
+    if (!vId || vId === '110') return;
 
     setState(s => ({ ...s, isSyncingVehicle: true }));
     try {
+      try {
+        const assignmentResp = await getAssignment(vId, agencyID);
+        applyAssignmentApiTelemetry(assignmentResp);
+      } catch {
+        // use cached assignment telemetry driverID
+      }
       const deviceBrightness = await deviceService.getBrightness();
       const resp = await reportMdtStatusAfterLogin({
         agencyID: String(PEAK_DEFAULT_PARAMS.agencyID),
-        vehicleID: state.vehicleId || '0',
-        driverID: String(state.driver.id),
+        vehicleID: vId,
+        driverID: String(getMdtDriverId()),
         screenBrightness: deviceBrightness / 100,
       });
 
@@ -484,7 +1236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('[AuthContext] syncVehicleAssignment failed:', e);
       setState(s => ({ ...s, isSyncingVehicle: false }));
     }
-  }, [state.driver, state.vehicleId]);
+  }, [state.vehicleId, getMdtDriverId]);
 
   return (
     <AuthContext.Provider
@@ -497,6 +1249,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setVehicleName,
         setServiceStatus,
         selectRouteOrStatus,
+        markDriverManualSelection,
+        markUserRequestedUnassign,
+        markRouteManualSelection,
+        isAssignmentBootstrapDone,
+        getMdtDriverId,
+        getMdtRouteId,
+        getVehicleAssignmentUpdated,
+        syncAssignmentNow,
+        acceptDashboardAssignment,
+        driverTabLabel,
+        routeTabLabel,
+        driverForTab,
         setPassengerCount,
         setSelectedManifestId,
         syncVehicleAssignment,

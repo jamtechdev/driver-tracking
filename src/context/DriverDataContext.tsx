@@ -24,6 +24,10 @@ import type {
     DriverDataDriver,
     DriverDataMessage,
 } from '@/api/driverData.api';
+import { parseGeofences, type GeofenceData } from '@/utils/geofence';
+import { setAgencyDrivers } from '@/utils/driverLookup';
+import { setAgencyRoutes } from '@/utils/routeLookup';
+import { setAgencyVehicles } from '@/utils/vehicleLookup';
 
 // ─── Fine-grained types matching the API response ────────────────────────────
 
@@ -90,6 +94,8 @@ export interface DriverDataContextType {
     messages: DriverDataMessage[];
     /** Stop list */
     stops: StopData[];
+    /** Agency geofences (from driver data API) */
+    geofences: GeofenceData[];
     /** Fare categories from agency data */
     fareCategories: FareCategory[];
     /** Loading state */
@@ -167,12 +173,29 @@ export const DriverDataProvider: React.FC<{ children: React.ReactNode }> = ({
         () => (Array.isArray(rawData?.driver) ? (rawData!.driver as DriverDataDriver[]) : []),
         [rawData]
     );
+
+    useEffect(() => {
+        setAgencyDrivers(drivers);
+    }, [drivers]);
+
+    useEffect(() => {
+        setAgencyRoutes(routes);
+    }, [routes]);
+
+    useEffect(() => {
+        setAgencyVehicles(vehicles);
+    }, [vehicles]);
+
     const messages = useMemo<DriverDataMessage[]>(
         () => (Array.isArray(rawData?.messages) ? (rawData!.messages as DriverDataMessage[]) : []),
         [rawData]
     );
     const stops = useMemo<StopData[]>(
         () => (Array.isArray(rawData?.stop) ? (rawData!.stop as StopData[]) : []),
+        [rawData]
+    );
+    const geofences = useMemo<GeofenceData[]>(
+        () => parseGeofences(rawData?.geofences),
         [rawData]
     );
     const fareCategories = useMemo<FareCategory[]>(
@@ -193,12 +216,13 @@ export const DriverDataProvider: React.FC<{ children: React.ReactNode }> = ({
             drivers,
             messages,
             stops,
+            geofences,
             fareCategories,
             isLoading,
             error,
             refetch: fetchData,
         }),
-        [rawData, agency, vehicles, routes, drivers, messages, stops, fareCategories, isLoading, error, fetchData]
+        [rawData, agency, vehicles, routes, drivers, messages, stops, geofences, fareCategories, isLoading, error, fetchData]
     );
 
     return (

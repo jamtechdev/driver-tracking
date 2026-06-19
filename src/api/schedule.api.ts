@@ -19,6 +19,8 @@ export interface ScheduleStop {
 
 export interface RouteScheduleResponse {
     schedule?: ScheduleStop[];
+    linkAverages?: number[];
+    totalRouteTime?: number;
     [key: string]: unknown;
 }
 
