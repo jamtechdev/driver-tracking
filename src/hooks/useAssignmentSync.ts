@@ -345,5 +345,5 @@ export function useAssignmentSync(handlers: AssignmentSyncHandlers): void {
     run();
     const id = setInterval(run, pollMs);
     return () => clearInterval(id);
-  }, [peakApiEnabled, vehicleId, isSupervisorMode, assignmentBootstrapDone, pollMs, selectedManifestId]);
+  }, [vehicleId, isSupervisorMode, assignmentBootstrapDone, pollMs, selectedManifestId]);
 }

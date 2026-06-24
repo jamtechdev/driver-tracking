@@ -41,7 +41,6 @@ import {
   getTelemetryDriverIdFromAssignmentApi,
 } from '@/utils/mdtTelemetry';
 import { coerceDriverIdForApi } from '@/utils/outboundDriverId';
-import { mdtVehicleIdForApi } from '@/utils/mdtId';
 import {
   findRouteLabelById,
   isDisplayableRouteLabel,
@@ -458,11 +457,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ]);
 
   useEffect(() => {
-    if (!apiEnabled) return;
     getManifestsForToday()
       .then((list) => setTodayManifests(list))
       .catch(() => {});
-  }, [apiEnabled]);
+  }, []);
 
   useEffect(() => {
     const unsubRoutes = subscribeAgencyRoutesUpdated(() => {
@@ -534,8 +532,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cached = lookupVehicleName(vId);
     if (cached) return cached;
 
-    if (!apiEnabled) return vId;
-
     try {
       const data = await getDriverData({ silent: true });
       setAgencyVehicles(Array.isArray(data?.vehicle) ? data.vehicle : []);
@@ -547,7 +543,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     return vId;
-  }, [apiEnabled]);
+  }, []);
 
   const applyRestoredSessionRefs = useCallback((restored: AuthState) => {
     driverRef.current = restored.driver;
@@ -573,7 +569,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Restore local auth state from storage (no network).
+  // Restore session from storage on mount — hydrate UI immediately, then sync assignment in background
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -585,118 +581,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (restored) {
           applyRestoredSessionRefs(restored);
           setState(restored);
-        }
+          hasRestored.current = true;
 
-        hasRestored.current = true;
-      } catch (_e) {
-        hasRestored.current = true;
-      } finally {
-        if (!cancelled) {
-          setIsAuthRestored(true);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [applyRestoredSessionRefs]);
+          if (restored.vehicleId && !restored.vehicleName) {
+            resolveVehicleName(restored.vehicleId).then((name) => {
+              if (!cancelled) {
+                setState((s) => ({ ...s, vehicleName: name }));
+              }
+            }).catch(() => {});
+          }
 
-  // Peak APIs: assignment bootstrap after agency session is authenticated.
-  useEffect(() => {
-    if (!apiEnabled || !isAuthRestored) {
-      if (!apiEnabled) {
-        assignmentBootstrapStartedRef.current = false;
-        assignmentBootstrapDoneRef.current = false;
-        setIsAssignmentBootstrapDone(false);
-      }
-      return;
-    }
+          if (needsRouteLabelResolution(restored)) {
+            resolveStoredRouteLabel(restored).then((label) => {
+              if (!cancelled && label) {
+                setState((s) => ({ ...s, selectedRoute: label }));
+              }
+            }).catch(() => {});
+          }
 
-    if (assignmentBootstrapStartedRef.current) {
-      return;
-    }
-    assignmentBootstrapStartedRef.current = true;
+          const vId = restored.vehicleId;
+          if (vId && vId !== '110') {
+            try {
+              const assignmentResp = await getAssignment(vId, agencyID);
+              if (cancelled) return;
+              applyAssignmentApiTelemetry(assignmentResp);
 
-    let cancelled = false;
-
-    const bootstrapAssignment = async () => {
-      try {
-        const vId = vehicleIdRef.current;
-        const restoredDriver = driverRef.current;
-
-        if (vId && !state.vehicleName) {
-          resolveVehicleName(vId).then((name) => {
-            if (!cancelled) {
-              setState((s) => ({ ...s, vehicleName: name }));
-            }
-          }).catch(() => {});
-        }
-
-        if (
-          needsRouteLabelResolution({
-            selectedRoute: state.selectedRoute,
-            selectedRouteId: state.selectedRouteId,
-            selectedManifestId: state.selectedManifestId,
-            serviceStatus: state.serviceStatus,
-          })
-        ) {
-          resolveStoredRouteLabel({
-            selectedRouteId: state.selectedRouteId,
-            selectedManifestId: state.selectedManifestId,
-          }).then((label) => {
-            if (!cancelled && label) {
-              setState((s) => ({ ...s, selectedRoute: label }));
-            }
-          }).catch(() => {});
-        }
-
-        if (vId && vId !== '110') {
-          try {
-            const assignmentResp = await getAssignment(vId, agencyID);
-            if (cancelled) return;
-            applyAssignmentApiTelemetry(assignmentResp);
-
-            if (restoredDriver?.role === 'unassigned') {
-              const resolved = await resolveVehicleAssignmentSources(vId, assignmentResp);
-              if (resolved.assignedDriverId && resolved.assignment) {
-                const adopted = await selectDriverFromAssignmentIos({
-                  vehicleId: vId,
-                  currentDriver: null,
-                  assignment: resolved.assignment,
-                });
-                if (adopted && !cancelled) {
-                  adoptDriverFromAssignment(adopted, resolved.assignment);
-                  setState((s) => ({ ...s, driver: adopted }));
+              if (restored.driver?.role === 'unassigned') {
+                const resolved = await resolveVehicleAssignmentSources(vId, assignmentResp);
+                if (resolved.assignedDriverId && resolved.assignment) {
+                  const adopted = await selectDriverFromAssignmentIos({
+                    vehicleId: vId,
+                    currentDriver: null,
+                    assignment: resolved.assignment,
+                  });
+                  if (adopted && !cancelled) {
+                    adoptDriverFromAssignment(adopted, resolved.assignment);
+                    setState((s) => ({ ...s, driver: adopted }));
+                  }
                 }
               }
-            }
 
-            if (__DEV__) {
-              console.log('[AuthContext] Assignment bootstrap driverID:', assignmentApiDriverIdRef.current);
+              if (__DEV__) {
+                console.log('[AuthContext] Launch assignment telemetry driverID:', assignmentApiDriverIdRef.current);
+              }
+            } catch (e) {
+              console.warn('[AuthContext] Launch assignment bootstrap failed:', e);
             }
-          } catch (e) {
-            console.warn('[AuthContext] Assignment bootstrap failed:', e);
           }
+        } else {
+          hasRestored.current = true;
         }
-      } finally {
+
+        assignmentBootstrapDoneRef.current = true;
+        if (!cancelled) setIsAssignmentBootstrapDone(true);
+      } catch (_e) {
+        hasRestored.current = true;
         assignmentBootstrapDoneRef.current = true;
         if (!cancelled) setIsAssignmentBootstrapDone(true);
       }
-    };
-
-    void bootstrapAssignment();
+    })();
     return () => { cancelled = true; };
-  }, [
-    apiEnabled,
-    isAuthRestored,
-    adoptDriverFromAssignment,
-    applyAssignmentApiTelemetry,
-    resolveVehicleName,
-    agencyID,
-    state.vehicleName,
-    state.selectedRoute,
-    state.selectedRouteId,
-    state.selectedManifestId,
-    state.serviceStatus,
-  ]);
+  }, [applyRestoredSessionRefs, adoptDriverFromAssignment, applyAssignmentApiTelemetry, resolveVehicleName]);
 
   // Persist state whenever it changes (after first restore)
   useEffect(() => {
@@ -1221,7 +1166,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Block assignments may persist with manifestId but no routeId — resolve for OTP / vehicle updates.
   useEffect(() => {
-    if (!apiEnabled) return;
     const manifestId = state.selectedManifestId;
     const routeId = state.selectedRouteId;
     if (!manifestId || isAssignedRouteId(routeId)) return;
@@ -1250,7 +1194,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       cancelled = true;
     };
-  }, [apiEnabled, state.selectedManifestId, state.selectedRouteId]);
+  }, [state.selectedManifestId, state.selectedRouteId]);
 
   const setSelectedManifestId = useCallback((selectedManifestId: number | null) => {
     setState((s) => ({ ...s, selectedManifestId }));

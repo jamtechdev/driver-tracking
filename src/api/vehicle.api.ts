@@ -112,6 +112,8 @@ export const getAllVehicles = async (): Promise<any[]> => {
         const vehicleListUrl = getVehicleListUrl();
         console.log('[VehicleAPI] Fetching all vehicles from:', vehicleListUrl);
         const response = await axios.get(vehicleListUrl, { timeout: API_CONFIG.TIMEOUT });
+        // console.log('[VehicleAPI] Fetching all vehicles from:', VEHICLE_LIST_URL);
+        // const response = await axios.get(VEHICLE_LIST_URL, { timeout: API_CONFIG.TIMEOUT });
         const data = response?.data;
 
         if (data == null) {

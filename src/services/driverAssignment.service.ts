@@ -14,15 +14,13 @@ import { lookupDriverByIdFromRoster } from '@/utils/driverLookup';
 import { resolveRouteIdForServer } from '@/utils/resolveRouteIdForServer';
 import type { Driver } from '@/data/drivers';
 import type { VehicleAssignmentPayload } from '@/api/position.api';
-import { getAgencyId } from '@/services/agencySession.service';
+import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import {
   getAssignedDriverIdFromResult,
   resolveVehicleAssignmentSources,
 } from '@/utils/assignmentDriverId';
 
-function agencyID(): string {
-  return getAgencyId();
-}
+const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
 
 export type DriverAssignmentResult = {
   success: boolean;
@@ -65,7 +63,7 @@ export async function applyDriverUnassignedIos(params: {
   let assignmentDriverId = logoutDriverId(params.currentDriver);
 
   try {
-    const assignmentResp = await getAssignment(params.vehicleId, agencyID());
+    const assignmentResp = await getAssignment(params.vehicleId, agencyID);
     const fromServer = parseAssignmentDriverId(assignmentResp.assignment?.driverID);
     if (fromServer) {
       assignmentDriverId = fromServer;
@@ -77,7 +75,7 @@ export async function applyDriverUnassignedIos(params: {
   if (assignmentDriverId !== '0') {
     try {
       const logoutData = await driverLogout({
-        agencyID: agencyID(),
+        agencyID,
         vehicleID: params.vehicleId,
         driverID: assignmentDriverId,
       });
@@ -99,7 +97,7 @@ export async function applyDriverUnassignedIos(params: {
     });
     try {
       const updateData = await selfUpdateAssignment({
-        agencyID: agencyID(),
+        agencyID,
         vehicleID: params.vehicleId,
         routeID,
         driverID: 0,
@@ -148,7 +146,7 @@ export async function selectDriverFromAssignmentIos(params: {
   if (currentId !== '0' && currentId !== targetId) {
     try {
       await driverLogout({
-        agencyID: agencyID(),
+        agencyID,
         vehicleID: params.vehicleId,
         driverID: currentId,
       });
@@ -171,7 +169,7 @@ export async function bootstrapDriverFromServerAssignment(
 ): Promise<Driver | null> {
   if (!vehicleId || vehicleId === '110') return null;
   try {
-    const result = await getAssignment(vehicleId, agencyID());
+    const result = await getAssignment(vehicleId, agencyID);
     const { assignedDriverId, assignment } = await resolveVehicleAssignmentSources(
       vehicleId,
       result,
@@ -196,7 +194,7 @@ export async function applyDriverManualIos(params: {
 }): Promise<void> {
   if (params.driver.role === 'unassigned') return;
   const data = await driverLogin({
-    agencyID: agencyID(),
+    agencyID,
     vehicleID: params.vehicleId,
     driverID: String(params.driver.id),
   });

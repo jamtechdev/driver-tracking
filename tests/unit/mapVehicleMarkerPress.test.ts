@@ -18,6 +18,25 @@ describe('useMapVehicleMarkerPress', () => {
     expect(onVehiclePress).toHaveBeenCalledWith(vehicles[0]);
   });
 
+  it('ignores stop marker presses', () => {
+    const onVehiclePress = jest.fn();
+    const onStopMarkerPress = jest.fn();
+    const { result } = renderHook(() =>
+      useMapVehicleMarkerPress(vehicles, onVehiclePress, undefined, undefined, {
+        onStopMarkerPress,
+      }),
+    );
+
+    act(() => {
+      result.current.onMapMarkerPress({
+        nativeEvent: { identifier: 'stop-1-42' },
+      });
+    });
+
+    expect(onVehiclePress).not.toHaveBeenCalled();
+    expect(onStopMarkerPress).toHaveBeenCalledTimes(1);
+  });
+
   it('dedupes rapid duplicate presses', () => {
     const onVehiclePress = jest.fn();
     const { result } = renderHook(() =>

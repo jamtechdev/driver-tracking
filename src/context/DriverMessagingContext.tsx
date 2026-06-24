@@ -76,6 +76,9 @@ export const DriverMessagingProvider: React.FC<{ children: React.ReactNode }> = 
         });
     }, []);
 
+    /**
+     * Dismiss alert
+     */
     const dismissAlert = useCallback(() => {
         if (dismissTimeoutRef.current) {
             clearTimeout(dismissTimeoutRef.current);
@@ -152,6 +155,7 @@ export const DriverMessagingProvider: React.FC<{ children: React.ReactNode }> = 
         intervalRef.current = setInterval(() => {
             void pollDriverMessages();
         }, POLL_INTERVAL_MS);
+        intervalRef.current = setInterval(pollDriverMessages, POLL_INTERVAL_MS);
 
         return () => {
             if (intervalRef.current) {
