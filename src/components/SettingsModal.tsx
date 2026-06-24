@@ -72,7 +72,8 @@ interface DebugInfo {
 // ─── Debug Screen using FlatList ──────────────────────────────────────
 const DebugScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const { vehicleId, vehicleName, selectedRouteId } = useAuth();
-  const { lastLocation, minsLate, nextStop, schedule, linkAverages } = useDriverModel();
+  const { lastLocation, minsLate, nextStop, schedule, linkAverages, currentStopGeofence } =
+    useDriverModel();
   const { agency, routes } = useDriverData();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
@@ -243,6 +244,10 @@ const DebugScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       { type: 'row', label: 'Expected Link', value: String(expectedLink) },
       { type: 'row', label: 'Driver Model Mins Late', value: minsLate?.toString() ?? 'N/A' },
 
+      // { type: 'section', title: 'STOP GEOFENCE' },
+      // { type: 'row', label: 'Inside Geofence', value: currentStopGeofence?.name ?? 'N/A' },
+      // { type: 'row', label: 'Geofence ID', value: currentStopGeofence?.geofenceID ?? 'N/A' },
+
       { type: 'section', title: 'NEXT STOP' },
       { type: 'row', label: 'Name', value: nextStop?.longName ?? 'N/A' },
       {
@@ -268,6 +273,7 @@ const DebugScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       timeToNextStop,
       timeToScheduledStop,
       minsLate,
+      currentStopGeofence,
     ]
   );
 

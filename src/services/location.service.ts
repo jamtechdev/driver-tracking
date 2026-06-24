@@ -17,7 +17,7 @@ export interface GeolocationResponse {
 /** Shared watch options for foreground and background tasks. */
 export const GEOLOCATION_WATCH_OPTIONS: Geolocation.GeoWatchOptions = {
   enableHighAccuracy: true,
-  distanceFilter: 5,
+  distanceFilter: 3,
   interval: 5000,
   fastestInterval: 2000,
   showsBackgroundLocationIndicator: true,

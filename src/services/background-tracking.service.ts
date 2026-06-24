@@ -218,7 +218,7 @@ class BackgroundTrackingService {
       };
 
       const resp: { vehicleID?: string | number } = await mdtUpdate(params);
-      if (resp?.vehicleID) {
+      if (resp?.vehicleID && String(resp.vehicleID) !== '0') {
         this.currentData.vehicleID = String(resp.vehicleID);
       }
     } catch (error) {

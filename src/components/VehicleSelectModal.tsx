@@ -22,7 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import Toast from 'react-native-toast-message';
-import { API_CONFIG, DRIVER_VEHICLE_SELECT_BASE_URL } from '../config/api.config';
+import { API_CONFIG, getDriverVehicleSelectBaseUrl } from '../config/api.config';
 import axios from 'axios';
 import { BOTTOM_BAR_HEIGHT } from '../utils/constants';
 import { useDriverData } from '@/context/DriverDataContext';
@@ -66,7 +66,7 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
     try {
       const driverId = driver?.id ?? '';
       const routeID = selectedRouteId ?? '0';
-      const selectUrl = `${DRIVER_VEHICLE_SELECT_BASE_URL}&routeID=${encodeURIComponent(routeID)}&vehicleID=${encodeURIComponent(id)}&driverID=${encodeURIComponent(driverId)}`;
+      const selectUrl = `${getDriverVehicleSelectBaseUrl()}&routeID=${encodeURIComponent(routeID)}&vehicleID=${encodeURIComponent(id)}&driverID=${encodeURIComponent(driverId)}`;
       await axios.get(selectUrl, { timeout: API_CONFIG.TIMEOUT });
       Toast.show({
         type: 'success',
@@ -88,7 +88,7 @@ const VehicleSelectModal: React.FC<VehicleSelectModalProps> = ({ visible, onClos
       : undefined;
     const label = displayLabel(item);
 
-    setVehicleId(id);
+    setVehicleId(id, { fromTablet: true });
     setVehicleName(name ?? label);
     onClose();
   };

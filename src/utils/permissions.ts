@@ -1,75 +1,22 @@
-// /**
-//  * Permission Handling Utilities
-//  */
-
-// import { Platform, PermissionsAndroid } from 'react-native';
-
-// /**
-//  * Request location permission
-//  */
-// export const requestLocationPermission = async (): Promise<boolean> => {
-//   if (Platform.OS === 'android') {
-//     try {
-//       const granted = await PermissionsAndroid.request(
-//         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-//         {
-//           title: 'Location Permission',
-//           message: 'This app needs access to your location for GPS tracking.',
-//           buttonNeutral: 'Ask Me Later',
-//           buttonNegative: 'Cancel',
-//           buttonPositive: 'OK',
-//         }
-//       );
-//       return granted === PermissionsAndroid.RESULTS.GRANTED;
-//     } catch (err) {
-//       console.warn(err);
-//       return false;
-//     }
-//   } else {
-//     // For iOS, background location is required for tracking.
-//     // The prompt is typically handled by the library, but we return true as a placeholder.
-//     return true;
-//   }
-// };
-
-// /**
-//  * Request background location permission
-//  */
-// export const requestBackgroundLocationPermission = async (): Promise<boolean> => {
-//   if (Platform.OS === 'android') {
-//     try {
-//       const granted = await PermissionsAndroid.request(
-//         PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
-//         {
-//           title: 'Background Location Permission',
-//           message: 'This app needs background location access for GPS tracking.',
-//           buttonNeutral: 'Ask Me Later',
-//           buttonNegative: 'Cancel',
-//           buttonPositive: 'OK',
-//         }
-//       );
-//       return granted === PermissionsAndroid.RESULTS.GRANTED;
-//     } catch (err) {
-//       console.warn(err);
-//       return false;
-//     }
-//   } else {
-//     return true;
-//   }
-// };
-
-
-
 import { Platform, PermissionsAndroid, Linking, Alert } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
+
+function isIosLocationGranted(status: string): boolean {
+  return status === 'granted' || status === 'restricted';
+}
 
 export const requestLocationPermission = async (): Promise<boolean> => {
   if (Platform.OS === 'ios') {
     try {
-      const auth = await Geolocation.requestAuthorization('always');
-      return auth === 'granted' || auth === 'restricted';
+      const whenInUse = await Geolocation.requestAuthorization('whenInUse');
+      if (!isIosLocationGranted(whenInUse)) {
+        return false;
+      }
+
+      const always = await Geolocation.requestAuthorization('always');
+      return isIosLocationGranted(always) || isIosLocationGranted(whenInUse);
     } catch (err) {
-      console.warn(err);
+      console.warn('[permissions] iOS location request failed:', err);
       return false;
     }
   }
@@ -78,16 +25,19 @@ export const requestLocationPermission = async (): Promise<boolean> => {
 
   try {
     const fine = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      {
+        title: 'Location Permission',
+        message: 'This app needs access to your location for GPS tracking.',
+        buttonNeutral: 'Ask Me Later',
+        buttonNegative: 'Cancel',
+        buttonPositive: 'OK',
+      },
     );
 
-    if (fine !== PermissionsAndroid.RESULTS.GRANTED) {
-      return false;
-    }
-
-    return true;
+    return fine === PermissionsAndroid.RESULTS.GRANTED;
   } catch (err) {
-    console.warn(err);
+    console.warn('[permissions] Android location request failed:', err);
     return false;
   }
 };
@@ -105,20 +55,37 @@ export const requestBackgroundLocationPermission = async (): Promise<boolean> =>
 
   try {
     const bg = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
+      PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
+      {
+        title: 'Background Location Permission',
+        message: 'This app needs background location access for GPS tracking.',
+        buttonNeutral: 'Ask Me Later',
+        buttonNegative: 'Cancel',
+        buttonPositive: 'OK',
+      },
     );
 
     if (bg === PermissionsAndroid.RESULTS.GRANTED) {
       return true;
-    } else {
-      // Redirect user to settings (important for Android 11+)
-      Alert.alert('Background Location Required',
-        'To enable continuous GPS tracking, please allow location access "All the time" in your device settings.',
-        [{ text: 'OK', onPress: () => Linking.openSettings() }])
-      return false;
     }
+
+    Alert.alert(
+      'Background Location Required',
+      'To enable continuous GPS tracking, please allow location access "All the time" in your device settings.',
+      [{ text: 'OK', onPress: () => Linking.openSettings() }],
+    );
+    return false;
   } catch (err) {
-    console.warn(err);
+    console.warn('[permissions] Android background location request failed:', err);
     return false;
   }
 };
+
+/** Request foreground then background location — call once the app UI is visible. */
+export async function requestInitialAppLocationPermissions(): Promise<boolean> {
+  const foregroundGranted = await requestLocationPermission();
+  if (!foregroundGranted) {
+    return false;
+  }
+  return requestBackgroundLocationPermission();
+}

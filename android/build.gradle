@@ -5,7 +5,7 @@ buildscript {
         compileSdkVersion = 36
         targetSdkVersion = 36
         ndkVersion = "29.0.14206865"
-        kotlinVersion = "2.1.20"
+        kotlinVersion = "1.9.10"
         // Must be 21+ so SettingsClient/FusedLocation match device GMS (avoids IncompatibleClassChangeError).
         googlePlayServicesLocationVersion = "21.3.0"
         googlePlayServicesVersion = "21.3.0"
@@ -29,6 +29,15 @@ allprojects {
         mavenCentral()
         maven {
             url("$rootDir/../node_modules/detox/Detox-android")
+        }
+    }
+  configurations.all {
+        resolutionStrategy {
+            eachDependency { DependencyResolveDetails details ->
+                if (details.requested.group == 'org.jetbrains.kotlin') {
+                    details.useVersion "2.1.20"
+                }
+            }
         }
     }
     configurations.all {

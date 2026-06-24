@@ -16,7 +16,7 @@ import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import DirectionalArrow from '@/components/DirectionalArrow';
 import VehicleMapMarkerContent from '@/components/map/VehicleMapMarkerContent';
-import VehicleInfoOverlay from '@/components/map/VehicleInfoOverlay';
+import VehicleInfoMapOverlay from '@/components/map/VehicleInfoMapOverlay';
 import { useMapVehicleMarkerPress } from '@/hooks/useMapVehicleMarkerPress';
 import { useVehicleInfoWindow } from '@/hooks/useVehicleInfoWindow';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -29,8 +29,14 @@ import { useEmergency } from '@/context/EmergencyContext';
 import { useMapAssignment } from '@/hooks/useMapAssignment';
 import { useReportIncidentModal } from '@/context/ReportIncidentModalContext';
 import { assignVehicle, getAllVehicles } from '@/api/vehicle.api';
-import { TRANSPARENT_MAP_MARKER } from '@/config/mapMarkers';
+import {
+    buildStopMarkerId,
+    isStopMarkerId,
+    vehicleMarkerImage,
+    vehicleMarkerTracksViewChanges,
+} from '@/config/mapMarkers';
 import { buildTabletMarkerKey, buildVehicleMarkerKey } from '@/utils/mapMarkerKeys';
+import { handleStopMarkerPress, handleVehicleMarkerPress } from '@/utils/mapMarkerPress';
 import {
     createVehicleHeadingResolver,
     getVehicleRouteColor,
@@ -153,6 +159,15 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
     const [showIncomingMessages, setShowIncomingMessages] = useState(false);
     const [arrowBlink, setArrowBlink] = useState<0 | 1>(0);
     const mapRef = useRef<MapView>(null);
+    const [mapReady, setMapReady] = useState(false);
+    const [mapRegionTick, setMapRegionTick] = useState(0);
+    const [mapLayout, setMapLayout] = useState({ width: 1, height: 1 });
+    const [currentRegion, setCurrentRegion] = useState(() => ({
+        latitude: agency?.latitude ? parseFloat(agency.latitude) : 0,
+        longitude: agency?.longitude ? parseFloat(agency.longitude) : 0,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+    }));
     const {
         selectedVehicle: mapInfoVehicle,
         showVehicleInfo,
@@ -247,9 +262,35 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
         return polledVehicles.find(v => String(v.vehicleID) === id) ?? mapInfoVehicle;
     }, [mapInfoVehicle, polledVehicles]);
 
+    const infoVehicle = liveInfoVehicle ?? mapInfoVehicle;
+
+    const infoMapCoordinate = useMemo(() => {
+        if (!infoVehicle) return null;
+        const coord = parseVehicleLatLng(infoVehicle);
+        if (!coord) return null;
+        return { latitude: coord.lat, longitude: coord.lng };
+    }, [infoVehicle]);
+
+    const handleMapLayout = useCallback((event: { nativeEvent: { layout: { width: number; height: number } } }) => {
+        const { width, height } = event.nativeEvent.layout;
+        if (width > 0 && height > 0) {
+            setMapLayout({ width, height });
+        }
+    }, []);
+
+    const infoBubbleCoordinate = useMemo(() => {
+        if (infoMapCoordinate) return infoMapCoordinate;
+        if (!mapInfoVehicle) return null;
+        const parsed = parseVehicleLatLng(mapInfoVehicle);
+        if (parsed) return { latitude: parsed.lat, longitude: parsed.lng };
+        return null;
+    }, [infoMapCoordinate, mapInfoVehicle]);
+
     const handleMapVehiclePress = useCallback(
         (vehicle: Record<string, unknown>) => {
+            mapRef.current?.hideCallout?.();
             showVehicleInfo(vehicle);
+            setMapRegionTick(t => t + 1);
         },
         [showVehicleInfo],
     );
@@ -257,7 +298,38 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
     const { onMapMarkerPress, onVehicleMarkerPress } = useMapVehicleMarkerPress(
         freshVehicles,
         handleMapVehiclePress,
+        undefined,
+        location,
+        { onStopMarkerPress: dismissVehicleInfo },
     );
+
+    const handleMapMarkerPress = useCallback(
+        (event: { nativeEvent?: { id?: string; identifier?: string } }) => {
+            const rawId = event.nativeEvent?.identifier ?? event.nativeEvent?.id;
+            if (isStopMarkerId(rawId != null ? String(rawId) : null)) {
+                dismissVehicleInfo();
+                return;
+            }
+            mapRef.current?.hideCallout?.();
+            onMapMarkerPress(event);
+        },
+        [onMapMarkerPress, dismissVehicleInfo],
+    );
+
+    useEffect(() => {
+        if (isVehicleInfoVisible) {
+            setMapRegionTick(t => t + 1);
+        }
+    }, [isVehicleInfoVisible, mapInfoVehicle?.vehicleID]);
+
+    useEffect(() => {
+        if (!isVehicleInfoVisible || !infoBubbleCoordinate) return;
+        setMapRegionTick(t => t + 1);
+    }, [
+        isVehicleInfoVisible,
+        infoBubbleCoordinate?.latitude,
+        infoBubbleCoordinate?.longitude,
+    ]);
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -291,10 +363,13 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
         let interval: NodeJS.Timeout;
 
         const fetchData = async () => {
-            const data = await getAllVehicles();
-
-            if (data && data.length > 0) {
-                setPolledVehicles([...data]);
+            try {
+                const data = await getAllVehicles();
+                if (data && data.length > 0) {
+                    setPolledVehicles([...data]);
+                }
+            } catch (err) {
+                console.warn('[SupervisorModal] Failed to fetch vehicles:', err);
             }
         };
 
@@ -400,7 +475,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
             <Text style={styles.cell}>{item?.routeShortName || '-'}</Text>
             <Text style={styles.cell}>{item.minsLate || '-'}</Text>
             <Text style={[styles.cell, styles.greenText]}>{item?.APCPercentage || (item.vehicleNumber !== '-' ? '0' : '-')}</Text>
-            <Text style={styles.cell}>{item.speed || (item.vehicleNumber !== '-' ? '0' : '-')}</Text>
+            <Text style={styles.cell}>{item.speed >0 ? item.speed : '0'}</Text>
         </TouchableOpacity>
     );
 
@@ -410,6 +485,8 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
             animationType="slide"
             transparent={true}
             onRequestClose={onClose}
+            statusBarTranslucent={Platform.OS === 'android'}
+            presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
             supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
         >
             <View style={styles.backdrop}>
@@ -427,12 +504,18 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                         {/* Left Column: Map & Messages */}
                         <View style={styles.mapColumn}>
                             <View style={[styles.mapContent, showIncomingMessages && { flex: 0.80 }]}>
-                                <View style={styles.mapHost}>
+                                <View style={styles.mapHost} onLayout={handleMapLayout}>
                                 <MapView
                                     ref={mapRef}
                                     provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                                     style={StyleSheet.absoluteFill}
-                                    onMarkerPress={onMapMarkerPress}
+                                    onMapReady={() => setMapReady(true)}
+                                    onRegionChange={(region) => {
+                                        setCurrentRegion(region);
+                                        setMapRegionTick(t => t + 1);
+                                    }}
+                                    onRegionChangeComplete={setCurrentRegion}
+                                    onMarkerPress={handleMapMarkerPress}
                                     initialRegion={agency?.latitude && agency?.longitude ? {
                                         latitude: parseFloat(agency.latitude),
                                         longitude: parseFloat(agency.longitude),
@@ -451,7 +534,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                             <Polyline
                                                 key={`route-path-${r.routeID}`}
                                                 coordinates={r.points}
-                                                strokeColor={isFocused ? r.color : r.color + '66'}
+                                                strokeColor={isFocused ? r.color : r.color}
                                                 strokeWidth={isFocused ? 5 : 3}
                                                 lineJoin="round"
                                                 lineCap="round"
@@ -465,12 +548,20 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                         return (
                                             <Marker
                                                 key={`stop-${focusedRouteId}-${stop.stopID}`}
-                                                image={TRANSPARENT_MAP_MARKER}
+                                                identifier={buildStopMarkerId(
+                                                    stop.stopID,
+                                                    focusedRouteId,
+                                                )}
+                                                image={vehicleMarkerImage()}
                                                 coordinate={{ latitude: lat, longitude: lng }}
                                                 anchor={{ x: 0.5, y: 1 }}
                                                 tracksViewChanges={false}
+                                                zIndex={0}
                                                 title={String(stop.longName || `Stop ${stop.stopID}`)}
                                                 description={`Stop ID: ${stop.stopID}`}
+                                                onPress={(e) =>
+                                                    handleStopMarkerPress(e, dismissVehicleInfo)
+                                                }
                                             >
                                                 <View style={[styles.stopMarker, { backgroundColor: focusedRouteColor, borderColor: '#FFF' }]} />
                                             </Marker>
@@ -479,7 +570,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                     {location && driver && (
                                         <Marker
                                             key={buildTabletMarkerKey(tabletBlinkMode !== 'none', arrowBlink)}
-                                            image={TRANSPARENT_MAP_MARKER}
+                                            image={vehicleMarkerImage()}
                                             coordinate={{
                                                 latitude: location.latitude,
                                                 longitude: location.longitude,
@@ -488,7 +579,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                             description={`Accuracy: ${Math.round(location.accuracy)} m`}
                                             anchor={{ x: 0.5, y: 0.5 }}
                                             flat
-                                            tracksViewChanges={tabletBlinkMode !== 'none'}
+                                            tracksViewChanges={vehicleMarkerTracksViewChanges(tabletBlinkMode !== 'none')}
                                         >
                                             <DirectionalArrow
                                                 heading={tabletHeading}
@@ -523,13 +614,14 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                             <Marker
                                                 key={markerKey}
                                                 identifier={vId}
-                                                image={TRANSPARENT_MAP_MARKER}
+                                                calloutEnabled={false}
+                                                image={vehicleMarkerImage()}
                                                 coordinate={{ latitude: coord.lat, longitude: coord.lng }}
                                                 anchor={{ x: 0.5, y: 0.5 }}
                                                 flat
-                                                tracksViewChanges={markerBlinks || infoOpen}
-                                                zIndex={infoOpen ? 999 : 1}
-                                                onPress={() => onVehicleMarkerPress(vehicle)}
+                                                tracksViewChanges={vehicleMarkerTracksViewChanges(markerBlinks || infoOpen)}
+                                                zIndex={infoOpen ? 999 : 10}
+                                                onPress={(e) => handleVehicleMarkerPress(e, vehicle, onVehicleMarkerPress)}
                                             >
                                                 <VehicleMapMarkerContent
                                                     heading={bear}
@@ -543,15 +635,22 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                                                     }
                                                     blinkPhase={markerBlinks ? arrowBlink : undefined}
                                                     size={40}
+                                                    onPress={() => onVehicleMarkerPress(vehicle)}
                                                 />
                                             </Marker>
                                         );
                                     })}
                                 </MapView>
 
-                                {isVehicleInfoVisible && liveInfoVehicle && (
-                                    <VehicleInfoOverlay
-                                        vehicle={liveInfoVehicle}
+                                {isVehicleInfoVisible && mapInfoVehicle && infoBubbleCoordinate && (
+                                    <VehicleInfoMapOverlay
+                                        mapRef={mapRef}
+                                        mapReady={mapReady}
+                                        regionTick={mapRegionTick}
+                                        region={currentRegion}
+                                        mapLayout={mapLayout}
+                                        coordinate={infoBubbleCoordinate}
+                                        vehicle={infoVehicle ?? mapInfoVehicle}
                                         onClose={dismissVehicleInfo}
                                     />
                                 )}
@@ -731,8 +830,13 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
                         <TouchableOpacity
                             style={styles.tabItem}
                             onPress={() => {
-                                // onClose(); // Close supervisor modal first
-                                openReportIncidentModal();
+                                // iOS cannot stack two RN Modals reliably — dismiss supervisor first.
+                                if (Platform.OS === 'ios') {
+                                    onClose();
+                                    setTimeout(() => openReportIncidentModal(), 350);
+                                } else {
+                                    openReportIncidentModal();
+                                }
                             }}
                         >
                             <MaterialIcons name="assignment" size={32} color="#FFF" style={{ opacity: 0.7 }} />
@@ -772,7 +876,7 @@ const styles = StyleSheet.create({
     },
     modalCard: {
         width: '100%',
-        maxWidth: '90%',
+        // maxWidth: '98%',
         height: '95%',
         maxHeight: 650,
         backgroundColor: '#FFF',

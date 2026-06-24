@@ -5,7 +5,7 @@
  * https://api.peaktransit.com/v5/index.php/?app_id=DR&key=...&controller=driver&action=data&agencyID=121
  *
  * Provides: agency, vehicles, routes, drivers, messages, stops, beacons, geofences
- * Fetch happens on mount. Call `refetch()` to refresh manually.
+ * Fetch happens after Peak login when agencyId is available. Call `refetch()` to refresh manually.
  */
 
 import React, {
@@ -17,6 +17,7 @@ import React, {
     useMemo,
 } from 'react';
 import { getDriverData } from '@/api/driverData.api';
+import { usePeakApiEnabled } from '@/hooks/usePeakApiEnabled';
 import type {
     DriverDataResponse,
     DriverDataRoute,
@@ -24,6 +25,10 @@ import type {
     DriverDataDriver,
     DriverDataMessage,
 } from '@/api/driverData.api';
+import { parseGeofences, type GeofenceData } from '@/utils/geofence';
+import { setAgencyDrivers } from '@/utils/driverLookup';
+import { setAgencyRoutes } from '@/utils/routeLookup';
+import { setAgencyVehicles } from '@/utils/vehicleLookup';
 
 // ─── Fine-grained types matching the API response ────────────────────────────
 
@@ -90,6 +95,8 @@ export interface DriverDataContextType {
     messages: DriverDataMessage[];
     /** Stop list */
     stops: StopData[];
+    /** Agency geofences (from driver data API) */
+    geofences: GeofenceData[];
     /** Fare categories from agency data */
     fareCategories: FareCategory[];
     /** Loading state */
@@ -109,27 +116,25 @@ const DriverDataContext = createContext<DriverDataContextType | null>(null);
 export const DriverDataProvider: React.FC<{ children: React.ReactNode }> = ({
     children,
 }) => {
+    const apiEnabled = usePeakApiEnabled();
     const [rawData, setRawData] = useState<DriverDataResponse | null>(null);
-    const [isLoading, setIsLoading] = useState(true); // true until first fetch completes
+    const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const fetchData = useCallback(async () => {
+        if (!apiEnabled) {
+            setRawData(null);
+            setError(null);
+            setIsLoading(false);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
         try {
             const data = await getDriverData();
             console.log('[DriverDataContext] Fetched:', data);
             setRawData(data);
-            // if (__DEV__) {
-            //     console.log('[DriverDataContext] Fetched:', {
-            //         agency: data?.agency?.agencyName,
-            //         vehicles: (data?.vehicle ?? []).length,
-            //         routes: (data?.route ?? []).length,
-            //         drivers: (data?.driver ?? []).length,
-            //         messages: (data?.messages ?? []).length,
-            //         stops: (data?.stop ?? []).length,
-            //     });
-            // }
         } catch (err: unknown) {
             const msg =
                 err instanceof Error ? err.message : 'Failed to load driver data';
@@ -140,15 +145,22 @@ export const DriverDataProvider: React.FC<{ children: React.ReactNode }> = ({
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [apiEnabled]);
 
-    // Fetch on mount and every 4 hours
+    // Fetch after login and every 4 hours while session is active
     useEffect(() => {
+        if (!apiEnabled) {
+            setRawData(null);
+            setError(null);
+            setIsLoading(false);
+            return;
+        }
+
         fetchData();
         const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
         const interval = setInterval(fetchData, FOUR_HOURS_MS);
         return () => clearInterval(interval);
-    }, [fetchData]);
+    }, [fetchData, apiEnabled]);
 
     // Memoize derived slices — only change reference when rawData changes
     const agency = useMemo(
@@ -167,12 +179,29 @@ export const DriverDataProvider: React.FC<{ children: React.ReactNode }> = ({
         () => (Array.isArray(rawData?.driver) ? (rawData!.driver as DriverDataDriver[]) : []),
         [rawData]
     );
+
+    useEffect(() => {
+        setAgencyDrivers(drivers);
+    }, [drivers]);
+
+    useEffect(() => {
+        setAgencyRoutes(routes);
+    }, [routes]);
+
+    useEffect(() => {
+        setAgencyVehicles(vehicles);
+    }, [vehicles]);
+
     const messages = useMemo<DriverDataMessage[]>(
         () => (Array.isArray(rawData?.messages) ? (rawData!.messages as DriverDataMessage[]) : []),
         [rawData]
     );
     const stops = useMemo<StopData[]>(
         () => (Array.isArray(rawData?.stop) ? (rawData!.stop as StopData[]) : []),
+        [rawData]
+    );
+    const geofences = useMemo<GeofenceData[]>(
+        () => parseGeofences(rawData?.geofences),
         [rawData]
     );
     const fareCategories = useMemo<FareCategory[]>(
@@ -193,12 +222,13 @@ export const DriverDataProvider: React.FC<{ children: React.ReactNode }> = ({
             drivers,
             messages,
             stops,
+            geofences,
             fareCategories,
             isLoading,
             error,
             refetch: fetchData,
         }),
-        [rawData, agency, vehicles, routes, drivers, messages, stops, fareCategories, isLoading, error, fetchData]
+        [rawData, agency, vehicles, routes, drivers, messages, stops, geofences, fareCategories, isLoading, error, fetchData]
     );
 
     return (

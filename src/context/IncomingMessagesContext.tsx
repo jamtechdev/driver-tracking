@@ -3,8 +3,9 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 import { useAuth } from '@/context/AuthContext';
+import { useSession } from '@/context/SessionContext';
+import { usePeakApiEnabled } from '@/hooks/usePeakApiEnabled';
 import { getIncomingMessages, type IncomingMessageItem } from '@/api/incomingMessages.api';
 
 const POLL_INTERVAL_MS = 5000;
@@ -20,14 +21,15 @@ const IncomingMessagesContext = createContext<IncomingMessagesContextType | null
 
 export const IncomingMessagesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { vehicleId, isSupervisorMode } = useAuth();
+  const { agencyId } = useSession();
+  const apiEnabled = usePeakApiEnabled();
   const [messages, setMessages] = useState<IncomingMessageItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID);
-
   const fetchMessages = useCallback(async () => {
+    if (!apiEnabled || !agencyId) return;
     // For normal drivers, we need a vehicleId. 
     // For supervisors, we want all messages for the agency.
     if (!isSupervisorMode && (!vehicleId || vehicleId === '')) return;
@@ -36,7 +38,7 @@ export const IncomingMessagesProvider: React.FC<{ children: React.ReactNode }> =
     setError(null);
     try {
       const vId = isSupervisorMode ? null : vehicleId;
-      const list = await getIncomingMessages(agencyID, vId);
+      const list = await getIncomingMessages(agencyId, vId);
       setMessages(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load messages');
@@ -44,9 +46,19 @@ export const IncomingMessagesProvider: React.FC<{ children: React.ReactNode }> =
     } finally {
       setLoading(false);
     }
-  }, [agencyID, vehicleId, isSupervisorMode]);
+  }, [apiEnabled, agencyId, vehicleId, isSupervisorMode]);
 
   useEffect(() => {
+    if (!apiEnabled || !agencyId) {
+      setMessages([]);
+      setError(null);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
+
     if (!isSupervisorMode && (!vehicleId || vehicleId === '')) {
       setMessages([]);
       setError(null);
@@ -66,7 +78,7 @@ export const IncomingMessagesProvider: React.FC<{ children: React.ReactNode }> =
         intervalRef.current = null;
       }
     };
-  }, [vehicleId, isSupervisorMode, fetchMessages]);
+  }, [apiEnabled, agencyId, vehicleId, isSupervisorMode, fetchMessages]);
 
   const value: IncomingMessagesContextType = {
     messages,

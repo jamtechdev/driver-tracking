@@ -3,7 +3,7 @@
  * @format
  */
 
-import React, { Component, lazy, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import React, { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
 import Orientation from 'react-native-orientation-locker';
 import KeepAwake from 'react-native-keep-awake';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -13,6 +13,7 @@ import { ActivityIndicator, StatusBar, Text, View, StyleSheet } from 'react-nati
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 
+import { SessionProvider, useSession } from './src/context/SessionContext';
 import { AuthProvider } from './src/context/AuthContext';
 import { DriverModalProvider } from './src/context/DriverModalContext';
 import { DriverModelProvider } from './src/context/DriverModelContext';
@@ -36,6 +37,8 @@ import ChecklistModal from './src/components/ChecklistModal';
 import ReportIncidentModal from './src/components/ReportIncidentModal';
 import PinEntryModal from './src/components/PinEntryModal';
 import IncomingMessageAlertModal from './src/components/IncomingMessageAlertModal';
+import PostLoginBootstrap from './src/components/PostLoginBootstrap';
+import LocationPermissionBootstrap from './src/components/LocationPermissionBootstrap';
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -90,13 +93,13 @@ const styles = StyleSheet.create({
 });
 
 // Auth Screens
+import LoginScreen from './src/screens/auth/LoginScreen';
 import DriverSelectScreen from './src/screens/auth/DriverSelectScreen';
 import PinEntryScreen from './src/screens/auth/PinEntryScreen';
 
-// Main Screens - HomeScreen lazy-loaded (uses GradientPath which may crash on init)
-const HomeContainer = lazy(() => import('./src/screens/home/HomeContainer'));
+// Main Screens
+import HomeContainer from './src/screens/home/HomeContainer';
 import SplashScreen from './src/screens/SplashScreen';
-import SupervisorHomeScreen from './src/screens/supervisor/SupervisorHomeScreen';
 import MapScreen from './src/screens/map/MapScreen';
 import RouteSelectionScreen from './src/screens/route/RouteSelectionScreen';
 import RouteDetailsScreen from './src/screens/route/RouteDetailsScreen';
@@ -106,13 +109,119 @@ import PassengerFareScreen from './src/screens/passenger/PassengerFareScreen';
 import MessagingScreen from './src/screens/messaging/MessagingScreen';
 import SettingsScreen from './src/screens/settings/SettingsScreen';
 import { notificationService } from '@/services/notification.service';
+import ForgetPassword from '@/screens/auth/ForgetPassword';
+import ResetPassword from '@/screens/auth/ResetPassword';
 
 const Stack = createNativeStackNavigator();
 const navigationRef = { current: null as any };
 
-function App(): React.JSX.Element {
-  const [showSplash, setShowSplash] = useState(true);
+const stackScreenOptions = {
+  headerStyle: { backgroundColor: COLORS.background },
+  headerTintColor: '#FFFFFF',
+  headerTitleStyle: { fontWeight: 'bold' as const },
+  contentStyle: { backgroundColor: COLORS.background, flex: 1 },
+  animation: 'slide_from_right' as const,
+  animationDuration: 300,
+};
 
+function AuthNavigator(): React.JSX.Element {
+  return (
+    <Stack.Navigator initialRouteName="Login" screenOptions={stackScreenOptions}>
+      <Stack.Screen
+        name="Login"
+        component={LoginScreen}
+        options={{ headerShown: false }}
+      />
+
+         <Stack.Screen name="Forget-Password" component={ForgetPassword} options={{ headerShown: false }} />
+
+      <Stack.Screen name="Reset-Password" component={ResetPassword} options={{ headerShown: false }} />
+      <Stack.Screen
+        name="DriverSelect"
+        component={DriverSelectScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PinEntry"
+        component={PinEntryScreen as React.ComponentType<any>}
+        options={{ headerShown: false }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+function MainNavigator(): React.JSX.Element {
+  return (
+    <Stack.Navigator initialRouteName="Home" screenOptions={stackScreenOptions}>
+      <Stack.Screen
+        name="Home"
+        component={HomeContainer}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen name="Map" component={MapScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="RouteSelection" component={RouteSelectionScreen} options={{ title: 'Select Route' }} />
+      <Stack.Screen name="RouteDetails" component={RouteDetailsScreen} options={{ title: 'Route Details' }} />
+      <Stack.Screen name="PreTrip" component={PreTripScreen} options={{ title: 'Pre-Trip Inspection' }} />
+      <Stack.Screen name="PostTrip" component={PostTripScreen} options={{ title: 'Post-Trip Inspection' }} />
+      <Stack.Screen name="PassengerFare" component={PassengerFareScreen} options={{ title: 'Passenger & Fare' }} />
+      <Stack.Screen name="Messaging" component={MessagingScreen} options={{ title: 'Messaging' }} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
+         
+
+    </Stack.Navigator>
+  );
+}
+
+function AppNavigator(): React.JSX.Element {
+  const { isLoggedIn } = useSession();
+
+  return (
+    <View style={styles.fill}>
+      <NavigationContainer key={isLoggedIn ? 'main' : 'auth'} ref={navigationRef}>
+        {isLoggedIn ? <MainNavigator /> : <AuthNavigator />}
+      </NavigationContainer>
+    </View>
+  );
+}
+
+function AppShell(): React.JSX.Element {
+  const { isReady } = useSession();
+  const [splashDone, setSplashDone] = useState(false);
+
+  if (!splashDone) {
+    return <SplashScreen onFinish={() => setSplashDone(true)} />;
+  }
+
+  if (!isReady) {
+    return (
+      <View style={styles.fill}>
+        <View style={[errorStyles.container, { padding: 24 }]}>
+          <ActivityIndicator size="large" color="#FFF" />
+          <Text style={[errorStyles.message, { marginTop: 16 }]}>Loading...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <LocationPermissionBootstrap enabled={splashDone && isReady} />
+      <PostLoginBootstrap />
+      <AppNavigator />
+      <IncomingMessageAlertModal />
+      <SendMessageModal />
+      <SettingsModal />
+      <MapModal />
+      <ChecklistModal />
+      <ReportIncidentModal />
+      <PinEntryModal navigationRef={navigationRef} />
+      <Toast />
+    </>
+  );
+}
+
+function App(): React.JSX.Element {
   useEffect(() => {
     Orientation.unlockAllOrientations();
     notificationService.initialize();
@@ -121,102 +230,43 @@ function App(): React.JSX.Element {
     return () => KeepAwake.deactivate();
   }, []);
 
-  if (showSplash) {
-    return <SplashScreen onFinish={() => setShowSplash(false)} />;
-  }
-
   return (
     <AppErrorBoundary>
       <GestureHandlerRootView style={[styles.root, { backgroundColor: COLORS.background }]}>
         <SafeAreaProvider style={styles.fill}>
-          <AuthProvider>
-            <DriverDataProvider>
-              <DriverModelProvider>
-                <DriverModalProvider>
-                  <PinEntryModalProvider>
-                    <IncomingMessagesProvider>
-                      <DriverMessagingProvider>
-                        <BrightnessProvider>
-                          <EmergencyProvider>
-                            <MessagingModalProvider>
-                              <SettingsModalProvider>
-                                <MapModalProvider>
-                                  <ChecklistModalProvider>
-                                    <ReportIncidentModalProvider>
-                                      <MapLocationProvider>
-                                        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-                                        <NavigationContainer ref={navigationRef}>
-                                          <Suspense fallback={
-                                            <View style={[errorStyles.container, { padding: 24 }]}>
-                                              <ActivityIndicator size="large" color="#FFF" />
-                                              <Text style={[errorStyles.message, { marginTop: 16 }]}>Loading...</Text>
-                                            </View>
-                                          }>
-                                            <Stack.Navigator
-                                              initialRouteName="Home"
-                                              screenOptions={{
-                                                headerStyle: { backgroundColor: COLORS.background },
-                                                headerTintColor: '#FFFFFF',
-                                                headerTitleStyle: { fontWeight: 'bold' },
-                                                contentStyle: { backgroundColor: COLORS.background, flex: 1 },
-                                                animation: 'slide_from_right',
-                                                animationDuration: 300,
-                                              }}
-                                            >
-                                              <Stack.Screen
-                                                name="DriverSelect"
-                                                component={DriverSelectScreen}
-                                                options={{ headerShown: false }}
-                                              />
-                                              <Stack.Screen
-                                                name="PinEntry"
-                                                component={PinEntryScreen as React.ComponentType<any>}
-                                                options={{ headerShown: false }}
-                                              />
-                                              <Stack.Screen
-                                                name="Home"
-                                                component={HomeContainer}
-                                                options={{ headerShown: false }}
-                                              />
-                                              {/* <Stack.Screen
-                                            name="SupervisorHome"
-                                            component={SupervisorHomeScreen}
-                                            options={{ headerShown: false }}
-                                          /> */}
-                                              <Stack.Screen name="Map" component={MapScreen} options={{ headerShown: false }} />
-                                              <Stack.Screen name="RouteSelection" component={RouteSelectionScreen} options={{ title: 'Select Route' }} />
-                                              <Stack.Screen name="RouteDetails" component={RouteDetailsScreen} options={{ title: 'Route Details' }} />
-                                              <Stack.Screen name="PreTrip" component={PreTripScreen} options={{ title: 'Pre-Trip Inspection' }} />
-                                              <Stack.Screen name="PostTrip" component={PostTripScreen} options={{ title: 'Post-Trip Inspection' }} />
-                                              <Stack.Screen name="PassengerFare" component={PassengerFareScreen} options={{ title: 'Passenger & Fare' }} />
-                                              <Stack.Screen name="Messaging" component={MessagingScreen} options={{ title: 'Messaging' }} />
-                                              <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
-                                            </Stack.Navigator>
-                                          </Suspense>
-                                        </NavigationContainer>
-                                        <IncomingMessageAlertModal />
-                                        <SendMessageModal />
-                                        <SettingsModal />
-                                        <MapModal />
-                                        <ChecklistModal />
-                                        <ReportIncidentModal />
-                                        <PinEntryModal navigationRef={navigationRef} />
-                                        <Toast />
-                                      </MapLocationProvider>
-                                    </ReportIncidentModalProvider>
-                                  </ChecklistModalProvider>
-                                </MapModalProvider>
-                              </SettingsModalProvider>
-                            </MessagingModalProvider>
-                          </EmergencyProvider>
-                        </BrightnessProvider>
-                      </DriverMessagingProvider>
-                    </IncomingMessagesProvider>
-                  </PinEntryModalProvider>
-                </DriverModalProvider>
-              </DriverModelProvider>
-            </DriverDataProvider>
-          </AuthProvider>
+          <SessionProvider>
+            <AuthProvider>
+              <DriverDataProvider>
+                <DriverModelProvider>
+                  <DriverModalProvider>
+                    <PinEntryModalProvider>
+                      <IncomingMessagesProvider>
+                        <DriverMessagingProvider>
+                          <BrightnessProvider>
+                            <EmergencyProvider>
+                              <MessagingModalProvider>
+                                <SettingsModalProvider>
+                                  <MapModalProvider>
+                                    <ChecklistModalProvider>
+                                      <ReportIncidentModalProvider>
+                                        <MapLocationProvider>
+                                          <AppShell />
+                                        </MapLocationProvider>
+                                      </ReportIncidentModalProvider>
+                                    </ChecklistModalProvider>
+                                  </MapModalProvider>
+                                </SettingsModalProvider>
+                              </MessagingModalProvider>
+                            </EmergencyProvider>
+                          </BrightnessProvider>
+                        </DriverMessagingProvider>
+                      </IncomingMessagesProvider>
+                    </PinEntryModalProvider>
+                  </DriverModalProvider>
+                </DriverModelProvider>
+              </DriverDataProvider>
+            </AuthProvider>
+          </SessionProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </AppErrorBoundary>

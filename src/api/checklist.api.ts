@@ -6,7 +6,7 @@
  */
 
 import axios from 'axios';
-import { API_CONFIG, CHECKLIST_GET_BASE_URL, CHECKLIST_SUBMIT_BASE_URL } from '@/config/api.config';
+import { API_CONFIG, getChecklistGetBaseUrl, getChecklistSubmitBaseUrl } from '@/config/api.config';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
 
 /** Checklist row from API (`items` / `checklist` array). */
@@ -299,7 +299,7 @@ export async function getChecklist(
     return { document: { items: [] }, results: [] };
   }
   const aid = agencyID ?? String(PEAK_DEFAULT_PARAMS.agencyID);
-  const url = `${CHECKLIST_GET_BASE_URL}&vehicleID=${encodeURIComponent(vid)}&agencyID=${encodeURIComponent(aid)}`;
+  const url = `${getChecklistGetBaseUrl()}&vehicleID=${encodeURIComponent(vid)}&agencyID=${encodeURIComponent(aid)}`;
   if (__DEV__) {
     console.log('[Checklist API] GET getchecklist', url);
   }
@@ -354,7 +354,7 @@ export async function submitChecklist(
   }
   const aid = agencyID ?? String(PEAK_DEFAULT_PARAMS.agencyID);
   const hasFail = options?.hasFailOverride ?? computeHasFailFromChecklistDocument(document);
-  const url = `${CHECKLIST_SUBMIT_BASE_URL}&vehicleID=${encodeURIComponent(vid)}&driverID=${encodeURIComponent(did)}&agencyID=${encodeURIComponent(aid)}&hasFail=${hasFail}`;
+  const url = `${getChecklistSubmitBaseUrl()}&vehicleID=${encodeURIComponent(vid)}&driverID=${encodeURIComponent(did)}&agencyID=${encodeURIComponent(aid)}&hasFail=${hasFail}`;
 
   const body = deepCloneChecklist(document);
 

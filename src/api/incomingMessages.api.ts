@@ -4,7 +4,7 @@
  */
 
 import axios from 'axios';
-import { API_CONFIG, INCOMING_MESSAGES_BASE_URL } from '@/config/api.config';
+import { API_CONFIG, getIncomingMessagesBaseUrl } from '@/config/api.config';
 
 export interface IncomingMessageItem {
   messageID: string;
@@ -40,7 +40,7 @@ export const getIncomingMessages = async (
   vehicleID?: string | null,
   isToVehicle: boolean = false
 ): Promise<IncomingMessageItem[]> => {
-  let url = `${INCOMING_MESSAGES_BASE_URL}&agencyID=${encodeURIComponent(agencyID)}`;
+  let url = `${getIncomingMessagesBaseUrl()}&agencyID=${encodeURIComponent(agencyID)}`;
 
   if (vehicleID) {
     url += `&vehicleID=${encodeURIComponent(vehicleID)}&to=1`;

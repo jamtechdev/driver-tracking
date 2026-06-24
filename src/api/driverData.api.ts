@@ -5,7 +5,7 @@
 
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
-import { API_CONFIG, DRIVER_DATA_API_URL } from '@/config/api.config';
+import { API_CONFIG, getDriverDataApiUrl } from '@/config/api.config';
 
 export interface DriverDataRoute {
   routeID: string;
@@ -52,23 +52,35 @@ export interface DriverDataResponse {
   [key: string]: unknown;
 }
 
+type GetDriverDataOptions = {
+  /** Skip user-facing toast (background lookups). */
+  silent?: boolean;
+};
+
 /** Fetch all driver data (agency, vehicles, routes, drivers, etc.) from the single Peak API. */
-export const getDriverData = async (): Promise<DriverDataResponse> => {
+export const getDriverData = async (
+  options?: GetDriverDataOptions,
+): Promise<DriverDataResponse> => {
   try {
-    const response = await axios.get<DriverDataResponse>(DRIVER_DATA_API_URL, {
+    const response = await axios.get<DriverDataResponse>(getDriverDataApiUrl(), {
       timeout: API_CONFIG.TIMEOUT,
     });
+    if (response?.data == null) {
+      throw new Error('getDriverData: empty HTTP response');
+    }
     return response.data;
   } catch (error: unknown) {
     const message = axios.isAxiosError(error)
       ? (error.response?.data as { errormsg?: string })?.errormsg ?? error.message
       : error instanceof Error ? error.message : 'Failed to load driver data';
-    Toast.show({
-      type: 'error',
-      text1: 'Error',
-      text2: String(message),
-      visibilityTime: 3000,
-    });
+    if (!options?.silent) {
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: String(message),
+        visibilityTime: 3000,
+      });
+    }
     throw error;
   }
 };

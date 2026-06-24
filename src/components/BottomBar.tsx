@@ -13,7 +13,7 @@ import { useDriverModal } from '../context/DriverModalContext';
 import { useEmergency } from '../context/EmergencyContext';
 import SelectRouteModal from './SelectRouteModal';
 import VehicleSelectModal from './VehicleSelectModal';
-
+import ForgetPassword from '@/screens/auth/ForgetPassword';
 const BOTTOM_BAR_LIME = '#ADFF2F';
 const BOTTOM_BAR_SECONDARY = 'rgba(255,255,255,0.7)';
 
@@ -128,7 +128,7 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
 
   const { open: openDriverModal } = useDriverModal();
   const { emergencyActivated } = useEmergency();
-  const { driver, vehicleId, vehicleName, selectedRoute, serviceStatus, logout } = useAuth();
+  const { driver, driverTabLabel, driverForTab, vehicleId, vehicleName, routeTabLabel, serviceStatus, logout } = useAuth();
   const isLandscape = width > height;
   const scale = Math.min(width / 380, 1.3);
   // Match sidebar sizing: same icon + text scale
@@ -143,14 +143,14 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
   const handleLogout = () => {
     logout();
   };
-  const isLoggedOut = !driver || driver.role === 'unassigned';
+  const isLoggedOut = !driverForTab || driverForTab.role === 'unassigned';
   const effectiveLoggedOut = isLoggedOut;
   const [showRouteModal, setShowRouteModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
 
-  const driverName = driver && driver.role !== 'unassigned' ? driver.name : 'Unassigned';
+  const driverName = driverTabLabel;
   const vehicleDisplay = vehicleName || 'Unassigned';
-  const routeDisplay = selectedRoute || 'Out of Service';
+  const routeDisplay = routeTabLabel;
   const showLimeDriver = effectiveLoggedOut;
   const showLimeRoute = serviceStatus === 'out_of_service' || emergencyActivated;
 
@@ -235,6 +235,10 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
               threshold={15}
             />
           </Pressable>
+
+
+
+         
 
           <View style={[styles.divider, { height: dividerHeight }]} />
 

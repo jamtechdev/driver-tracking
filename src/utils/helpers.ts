@@ -103,7 +103,7 @@ export const VEHICLE_LOCATION_MAX_AGE_SECONDS = 3600;
 const UNASSIGNED_ROUTE_IDS = new Set(['0', '-1', '-2']);
 
 /** True when the driver/vehicle has a real route assignment. */
-export const isAssignedRouteId = (routeId: string | null | undefined): boolean => {
+export const isAssignedRouteId = (routeId: string | null | undefined | unknown): boolean => {
   if (routeId == null || routeId === '') return false;
   return !UNASSIGNED_ROUTE_IDS.has(String(routeId));
 };

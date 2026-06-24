@@ -15,9 +15,8 @@ import {
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import MainLayout from '../../components/MainLayout';
-import DirectionalArrow from '../../components/DirectionalArrow';
-import VehicleInfoOverlay from '../../components/map/VehicleInfoOverlay';
 import VehicleMapMarkerContent from '../../components/map/VehicleMapMarkerContent';
+import VehicleInfoMapOverlay from '../../components/map/VehicleInfoMapOverlay';
 import { useMapVehicleMarkerPress } from '../../hooks/useMapVehicleMarkerPress';
 import { useVehicleInfoWindow } from '../../hooks/useVehicleInfoWindow';
 import { COLORS } from '../../theme/colors';
@@ -28,8 +27,19 @@ import { useMapLocation } from '../../context/MapLocationContext';
 import { useDriverData } from '../../context/DriverDataContext';
 import { useMapAssignment } from '../../hooks/useMapAssignment';
 import { MAPS_CONFIG, isMapsApiKeyValid } from '../../config/maps.config';
-import { TRANSPARENT_MAP_MARKER } from '../../config/mapMarkers';
+import {
+  buildStopMarkerId,
+  isStopMarkerId,
+  vehicleMarkerImage,
+  vehicleMarkerTracksViewChanges,
+} from '../../config/mapMarkers';
 import { buildTabletMarkerKey, buildVehicleMarkerKey } from '../../utils/mapMarkerKeys';
+import { handleStopMarkerPress, handleVehicleMarkerPress } from '../../utils/mapMarkerPress';
+import {
+  buildOwnMapVehicle,
+  isOwnTabletMapVehicle,
+  TABLET_DEVICE_VEHICLE_ID,
+} from '../../utils/mapVehicleInfo';
 import { getAllVehicles } from '../../api/vehicle.api';
 import {
   createVehicleHeadingResolver,
@@ -64,7 +74,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   const { isAcquiringSat, trackingMode, setTrackingMode, lastLocation, serverAlert } = useDriverModel();
   const { emergencyActivated } = useEmergency();
   const { location, error: mapLocationError, heading } = useMapLocation();
-  const { vehicleId, selectedRouteId, driver } = useAuth();
+  const { vehicleId, selectedRouteId, selectedRoute: selectedRouteName, driver, vehicleName } = useAuth();
   const { effectiveRouteId, hasMapAssignment, blockPeerVehicleIds } = useMapAssignment();
   const { agency, routes, stops } = useDriverData();
   const [vehiclesPosition, setVehiclesPosition] = useState<any[]>([]);
@@ -91,12 +101,71 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   const liveInfoVehicle = useMemo(() => {
     if (!selectedVehicle) return null;
     const id = String(selectedVehicle.vehicleID);
-    return vehiclesPosition.find(v => String(v.vehicleID) === id) ?? selectedVehicle;
-  }, [selectedVehicle, vehiclesPosition]);
+    const polled = vehiclesPosition.find(v => String(v.vehicleID) === id);
+    if (!polled) return selectedVehicle;
+    if (isOwnTabletMapVehicle(selectedVehicle, vehicleId)) {
+      return { ...polled, ...selectedVehicle };
+    }
+    return polled;
+  }, [selectedVehicle, vehiclesPosition, vehicleId]);
+  const [mapRegionTick, setMapRegionTick] = useState(0);
+  const [mapLayout, setMapLayout] = useState({ width: 1, height: 1 });
+
+  const infoVehicle = liveInfoVehicle ?? selectedVehicle;
+
+  const infoMapCoordinate = useMemo(() => {
+    if (!infoVehicle) return null;
+
+    if (isOwnTabletMapVehicle(infoVehicle, vehicleId)) {
+      if (!location) return null;
+      return { latitude: location.latitude, longitude: location.longitude };
+    }
+
+    const fromVehicle = parseVehicleLatLng(infoVehicle);
+    if (fromVehicle) {
+      return { latitude: fromVehicle.lat, longitude: fromVehicle.lng };
+    }
+    return null;
+  }, [infoVehicle, location, vehicleId]);
+
+  const infoBubbleCoordinate = useMemo(() => {
+    if (infoMapCoordinate) return infoMapCoordinate;
+    if (!selectedVehicle) return null;
+    const parsed = parseVehicleLatLng(selectedVehicle);
+    if (parsed) return { latitude: parsed.lat, longitude: parsed.lng };
+    if (isOwnTabletMapVehicle(selectedVehicle, vehicleId) && location) {
+      return { latitude: location.latitude, longitude: location.longitude };
+    }
+    return null;
+  }, [infoMapCoordinate, selectedVehicle, vehicleId, location]);
+
+  const handleMapLayout = useCallback((event: { nativeEvent: { layout: { width: number; height: number } } }) => {
+    const { width, height } = event.nativeEvent.layout;
+    if (width > 0 && height > 0) {
+      setMapLayout({ width, height });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isVehicleInfoVisible) {
+      setMapRegionTick(t => t + 1);
+    }
+  }, [isVehicleInfoVisible, selectedVehicle?.vehicleID]);
+
+  useEffect(() => {
+    if (!isVehicleInfoVisible || !infoBubbleCoordinate) return;
+    setMapRegionTick(t => t + 1);
+  }, [
+    isVehicleInfoVisible,
+    infoBubbleCoordinate?.latitude,
+    infoBubbleCoordinate?.longitude,
+  ]);
 
   const handleVehiclePress = useCallback(
     (vehicle: Record<string, unknown>) => {
+      mapRef.current?.hideCallout?.();
       showVehicleInfo(vehicle);
+      setMapRegionTick(t => t + 1);
     },
     [showVehicleInfo],
   );
@@ -215,9 +284,37 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     return list;
   }, [vehiclesPosition, vehicleId, hasMapAssignment, effectiveRouteId, blockPeerVehicleIds]);
 
+  const tabletMapVehicle = useMemo(() => {
+    if (!driver) return null;
+    return buildOwnMapVehicle({
+      vehicleId: vehicleId ? String(vehicleId) : TABLET_DEVICE_VEHICLE_ID,
+      vehicleName: vehicleName ?? (vehicleId ? String(vehicleId) : 'Your vehicle'),
+      routeId: effectiveRouteId ?? selectedRouteId,
+      routeShortName: selectedRouteName,
+    });
+  }, [driver, vehicleId, vehicleName, effectiveRouteId, selectedRouteId, selectedRouteName]);
+
   const { onMapMarkerPress, onVehicleMarkerPress } = useMapVehicleMarkerPress(
     otherVehicles,
     handleVehiclePress,
+    tabletMapVehicle,
+    location,
+    { onStopMarkerPress: dismissVehicleInfo },
+  );
+
+  const handleMapMarkerPress = useCallback(
+    (event: {
+      nativeEvent?: { id?: string; identifier?: string };
+    }) => {
+      const rawId = event.nativeEvent?.identifier ?? event.nativeEvent?.id;
+      if (isStopMarkerId(rawId != null ? String(rawId) : null)) {
+        dismissVehicleInfo();
+        return;
+      }
+      mapRef.current?.hideCallout?.();
+      onMapMarkerPress(event);
+    },
+    [onMapMarkerPress, dismissVehicleInfo],
   );
 
   const lastFittedRouteIdRef = useRef<string | null>(null);
@@ -367,6 +464,11 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     return isTabView ? noKeyContent : <MainLayout navigation={navigation}>{noKeyContent}</MainLayout>;
   }
 
+  const tabletInfoOpen =
+    tabletMapVehicle != null &&
+    isVehicleInfoVisible &&
+    isOwnTabletMapVehicle(selectedVehicle, vehicleId);
+
   const content = (
     <View style={styles.container}>
       {!isTabView && (
@@ -378,7 +480,10 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           <MaterialIcons name="arrow-back" size={28} color={COLORS.textPrimary} />
         </TouchableOpacity>
       )}
-      <View style={isTabView ? styles.mapHostWithHeader : styles.mapHost}>
+      <View
+        style={isTabView ? styles.mapHostWithHeader : styles.mapHost}
+        onLayout={handleMapLayout}
+      >
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
@@ -386,7 +491,11 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
         showsUserLocation={false}
         showsMyLocationButton={!isTabView || isMobile}
         onMapReady={() => setMapReady(true)}
-        onMarkerPress={onMapMarkerPress}
+        onMarkerPress={handleMapMarkerPress}
+        onRegionChange={(region: typeof currentRegion) => {
+          setCurrentRegion(region);
+          setMapRegionTick(t => t + 1);
+        }}
         onRegionChangeComplete={setCurrentRegion}
         zoomControlEnabled={!isTabView || isMobile}
       >
@@ -411,12 +520,17 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             return (
               <Marker
                 key={`other-stop-${r.routeID}-${stop.stopID}`}
-                image={TRANSPARENT_MAP_MARKER}
+                identifier={buildStopMarkerId(stop.stopID, r.routeID)}
+                image={vehicleMarkerImage()}
                 coordinate={{ latitude: lat, longitude: lng }}
                 anchor={{ x: 0.5, y: 0.5 }}
                 tracksViewChanges={false}
+                zIndex={0}
                 title={String(stop.longName || `Stop ${stop.stopID}`)}
                 description={`Stop ID: ${stop.stopID}`}
+                onPress={(e: unknown) =>
+                  handleStopMarkerPress(e, dismissVehicleInfo)
+                }
               >
                 <View style={[styles.stopMarker, { backgroundColor: r.color, borderColor: '#FFF' }]} />
                 {/* <View style={[styles.stopMarker, { backgroundColor: r.color, borderColor: r.color, width: 12, height: 12, borderRadius: 6 }]} /> */}
@@ -444,35 +558,52 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           return (
             <Marker
               key={`stop-${stop.stopID}`}
-              image={TRANSPARENT_MAP_MARKER}
+              identifier={buildStopMarkerId(
+                stop.stopID,
+                effectiveRouteId ?? selectedRouteId ?? undefined,
+              )}
+              image={vehicleMarkerImage()}
               coordinate={{ latitude: lat, longitude: lng }}
               anchor={{ x: 0.5, y: 1 }}
               tracksViewChanges={false}
+              zIndex={0}
               title={String(stop.longName || `Stop ${stop.stopID}`)}
               description={`Stop ID: ${stop.stopID}`}
+              onPress={(e: unknown) =>
+                handleStopMarkerPress(e, dismissVehicleInfo)
+              }
             >
               <View style={[styles.stopMarker, { backgroundColor: routeColor, borderColor: '#FFF' }]} />
             </Marker>
           );
         })}
-        {/* Tablet / device GPS marker — always shown when location is available */}
-        {location && driver && (
+        {/* Tablet / device GPS marker — tap opens same vehicle info overlay as other markers */}
+        {location && tabletMapVehicle && (
           <Marker
-            key={buildTabletMarkerKey(tabletBlinkMode !== 'none', arrowBlink)}
-            image={TRANSPARENT_MAP_MARKER}
+            key={buildTabletMarkerKey(
+              tabletBlinkMode !== 'none',
+              arrowBlink,
+              tabletInfoOpen,
+            )}
+            identifier={String(tabletMapVehicle.vehicleID)}
+            calloutEnabled={false}
+            image={vehicleMarkerImage()}
             coordinate={{
               latitude: location.latitude,
               longitude: location.longitude,
             }}
             anchor={{ x: 0.5, y: 0.5 }}
             flat
-            tracksViewChanges={tabletBlinkMode !== 'none'}
+            tracksViewChanges={vehicleMarkerTracksViewChanges(tabletBlinkMode !== 'none' || tabletInfoOpen)}
+            zIndex={tabletInfoOpen ? 999 : 10}
+            onPress={(e: unknown) => handleVehicleMarkerPress(e, tabletMapVehicle, onVehicleMarkerPress)}
           >
-            <DirectionalArrow
+            <VehicleMapMarkerContent
               heading={tabletHeading}
               color={hasMapAssignment ? routeColor : COLORS.background}
               blinkMode={tabletBlinkMode}
               blinkPhase={tabletBlinkMode === 'none' ? undefined : arrowBlink}
+              onPress={() => onVehicleMarkerPress(tabletMapVehicle)}
             />
           </Marker>
         )}
@@ -512,13 +643,14 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             <Marker
               key={markerKey}
               identifier={vId}
-              image={TRANSPARENT_MAP_MARKER}
+              calloutEnabled={false}
+              image={vehicleMarkerImage()}
               coordinate={{ latitude: coord.lat, longitude: coord.lng }}
               anchor={{ x: 0.5, y: 0.5 }}
               flat
-              tracksViewChanges={markerBlinks || infoOpen}
-              zIndex={infoOpen ? 999 : 1}
-              onPress={() => onVehicleMarkerPress(v)}
+              tracksViewChanges={vehicleMarkerTracksViewChanges(markerBlinks || infoOpen)}
+              zIndex={infoOpen ? 999 : 10}
+              onPress={(e: unknown) => handleVehicleMarkerPress(e, v, onVehicleMarkerPress)}
             >
               <VehicleMapMarkerContent
                 heading={bear}
@@ -527,15 +659,22 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
                   vehicleAlertBlink ? 'alert' : vehicleAnimates ? 'unassigned' : 'none'
                 }
                 blinkPhase={markerBlinks ? arrowBlink : undefined}
+                onPress={() => onVehicleMarkerPress(v)}
               />
             </Marker>
           );
         })}
       </MapView>
 
-      {isVehicleInfoVisible && liveInfoVehicle && (
-        <VehicleInfoOverlay
-          vehicle={liveInfoVehicle}
+      {isVehicleInfoVisible && selectedVehicle && infoBubbleCoordinate && (
+        <VehicleInfoMapOverlay
+          mapRef={mapRef}
+          mapReady={mapReady}
+          regionTick={mapRegionTick}
+          region={currentRegion}
+          mapLayout={mapLayout}
+          coordinate={infoBubbleCoordinate}
+          vehicle={infoVehicle ?? selectedVehicle}
           onClose={dismissVehicleInfo}
         />
       )}

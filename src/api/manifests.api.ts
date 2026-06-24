@@ -3,7 +3,7 @@
  * Handles calendar, manifest listing, assignment lookup, and vehicle assignment.
  */
 
-import { PEAK_BASE_URL, PEAK_DEFAULT_PARAMS } from '@/config/env';
+import { getPeakBaseUrl, PEAK_DEFAULT_PARAMS } from '@/config/env';
 import { selfUpdateAssignment, selfUpdateDelete } from '@/api/position.api';
 import { getPrimaryRouteIdFromManifestJson } from '@/utils/manifestMap';
 
@@ -58,7 +58,7 @@ function buildManifestUrl(params: Record<string, string | number>): string {
   const qs = Object.entries(params)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
     .join('&');
-  return `${PEAK_BASE_URL}&${qs}`;
+  return `${getPeakBaseUrl()}&${qs}`;
 }
 
 /** Step 1: Get active calendarIDs for today */

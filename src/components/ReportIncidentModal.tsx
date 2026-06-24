@@ -125,6 +125,8 @@ const ReportIncidentModal: React.FC = () => {
       transparent
       animationType="fade"
       onRequestClose={handleBack}
+      statusBarTranslucent={Platform.OS === 'android'}
+      presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']}
     >
       <Pressable

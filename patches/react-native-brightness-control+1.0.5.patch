@@ -1,33 +1,305 @@
+diff --git a/node_modules/react-native-brightness-control/android/build/generated/source/buildConfig/debug/com/brightness/BuildConfig.java b/node_modules/react-native-brightness-control/android/build/generated/source/buildConfig/debug/com/brightness/BuildConfig.java
+new file mode 100644
+index 0000000..a793674
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/generated/source/buildConfig/debug/com/brightness/BuildConfig.java
+@@ -0,0 +1,10 @@
++/**
++ * Automatically generated file. DO NOT MODIFY
++ */
++package com.brightness;
++
++public final class BuildConfig {
++  public static final boolean DEBUG = Boolean.parseBoolean("true");
++  public static final String LIBRARY_PACKAGE_NAME = "com.brightness";
++  public static final String BUILD_TYPE = "debug";
++}
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml b/node_modules/react-native-brightness-control/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml
+new file mode 100644
+index 0000000..ad532b6
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="com.brightness" >
++
++    <uses-sdk android:minSdkVersion="24" />
++
++</manifest>
+\ No newline at end of file
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json b/node_modules/react-native-brightness-control/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json
+new file mode 100644
+index 0000000..9582048
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/aapt_friendly_merged_manifests/debug/processDebugManifest/aapt/output-metadata.json
+@@ -0,0 +1,18 @@
++{
++  "version": 3,
++  "artifactType": {
++    "type": "AAPT_FRIENDLY_MERGED_MANIFESTS",
++    "kind": "Directory"
++  },
++  "applicationId": "com.brightness",
++  "variantName": "debug",
++  "elements": [
++    {
++      "type": "SINGLE",
++      "filters": [],
++      "attributes": [],
++      "outputFile": "AndroidManifest.xml"
++    }
++  ],
++  "elementType": "File"
++}
+\ No newline at end of file
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties b/node_modules/react-native-brightness-control/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties
+new file mode 100644
+index 0000000..1211b1e
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/aar_metadata/debug/writeDebugAarMetadata/aar-metadata.properties
+@@ -0,0 +1,6 @@
++aarFormatVersion=1.0
++aarMetadataVersion=1.0
++minCompileSdk=1
++minCompileSdkExtension=0
++minAndroidGradlePluginVersion=1.0.0
++coreLibraryDesugaringEnabled=false
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json b/node_modules/react-native-brightness-control/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json
+new file mode 100644
+index 0000000..9e26dfe
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/annotation_processor_list/debug/javaPreCompileDebug/annotationProcessors.json
+@@ -0,0 +1 @@
++{}
+\ No newline at end of file
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar b/node_modules/react-native-brightness-control/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar
+new file mode 100644
+index 0000000..0886c19
+Binary files /dev/null and b/node_modules/react-native-brightness-control/android/build/intermediates/compile_r_class_jar/debug/generateDebugRFile/R.jar differ
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/compile_symbol_list/debug/generateDebugRFile/R.txt b/node_modules/react-native-brightness-control/android/build/intermediates/compile_symbol_list/debug/generateDebugRFile/R.txt
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties b/node_modules/react-native-brightness-control/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties
+new file mode 100644
+index 0000000..782c15e
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/incremental/debug/packageDebugResources/compile-file-map.properties
+@@ -0,0 +1 @@
++#Mon Jun 08 18:22:01 IST 2026
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml b/node_modules/react-native-brightness-control/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml
+new file mode 100644
+index 0000000..b33c6e9
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/incremental/debug/packageDebugResources/merger.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<merger version="3"><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="main" generated-set="main$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\debug\res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="debug" generated-set="debug$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\debug\res"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated$Generated" generated="true" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\build\generated\res\resValues\debug"/></dataSet><dataSet aapt-namespace="http://schemas.android.com/apk/res-auto" config="generated" generated-set="generated$Generated" ignore_pattern="!.svn:!.git:!.ds_store:!*.scc:.*:&lt;dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~"><source path="C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\build\generated\res\resValues\debug"/></dataSet><mergedItems/></merger>
+\ No newline at end of file
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt b/node_modules/react-native-brightness-control/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt
+new file mode 100644
+index 0000000..78ac5b8
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/local_only_symbol_list/debug/parseDebugLocalResources/R-def.txt
+@@ -0,0 +1,2 @@
++R_DEF: Internal format may change without notice
++local
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt b/node_modules/react-native-brightness-control/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt
+new file mode 100644
+index 0000000..b9bbf57
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/manifest_merge_blame_file/debug/processDebugManifest/manifest-merger-blame-debug-report.txt
+@@ -0,0 +1,7 @@
++1<?xml version="1.0" encoding="utf-8"?>
++2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++3    package="com.brightness" >
++4
++5    <uses-sdk android:minSdkVersion="24" />
++6
++7</manifest>
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml b/node_modules/react-native-brightness-control/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml
+new file mode 100644
+index 0000000..ad532b6
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="com.brightness" >
++
++    <uses-sdk android:minSdkVersion="24" />
++
++</manifest>
+\ No newline at end of file
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json b/node_modules/react-native-brightness-control/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json
+new file mode 100644
+index 0000000..0637a08
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/navigation_json/debug/extractDeepLinksDebug/navigation.json
+@@ -0,0 +1 @@
++[]
+\ No newline at end of file
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt b/node_modules/react-native-brightness-control/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt
+new file mode 100644
+index 0000000..08f4ebe
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/nested_resources_validation_report/debug/generateDebugResources/nestedResourcesValidationReport.txt
+@@ -0,0 +1 @@
++0 Warning/Error
+\ No newline at end of file
+diff --git a/node_modules/react-native-brightness-control/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt b/node_modules/react-native-brightness-control/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt
+new file mode 100644
+index 0000000..ca69b62
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/intermediates/symbol_list_with_package_name/debug/generateDebugRFile/package-aware-r.txt
+@@ -0,0 +1 @@
++com.brightness
+diff --git a/node_modules/react-native-brightness-control/android/build/kotlin/compileDebugKotlin/cacheable/dirty-sources.txt b/node_modules/react-native-brightness-control/android/build/kotlin/compileDebugKotlin/cacheable/dirty-sources.txt
+new file mode 100644
+index 0000000..56d4cf5
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/kotlin/compileDebugKotlin/cacheable/dirty-sources.txt
+@@ -0,0 +1,2 @@
++C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\java\com\brightness\BrightnessModule.kt
++C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\java\com\brightness\BrightnessPackage.kt
+\ No newline at end of file
+diff --git a/node_modules/react-native-brightness-control/android/build/kotlin/compileDebugKotlin/local-state/build-history.bin b/node_modules/react-native-brightness-control/android/build/kotlin/compileDebugKotlin/local-state/build-history.bin
+new file mode 100644
+index 0000000..f997bd7
+Binary files /dev/null and b/node_modules/react-native-brightness-control/android/build/kotlin/compileDebugKotlin/local-state/build-history.bin differ
+diff --git a/node_modules/react-native-brightness-control/android/build/outputs/logs/manifest-merger-debug-report.txt b/node_modules/react-native-brightness-control/android/build/outputs/logs/manifest-merger-debug-report.txt
+new file mode 100644
+index 0000000..8e5a39e
+--- /dev/null
++++ b/node_modules/react-native-brightness-control/android/build/outputs/logs/manifest-merger-debug-report.txt
+@@ -0,0 +1,16 @@
++-- Merging decision tree log ---
++manifest
++ADDED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml:1:1-2:12
++INJECTED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml:1:1-2:12
++	package
++		INJECTED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml
++	xmlns:android
++		ADDED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml:1:11-69
++uses-sdk
++INJECTED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml reason: use-sdk injection requested
++INJECTED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml
++INJECTED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml
++	android:targetSdkVersion
++		INJECTED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml
++	android:minSdkVersion
++		INJECTED from C:\Users\JAMTECH\Desktop\driver app\driver-tracking\node_modules\react-native-brightness-control\android\src\main\AndroidManifestNew.xml
 diff --git a/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessModule.kt b/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessModule.kt
-index 373a617..a1b2c3d 100644
+index 373a617..b6c9252 100644
 --- a/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessModule.kt
 +++ b/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessModule.kt
-@@ -11,8 +11,20 @@ class BrightnessModule(reactContext: ReactApplicationContext) : ReactContextBase
+@@ -1,60 +1,49 @@
+ package com.brightness
+ 
+-import android.provider.Settings
+-import com.facebook.react.bridge.*
+-import android.animation.ValueAnimator
++import android.view.WindowManager
++import com.facebook.react.bridge.ReactApplicationContext
++import com.facebook.react.bridge.ReactContextBaseJavaModule
++import com.facebook.react.bridge.ReactMethod
++import com.facebook.react.bridge.Promise
++
++class BrightnessModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+ 
+-class BrightnessModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+     override fun getName(): String {
+-        return "Brightness"
++        return "BrightnessControl"
+     }
  
      @ReactMethod
-     fun setBrightness(brightness: Float, duration: Int = 0) {
+-    fun setBrightness(brightness: Float, duration: Int = 0) {
 -        val activity = currentActivity ?: return
-+        val activity = reactApplicationContext.currentActivity ?: return
-+        val resolver = reactApplicationContext.contentResolver
- 
-         activity.runOnUiThread {
-             val layoutParams = activity.window.attributes
-+
-+            // 1. Set system brightness (0-255) for device-wide effect - requires WRITE_SETTINGS
-+            if (Settings.System.canWrite(reactApplicationContext)) {
-+                Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
-+                val systemBrightness = (brightness * 255).toInt().coerceIn(0, 255)
-+                Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, systemBrightness)
-+            }
- 
-             if (duration == 0) {
+-
+-        activity.runOnUiThread {
+-            val layoutParams = activity.window.attributes
+-
+-            if (duration == 0) {
++    fun setBrightness(brightness: Float) {
++        val activity = reactContext.currentActivity
++        activity?.runOnUiThread {
++            try {
++                val layoutParams = activity.window.attributes
                  layoutParams.screenBrightness = brightness
-@@ -42,7 +54,7 @@ class BrightnessModule(reactContext: ReactApplicationContext) : ReactContextBase
+                 activity.window.attributes = layoutParams
+-                return@runOnUiThread
+-            }
+-
+-            val startBrightness: Float = if (layoutParams.screenBrightness >= 0) {
+-                layoutParams.screenBrightness
+-            } else {
+-                val resolver = reactApplicationContext.contentResolver
+-                Settings.System.getInt(resolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+-            }
+-
+-            ValueAnimator.ofFloat(startBrightness, brightness).apply {
+-                this.duration = duration.toLong()
+-                addUpdateListener { animator ->
+-                    layoutParams.screenBrightness = (animator.animatedValue as Float).coerceIn(0f, 1f)
+-                    activity.window.attributes = layoutParams
+-                }
+-                start()
++            } catch (e: Exception) {
++                // Fail silently
+             }
+         }
+     }
  
      @ReactMethod
      fun getBrightness(promise: Promise) {
 -        val activity = currentActivity
-+        val activity = reactApplicationContext.currentActivity
++        val activity = reactContext.currentActivity
          if (activity == null) {
-             promise.resolve(0.5f) 
+-            promise.resolve(0.5f) 
++            promise.resolve(1.0f)
              return
+         }
+-
+-        val layoutParams = activity.window.attributes
+-
+-        return if (layoutParams.screenBrightness >= 0) {
+-            promise.resolve(layoutParams.screenBrightness)
+-        } else {
+-            val resolver = reactApplicationContext.contentResolver
+-            promise.resolve(Settings.System.getInt(resolver, Settings.System.SCREEN_BRIGHTNESS) / 255f)
++        activity.runOnUiThread {
++            try {
++                val layoutParams = activity.window.attributes
++                var brightness = layoutParams.screenBrightness
++                if (brightness < 0) {
++                    brightness = 1.0f
++                }
++                promise.resolve(brightness)
++            } catch (e: Exception) {
++                promise.reject("ERR_BRIGHTNESS", e.message)
++            }
+         }
+     }
+ }
+diff --git a/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessPackage.kt b/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessPackage.kt
+index 10d663a..ec67117 100644
+--- a/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessPackage.kt
++++ b/node_modules/react-native-brightness-control/android/src/main/java/com/brightness/BrightnessPackage.kt
+@@ -4,7 +4,7 @@ import com.facebook.react.ReactPackage
+ import com.facebook.react.bridge.NativeModule
+ import com.facebook.react.bridge.ReactApplicationContext
+ import com.facebook.react.uimanager.ViewManager
+-import com.brightness.BrightnessModule
++import java.util.Collections
+ 
+ class BrightnessPackage : ReactPackage {
+     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
+@@ -12,6 +12,6 @@ class BrightnessPackage : ReactPackage {
+     }
+ 
+     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
+-        return emptyList()
++        return Collections.emptyList()
+     }
+ }

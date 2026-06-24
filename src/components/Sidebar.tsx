@@ -16,6 +16,7 @@ import { useMessagingModal } from '../context/MessagingModalContext';
 import { useSettingsModal } from '../context/SettingsModalContext';
 import { useMapModal } from '../context/MapModalContext';
 import { useChecklistModal } from '../context/ChecklistModalContext';
+import ForgetPassword from '@/screens/auth/ForgetPassword';
 
 interface SidebarProps {
   navigation: any;
@@ -33,6 +34,7 @@ const SIDEBAR_ITEMS = [
   { id: 'Map', label: 'Map', icon: 'map' },
   { id: 'Messaging', label: 'Messages', icon: 'campaign' },
   { id: 'PreTrip', label: 'Checklist', icon: 'assignment' },
+  //  { id: 'forget', label: 'Forget', icon: 'assignment' },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({

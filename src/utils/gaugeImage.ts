@@ -137,9 +137,6 @@ export function getGaugeImageSource(
   mins: number | null | undefined,
   role?: string,
 ): ImageSourcePropType {
-  // if (role === 'supervisor' || role === 'unassigned') {
-  //   return GAUGE_ASSETS.noStatus;
-  // }
   const visual = resolveGaugeVisual(mins);
   switch (visual.kind) {
     case 'on_time':
