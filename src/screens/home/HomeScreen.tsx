@@ -75,7 +75,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     geofenceAlert,
     currentStopGeofence,
   } = useDriverModel();
-  // console.log('nextStop======>>>>>>', nextStop);
+  console.log('nextStop======>>>>>>', nextStop);
   const [isGpsFlashing, setIsGpsFlashing] = useState(false);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fareCategories } = useDriverData();
@@ -121,6 +121,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       }),
     [selectedRoute, currentStopGeofence, nextStop],
   );
+
+  /** True when the bus is currently inside a stop geofence (at a stop). */
+  const isAtStop = currentStopGeofence != null;
+  /** Label shown above the stop name (AT STOP vs NEXT STOP). */
+  const stopLabel = isAtStop ? 'AT STOP' : 'NEXT STOP';
 
   // Responsive gauge size from device dimensions (no scroll: fit in viewport)
   const contentHeight = height - 128;
@@ -321,7 +326,21 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const gaugeImageHeight = gaugeSize;
 
 
-  
+  useEffect(() => {
+    console.log('================ HOME DEBUG ================');
+    console.log('selectedRoute:', selectedRoute);
+    console.log('currentStopGeofence:', JSON.stringify(currentStopGeofence));
+    console.log('nextStop.longName:', nextStop?.longName);
+    console.log('nextStopName (resolved):', nextStopName);
+    console.log('isAtStop:', isAtStop);
+    console.log('stopLabel:', stopLabel);
+    console.log('lastLocation:', lastLocation ? `${lastLocation.latitude.toFixed(5)},${lastLocation.longitude.toFixed(5)}` : null);
+    console.log('passengerCount:', passengerCount);
+    console.log('===========================================');
+  }, [selectedRoute, currentStopGeofence, nextStop, nextStopName, isAtStop, stopLabel, lastLocation, passengerCount]);
+
+
+
 
   return (
     <>
@@ -341,16 +360,36 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
                 { width: containerSize, minHeight: containerSize },
               ]}
             >
-              {geofenceAlert ? (
-                <GeofenceAlertBanner alert={geofenceAlert} />
-              ) : (
-                <Text
-                  style={[styles.nextStopText, { maxWidth: gaugeImageWidth }]}
-                  numberOfLines={2}
-                >
-                  {nextStopName}
-                </Text>
-              )}
+              {/* Stop name — always shown; geofence alert banner is additive */}
+              <View style={[styles.stopNameContainer, { maxWidth: gaugeImageWidth }]}>
+                {nextStopName !== '...' && (
+                  <View style={styles.stopNameWrapper}>
+                    <Text style={[
+                      styles.stopLabelText,
+                      isAtStop ? styles.stopLabelAtStop : styles.stopLabelNextStop,
+                    ]}>
+                      {stopLabel}
+                    </Text>
+                    <Text
+                      style={[styles.nextStopText, { maxWidth: gaugeImageWidth }]}
+                      numberOfLines={2}
+                    >
+                      {nextStopName}
+                    </Text>
+                  </View>
+                )}
+                {nextStopName === '...' && (
+                  <Text
+                    style={[styles.nextStopText, styles.nextStopTextMuted, { maxWidth: gaugeImageWidth }]}
+                    numberOfLines={1}
+                  >
+                    {nextStopName}
+                  </Text>
+                )}
+                {geofenceAlert && (
+                  <GeofenceAlertBanner alert={geofenceAlert} />
+                )}
+              </View>
               <ScheduleGaugeImage
                 minsLate={minsLate}
                 role={driver?.role}
@@ -876,13 +915,43 @@ const styles = StyleSheet.create({
     flex: 1,
     letterSpacing: 0.2,
   },
+  stopNameContainer: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  stopNameWrapper: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  stopLabelText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  stopLabelAtStop: {
+    color: '#4ADE80', // green — bus is at this stop
+  },
+  stopLabelNextStop: {
+    color: 'rgba(255,255,255,0.5)',
+  },
   nextStopText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
     textAlign: 'center',
     alignSelf: 'center',
-    marginBottom: 8,
+  },
+  nextStopTextMuted: {
+    opacity: 0.4,
+    fontSize: 14,
   },
 
 

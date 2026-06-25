@@ -42,7 +42,7 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
   const { width, height } = useWindowDimensions();
   const isTablet = Math.min(width, height) >= TABLET_MIN_WIDTH;
   const isLandscape = width > height;
-  const navigation=useNavigation();
+  const navigation = useNavigation();
   const [showPassword, setShowPassword] = useState(false);
 
   const [username, setUsername] = useState('');
@@ -130,12 +130,11 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
       <KeyboardAvoidingView
-  style={styles.flex}
-  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-  keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
->
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}>
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
@@ -147,8 +146,7 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
           ]}
           keyboardShouldPersistTaps="handled"
           bounces={false}
-          showsVerticalScrollIndicator={false}
-        >
+          showsVerticalScrollIndicator={false}>
           <View style={[styles.page, { maxWidth: layout.cardWidth }]}>
             <Image
               source={require('../../assets/peak-transit-logo.png')}
@@ -165,9 +163,12 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
             <View style={styles.card}>
               <View style={[styles.infoBanner, error ? styles.errorBanner : null]}>
                 <Text
-                  style={[styles.infoText, error ? styles.errorBannerText : null, { fontSize: layout.fontSize - 1 }]}
-                  testID={error ? 'login-error' : undefined}
-                >
+                  style={[
+                    styles.infoText,
+                    error ? styles.errorBannerText : null,
+                    { fontSize: layout.fontSize - 1 },
+                  ]}
+                  testID={error ? 'login-error' : undefined}>
                   {error || LOGIN_INFO_MESSAGE}
                 </Text>
               </View>
@@ -181,7 +182,7 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
                   placeholder="Username"
                   placeholderTextColor="#9CA3AF"
                   value={username}
-                  onChangeText={(text) => {
+                  onChangeText={text => {
                     setUsername(text);
                     if (error) setError('');
                   }}
@@ -193,76 +194,61 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
               </View>
 
               <View
-  style={[
-    styles.inputRow,
-    {
-      height: layout.inputHeight,
-      marginTop: 12,
-    },
-  ]}
->
-  <View style={styles.inputIconBox}>
-    <MaterialIcons
-      name="lock-outline"
-      size={22}
-      color="#6B7280"
-    />
-  </View>
+                style={[
+                  styles.inputRow,
+                  {
+                    height: layout.inputHeight,
+                    marginTop: 12,
+                  },
+                ]}>
+                <View style={styles.inputIconBox}>
+                  <MaterialIcons name="lock-outline" size={22} color="#6B7280" />
+                </View>
 
-  <TextInput
-    style={[
-      styles.input,
-      {
-        fontSize: layout.fontSize,
-      },
-    ]}
-    placeholder="Password"
-    placeholderTextColor="#9CA3AF"
-    value={password}
-    onChangeText={(text) => {
-      setPassword(text);
-      if (error) setError('');
-    }}
-    secureTextEntry={!showPassword}
-    returnKeyType="done"
-    onSubmitEditing={() => {
-      if (canSubmit) {
-        void handleLogin();
-      }
-    }}
-    testID="login-password"
-  />
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      fontSize: layout.fontSize,
+                    },
+                  ]}
+                  placeholder="Password"
+                  placeholderTextColor="#9CA3AF"
+                  value={password}
+                  onChangeText={text => {
+                    setPassword(text);
+                    if (error) setError('');
+                  }}
+                  secureTextEntry={!showPassword}
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    if (canSubmit) {
+                      void handleLogin();
+                    }
+                  }}
+                  testID="login-password"
+                />
 
-  <TouchableOpacity
-    style={styles.eyeButton}
-    activeOpacity={0.7}
-    onPress={() =>
-      setShowPassword(prev => !prev)
-    }
-  >
-    <MaterialIcons
-      name={
-        showPassword
-          ? 'visibility-off'
-          : 'visibility'
-      }
-      size={22}
-      color="#6B7280"
-    />
-  </TouchableOpacity>
-</View>
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  activeOpacity={0.7}
+                  onPress={() => setShowPassword(prev => !prev)}>
+                  <MaterialIcons
+                    name={showPassword ? 'visibility-off' : 'visibility'}
+                    size={22}
+                    color="#6B7280"
+                  />
+                </TouchableOpacity>
+              </View>
 
               <Pressable
                 style={styles.rememberRow}
-                onPress={() => setRememberMe((prev) => !prev)}
+                onPress={() => setRememberMe(prev => !prev)}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: rememberMe }}
-              >
+                accessibilityState={{ checked: rememberMe }}>
                 <Text style={styles.rememberText}>Remember me</Text>
                 <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
-                  {rememberMe ? (
-                    <MaterialIcons name="check" size={14} color="#FFFFFF" />
-                  ) : null}
+                  {rememberMe ? <MaterialIcons name="check" size={14} color="#FFFFFF" /> : null}
                 </View>
               </Pressable>
 
@@ -271,8 +257,7 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
                 onPress={() => void handleLogin()}
                 disabled={!canSubmit}
                 activeOpacity={0.85}
-                testID="login-submit"
-              >
+                testID="login-submit">
                 {isSubmitting ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
@@ -282,9 +267,8 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
 
               <TouchableOpacity
                 style={styles.forgotButton}
-                onPress={()=>navigation.navigate('Forget-Password' as never)}
-                activeOpacity={0.7}
-              >
+                onPress={() => navigation.navigate('Forget-Password' as never)}
+                activeOpacity={0.7}>
                 <Text style={styles.forgotText}>Forgot my password</Text>
               </TouchableOpacity>
             </View>
@@ -304,10 +288,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   eyeButton: {
-  width: 48,
-  alignItems: 'center',
-  justifyContent: 'center',
-},
+    width: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scrollContent: {
     flexGrow: 1,
     alignItems: 'center',
