@@ -74,10 +74,12 @@ yarn-error.log
 !.yarn/sdks
 !.yarn/versions
 
-# Environment variables
+# Environment variables / local secrets
 .env
 .env.local
 .env.*.local
+src/config/env.local.ts
+android/app/src/main/res/values/mapbox_access_token.xml
 
 # Detox
 e2e/artifacts

@@ -23,10 +23,38 @@ buildscript {
     }
 }
 
+def loadMapboxDownloadsToken() {
+    def props = new Properties()
+    def localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.withInputStream { stream -> props.load(stream) }
+    }
+    def fromLocal = props.getProperty("MAPBOX_DOWNLOADS_TOKEN")
+    if (fromLocal != null && !fromLocal.trim().isEmpty()) {
+        return fromLocal.trim()
+    }
+    def fromEnv = System.getenv("MAPBOX_DOWNLOADS_TOKEN")
+    if (fromEnv != null && !fromEnv.trim().isEmpty()) {
+        return fromEnv.trim()
+    }
+    return project.findProperty("MAPBOX_DOWNLOADS_TOKEN") ?: ""
+}
+
 allprojects {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url 'https://api.mapbox.com/downloads/v2/releases/maven'
+            authentication {
+                basic(BasicAuthentication)
+            }
+            credentials {
+                // Do not change the username — always "mapbox"
+                username = "mapbox"
+                password = loadMapboxDownloadsToken()
+            }
+        }
         maven {
             url("$rootDir/../node_modules/detox/Detox-android")
         }

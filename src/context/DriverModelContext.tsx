@@ -18,8 +18,13 @@ import { Platform, AppState, AppStateStatus, PermissionsAndroid } from 'react-na
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import { coerceDriverIdForApi, getOutboundDriverId } from '@/utils/outboundDriverId';
+import { resolveTelemetryRouteId } from '@/utils/resolveOutboundRouteId';
 import { PEAK_DEFAULT_PARAMS } from '@/config/env';
-import { locationService } from '@/services/location.service';
+import {
+  locationService,
+  isFreshGpsFix,
+  shouldAcceptGpsFix,
+} from '@/services/location.service';
 import {
   requestLocationPermission,
   requestBackgroundLocationPermission,
@@ -51,6 +56,7 @@ import { notificationService } from '@/services/notification.service';
 import BackgroundService from 'react-native-background-actions';
 import { backgroundTrackingService } from '@/services/background-tracking.service';
 import { mdtVehicleIdForApi } from '@/utils/mdtId';
+import { toStopNameText } from '@/utils/stopDisplayName';
 
 const HORIZ_ACCUR_UPPER_LIMIT = APP_CONSTANTS.LOCATION_ACCURACY_THRESHOLD ?? 50; // meters; above = "ACQUIRING SAT"
 const TIME_BETWEEN_SERVER_CALLS = APP_CONSTANTS.LOCATION_UPDATE_INTERVAL ?? 5000; // 5 seconds
@@ -65,7 +71,10 @@ export interface LastLocation {
   accuracy: number;
   heading?: number;
   speed?: number;
+  /** Native GPS clock (may be historical under emulator GPX). */
   timestamp: number;
+  /** Wall-clock receive time — used for admin upload freshness. */
+  receivedAt: number;
   altitude?: number;
 }
 
@@ -75,6 +84,7 @@ const MDT_FALLBACK_LOCATION: LastLocation = {
   longitude: 0,
   accuracy: 999,
   timestamp: 0,
+  receivedAt: 0,
   speed: 0,
   heading: 0,
 };
@@ -152,6 +162,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     driver,
     selectedRouteId,
     selectedManifestId,
+    serviceStatus,
     setVehicleId,
     setVehicleName,
     setPassengerCount,
@@ -192,11 +203,15 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const isAcquiringSatRef = useRef(false);
   const atLinkRef = useRef<number>(-1);
   const magnetometerHeadingRef = useRef<number>(0);
+  /** Last in-service route sent to admin — survives brief assignment-poll glitches. */
+  const pinnedTelemetryRouteIdRef = useRef<string | null>(null);
 
   /** Route for schedule/shape — includes block manifest primary route (same as map). */
   const effectiveRouteId = mapEffectiveRouteId;
 
   const lastLocationRef = useRef<LastLocation | null>(null);
+  /** Last accepted native GPS timestamp — detects cache rewinds without blocking GPX. */
+  const lastAcceptedNativeTsRef = useRef<number | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const mdtIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMdtSendRef = useRef<number>(0);
@@ -372,7 +387,8 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return list.map((item) => {
       const match = stops.find(
         (s) =>
-          s.longName === item.longName || String(s.stopID) === String(item.link),
+          toStopNameText(s.longName) === toStopNameText(item.longName) ||
+          String(s.stopID) === String(item.link),
       );
       if (match) {
         return { ...item, lat: match.lat, lng: match.lng };
@@ -405,7 +421,8 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const base = item as ScheduleStop;
       const match = stops.find(
         (s) =>
-          s.longName === base.longName || String(s.stopID) === String(base.link),
+          toStopNameText(s.longName) === toStopNameText(base.longName) ||
+          String(s.stopID) === String(base.link),
       );
       if (match) {
         return { ...base, lat: match.lat, lng: match.lng };
@@ -723,14 +740,41 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, []);
 
+  const resolveVehicleTelemetryRouteId = useCallback((): string | number => {
+    const routeId = resolveTelemetryRouteId({
+      selectedRouteId,
+      mapEffectiveRouteId: effectiveRouteId,
+      pinnedTelemetryRouteId: pinnedTelemetryRouteIdRef.current,
+      mdtRouteId: getMdtRouteId(),
+    });
+    if (isAssignedRouteId(routeId)) {
+      pinnedTelemetryRouteIdRef.current = String(routeId);
+    }
+    return coerceDriverIdForApi(routeId);
+  }, [selectedRouteId, effectiveRouteId, getMdtRouteId]);
+
+  useEffect(() => {
+    if (serviceStatus === 'out_of_service') {
+      pinnedTelemetryRouteIdRef.current = null;
+      return;
+    }
+    if (isAssignedRouteId(selectedRouteId)) {
+      pinnedTelemetryRouteIdRef.current = String(selectedRouteId);
+      return;
+    }
+    if (isAssignedRouteId(effectiveRouteId)) {
+      pinnedTelemetryRouteIdRef.current = String(effectiveRouteId);
+    }
+  }, [serviceStatus, selectedRouteId, effectiveRouteId, vehicleId]);
+
   const buildBackgroundTrackingData = useCallback(() => ({
     agencyID,
     vehicleID: vehicleId && vehicleId !== 'unassigned' && vehicleId !== '110' ? String(vehicleId) : '0',
     driverID: telemetryDriverIdRef.current,
-    routeID: String(coerceDriverIdForApi(getMdtRouteId())),
+    routeID: String(resolveVehicleTelemetryRouteId()),
     mdtUuid,
     minsLate: minsLateRef.current ?? 0,
-  }), [agencyID, vehicleId, getMdtRouteId, mdtUuid]);
+  }), [agencyID, vehicleId, resolveVehicleTelemetryRouteId, mdtUuid]);
 
   const shouldRunBackgroundTracking = useCallback((): boolean => {
     if (trackingModeRef.current === 'off') return false;
@@ -744,6 +788,18 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const loc = position ?? lastLocation;
     if (!loc || !vehicleId || vehicleId === 'unassigned' || vehicleId === '110') return;
     if (trackingMode === 'off') return;
+    // Use receivedAt (wall clock), not native timestamp — GPX `<time>` can be years old.
+    if (!isFreshGpsFix(loc.receivedAt ?? loc.timestamp)) {
+      if (__DEV__) {
+        console.warn('[DriverModel] skip vehicle update — stale GPS fix', {
+          lat: loc.latitude,
+          lng: loc.longitude,
+          receivedAgeMs: Date.now() - (loc.receivedAt ?? loc.timestamp ?? 0),
+          nativeFixTs: loc.timestamp,
+        });
+      }
+      return;
+    }
     // If auto mode, we only send if a real vehicle is selected
     // if (trackingMode === 'auto' && (!vehicleId || vehicleId === '110')) return;
     const now = Date.now();
@@ -757,7 +813,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     telemetryDriverIdRef.current = driverIdStr;
     driverIdRef.current = driverIdStr;
 
-    const routeID = coerceDriverIdForApi(getMdtRouteId());
+    const routeID = resolveVehicleTelemetryRouteId();
 
     const params: VehicleUpdateParams = {
       agencyID,
@@ -778,7 +834,16 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
           : minsLate ?? undefined,
     };
     try {
-      console.log('[DriverModel] vehicle update params--==--===>>>>', params);
+      console.log('[DriverModel] vehicle update → admin', {
+        lat: loc.latitude,
+        lng: loc.longitude,
+        routeID,
+        vehicleID: vehicleId,
+        mapRoute: effectiveRouteId ?? null,
+        selectedRoute: selectedRouteId ?? null,
+        receivedAgeMs: Date.now() - (loc.receivedAt ?? Date.now()),
+        nativeFixTs: loc.timestamp,
+      });
       const resp: any = await vehicleUpdate(params);
       console.log('[DriverModel] vehicle update response--==--===>>>>', resp);
       applyMinsLateFromResponse(resp);
@@ -812,6 +877,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     vehicleId,
     trackingMode,
     effectiveRouteId,
+    selectedRouteId,
     agencyID,
     batteryLevel,
     batteryState,
@@ -819,7 +885,7 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     driver,
     isAssignmentBootstrapDone,
     getMdtDriverId,
-    getMdtRouteId,
+    resolveVehicleTelemetryRouteId,
     setPassengerCount,
   ]);
 
@@ -849,23 +915,33 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
         speed > 1 && payload.heading !== undefined
           ? payload.heading
           : magnetometerHeadingRef.current;
+      const receivedAt = payload.receivedAt ?? Date.now();
+      const nativeTs = payload.timestamp ?? receivedAt;
+      if (!shouldAcceptGpsFix(nativeTs, lastAcceptedNativeTsRef.current)) {
+        return;
+      }
       const loc: LastLocation = {
         latitude: payload.latitude,
         longitude: payload.longitude,
         accuracy: payload.accuracy,
         heading,
         speed,
-        timestamp: Date.now(),
+        timestamp: nativeTs,
+        receivedAt,
         altitude: payload.altitude ?? 0,
       };
-      setIsAcquiringSat(false);
-      isAcquiringSatRef.current = false;
-      setLocationError(null);
-      if (payload.accuracy <= HORIZ_ACCUR_UPPER_LIMIT) {
-        const enriched = processLocationUpdate(loc);
-        setLastLocation(enriched);
-        trySendVehicleUpdateRef.current?.(enriched);
+      // receivedAt is wall-clock — never reject GPX historical native timestamps here
+      if (!isFreshGpsFix(loc.receivedAt)) {
+        return;
       }
+      lastAcceptedNativeTsRef.current = nativeTs;
+      setIsAcquiringSat(payload.accuracy > HORIZ_ACCUR_UPPER_LIMIT);
+      isAcquiringSatRef.current = payload.accuracy > HORIZ_ACCUR_UPPER_LIMIT;
+      setLocationError(null);
+      const enriched = processLocationUpdate(loc);
+      setLastLocation(enriched);
+      // Always push to admin so panel matches device map (even while "acquiring")
+      trySendVehicleUpdateRef.current?.(enriched);
     });
     return () => {
       backgroundTrackingService.setLocationUpdateHandler(null);
@@ -1027,23 +1103,30 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     locationService.getCurrentLocation()
       .then(pos => {
         if (!isMounted) return;
-        const ts = Date.now();
+        const receivedAt = pos.receivedAt ?? Date.now();
+        const nativeTs = pos.timestamp ?? receivedAt;
+        if (!shouldAcceptGpsFix(nativeTs, lastAcceptedNativeTsRef.current)) {
+          return;
+        }
         const loc: LastLocation = {
           latitude: pos.latitude,
           longitude: pos.longitude,
           accuracy: pos.accuracy,
           heading: pos.heading ?? 0,
           speed: pos.speed ?? 0,
-          timestamp: ts,
+          timestamp: nativeTs,
+          receivedAt,
           altitude: pos.altitude ?? 0,
         };
-        if (pos.accuracy <= HORIZ_ACCUR_UPPER_LIMIT) {
-          const enriched = processLocationUpdate(loc);
-          setLastLocation(enriched);
-        } else {
-          lastLocationRef.current = loc;
-          setLastLocation(loc);
+        if (!isFreshGpsFix(loc.receivedAt)) {
+          return;
         }
+        lastAcceptedNativeTsRef.current = nativeTs;
+        const acquiring = pos.accuracy > HORIZ_ACCUR_UPPER_LIMIT;
+        setIsAcquiringSat(acquiring);
+        isAcquiringSatRef.current = acquiring;
+        const enriched = processLocationUpdate(loc);
+        setLastLocation(enriched);
       })
       .catch(err => console.log('[DriverModel] Initial fix failed:', err.message));
 
@@ -1054,13 +1137,25 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       heading?: number;
       speed?: number;
       altitude?: number;
+      timestamp?: number;
+      receivedAt?: number;
     }) => {
-      const ts = Date.now();
       const speed = position.speed ?? 0;
-      // If moving (>1m/s), use GPS heading. Else use magnetometer heading.
       const heading = (speed > 1 && position.heading !== undefined)
         ? position.heading
         : magnetometerHeadingRef.current;
+      const receivedAt = position.receivedAt ?? Date.now();
+      const nativeTs = position.timestamp ?? receivedAt;
+
+      if (!shouldAcceptGpsFix(nativeTs, lastAcceptedNativeTsRef.current)) {
+        if (__DEV__) {
+          console.warn('[DriverModel] skip GPS delivery — native timestamp rewind (cache)', {
+            nativeTs,
+            lastAccepted: lastAcceptedNativeTsRef.current,
+          });
+        }
+        return;
+      }
 
       const loc: LastLocation = {
         latitude: position.latitude,
@@ -1068,26 +1163,31 @@ export const DriverModelProvider: React.FC<{ children: React.ReactNode }> = ({ c
         accuracy: position.accuracy,
         heading: heading,
         speed: speed,
-        timestamp: ts,
+        timestamp: nativeTs,
+        receivedAt,
         altitude: position.altitude ?? 0,
       };
+
+      if (!isFreshGpsFix(loc.receivedAt)) {
+        return;
+      }
+
+      lastAcceptedNativeTsRef.current = nativeTs;
 
       const acquiring = position.accuracy > HORIZ_ACCUR_UPPER_LIMIT;
       setIsAcquiringSat(acquiring);
       isAcquiringSatRef.current = acquiring;
       setLocationError(null);
 
-      if (!acquiring) {
-        const enriched = processLocationUpdate(loc);
-        setLastLocation(enriched);
-        trySendVehicleUpdateRef.current?.(enriched);
-        const now = Date.now();
-        if (now - lastMdtSendRef.current >= MDT_INTERVAL_MS - 500) {
-          trySendMdtUpdate(loc);
-          lastMdtSendRef.current = now;
-        }
+      // Always mirror GPS on the map and push the same fix to admin (GPX / emulator safe)
+      const enriched = processLocationUpdate(loc);
+      setLastLocation(enriched);
+      trySendVehicleUpdateRef.current?.(enriched);
+      const now = Date.now();
+      if (now - lastMdtSendRef.current >= MDT_INTERVAL_MS - 500) {
+        trySendMdtUpdate(loc);
+        lastMdtSendRef.current = now;
       }
-
     };
 
     // ... rest of the effect

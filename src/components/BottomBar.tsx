@@ -3,17 +3,19 @@
  * Dark gray, vertical separators, lime for status text, device-size adjustable
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, useWindowDimensions, useColorScheme, Animated, Easing, ScrollView } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { useDriverModel } from '@/context/DriverModelContext';
 import { useDriverModal } from '../context/DriverModalContext';
 import { useEmergency } from '../context/EmergencyContext';
 import SelectRouteModal from './SelectRouteModal';
 import VehicleSelectModal from './VehicleSelectModal';
 import ForgetPassword from '@/screens/auth/ForgetPassword';
+import { toStopNameText } from '@/utils/stopDisplayName';
 const BOTTOM_BAR_LIME = '#ADFF2F';
 const BOTTOM_BAR_SECONDARY = 'rgba(255,255,255,0.7)';
 
@@ -129,6 +131,7 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
   const { open: openDriverModal } = useDriverModal();
   const { emergencyActivated } = useEmergency();
   const { driver, driverTabLabel, driverForTab, vehicleId, vehicleName, routeTabLabel, serviceStatus, logout } = useAuth();
+  const { currentStopGeofence, nextStop } = useDriverModel();
   const isLandscape = width > height;
   const scale = Math.min(width / 380, 1.3);
   // Match sidebar sizing: same icon + text scale
@@ -150,7 +153,27 @@ const BottomBar: React.FC<BottomBarProps> = ({ navigation, onDriverPress }) => {
 
   const driverName = driverTabLabel;
   const vehicleDisplay = vehicleName || 'Unassigned';
-  const routeDisplay = routeTabLabel;
+  const [routeDisplay, setRouteDisplay] = useState(routeTabLabel);
+  const stopLikeLabel = useMemo(() => {
+    const geofence = toStopNameText(currentStopGeofence?.name);
+    if (geofence) return geofence;
+    return toStopNameText(nextStop?.longName);
+  }, [currentStopGeofence, nextStop]);
+
+  useEffect(() => {
+    const incoming = toStopNameText(routeTabLabel);
+    const stopLike = toStopNameText(stopLikeLabel);
+    const previous = toStopNameText(routeDisplay);
+    if (!incoming) return;
+
+    // Ignore transient stop-name labels in the route tab.
+    if (stopLike && incoming === stopLike && previous && previous !== stopLike) {
+      return;
+    }
+    if (incoming !== previous) {
+      setRouteDisplay(incoming);
+    }
+  }, [routeTabLabel, stopLikeLabel, routeDisplay]);
   const showLimeDriver = effectiveLoggedOut;
   const showLimeRoute = serviceStatus === 'out_of_service' || emergencyActivated;
 

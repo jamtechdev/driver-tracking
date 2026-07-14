@@ -1,83 +1,50 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { locationService, type GeolocationResponse } from '../services/location.service';
-import { requestLocationPermission } from '../utils/permissions';
+import React, { createContext, useContext, useMemo } from 'react';
+import type { GeolocationResponse } from '../services/location.service';
+import { useDriverModel } from './DriverModelContext';
 
 interface MapLocationContextType {
-    location: GeolocationResponse | null;
-    error: string | null;
-    heading: number;
+  location: GeolocationResponse | null;
+  error: string | null;
+  heading: number;
 }
 
 const MapLocationContext = createContext<MapLocationContextType | null>(null);
 
+/**
+ * Map UI reads the same GPS fix as DriverModel telemetry (single watch, no stale duplicate).
+ */
 export const MapLocationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [location, setLocation] = useState<GeolocationResponse | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [heading, setHeading] = useState(0);
-    const watchIdRef = useRef<number | null>(null);
+  const { lastLocation, locationError, isAcquiringSat } = useDriverModel();
 
-    useEffect(() => {
-        let isMounted = true;
+  const location = useMemo<GeolocationResponse | null>(() => {
+    if (!lastLocation) return null;
+    return {
+      latitude: lastLocation.latitude,
+      longitude: lastLocation.longitude,
+      accuracy: lastLocation.accuracy,
+      heading: lastLocation.heading,
+      speed: lastLocation.speed,
+      altitude: lastLocation.altitude,
+      timestamp: lastLocation.timestamp,
+      receivedAt: lastLocation.receivedAt ?? Date.now(),
+    };
+  }, [lastLocation]);
 
-        const startTracking = async () => {
-            const granted = await requestLocationPermission();
-            if (!granted) {
-                if (isMounted) setError('Location permission denied');
-                return;
-            }
+  const heading = lastLocation?.heading ?? 0;
+  const error =
+    locationError ?? (isAcquiringSat ? 'Acquiring GPS signal…' : null);
 
-            // Proactive initial fix
-            try {
-                const initial = await locationService.getCurrentLocation();
-                if (isMounted) {
-                    setLocation(initial);
-                    if (initial.heading !== undefined) setHeading(initial.heading);
-                }
-            } catch (err: any) {
-                if (isMounted) console.log('[MapLocation] Initial fix failed:', err.message);
-            }
-
-            // Start watching for real-time updates
-            const watchId = locationService.watchPosition(
-                (pos) => {
-                    if (isMounted) {
-                        setLocation(pos);
-                        if (pos.heading !== undefined) setHeading(pos.heading);
-                        setError(null);
-                    }
-                },
-                (err) => {
-                    if (isMounted) setError(err.message || 'Location watch failed');
-                }
-            );
-
-            if (watchId !== -1) {
-                watchIdRef.current = watchId;
-            }
-        };
-
-        startTracking();
-
-        return () => {
-            isMounted = false;
-            if (watchIdRef.current !== null) {
-                locationService.clearWatch(watchIdRef.current);
-                watchIdRef.current = null;
-            }
-        };
-    }, []);
-
-    return (
-        <MapLocationContext.Provider value={{ location, error, heading }}>
-            {children}
-        </MapLocationContext.Provider>
-    );
+  return (
+    <MapLocationContext.Provider value={{ location, error, heading }}>
+      {children}
+    </MapLocationContext.Provider>
+  );
 };
 
 export const useMapLocation = () => {
-    const context = useContext(MapLocationContext);
-    if (!context) {
-        throw new Error('useMapLocation must be used within a MapLocationProvider');
-    }
-    return context;
+  const context = useContext(MapLocationContext);
+  if (!context) {
+    throw new Error('useMapLocation must be used within a MapLocationProvider');
+  }
+  return context;
 };

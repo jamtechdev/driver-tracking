@@ -160,9 +160,7 @@ class BackgroundTrackingService {
     if (!this.currentData) return;
 
     const { accuracy } = position.coords;
-    if (accuracy > HORIZ_ACCUR_UPPER_LIMIT) {
-      return;
-    }
+    const receivedAt = Date.now();
 
     this.onLocationUpdate?.({
       latitude: position.coords.latitude,
@@ -171,7 +169,14 @@ class BackgroundTrackingService {
       heading: position.coords.heading ?? undefined,
       speed: position.coords.speed ?? undefined,
       altitude: position.coords.altitude ?? undefined,
+      timestamp: position.timestamp,
+      receivedAt,
     });
+
+    // Still send MDT with live coords even if accuracy is soft (emulator / GPX)
+    if (accuracy > HORIZ_ACCUR_UPPER_LIMIT * 4) {
+      return;
+    }
 
     const now = Date.now();
     if (now - this.lastMdtSendTime >= MDT_INTERVAL_MS - 500) {

@@ -73,6 +73,8 @@
 		<string>fetch</string>
 		<string>remote-notification</string>
 	</array>
+	<key>MBXAccessToken</key>
+	<string>YOUR_MAPBOX_PUBLIC_TOKEN</string>
 	<key>UIInterfaceOrientation</key>
 	<string>UIInterfaceOrientationPortrait</string>
 	<key>UILaunchStoryboardName</key>

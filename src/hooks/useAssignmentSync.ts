@@ -22,8 +22,10 @@ import {
   getRouteIdFromAssignmentResult,
   hasServerAssignment,
   shouldApplyOutOfServiceRouteFromPoll,
+  shouldKeepLocalRouteDuringPoll,
   shouldUnassignDriverFromPoll,
 } from '@/utils/assignmentSync';
+import { pickRouteIdFromAssignmentPoll } from '@/utils/resolveOutboundRouteId';
 
 const POLL_INTERVAL_MS = 10000;
 const POLL_INTERVAL_UNASSIGNED_MS = 3000;
@@ -68,6 +70,8 @@ export interface AssignmentSyncHandlers {
   /** Local block manifest — compared to server on each poll. */
   selectedManifestIdRef: MutableRefObject<number | null>;
   selectedManifestId: number | null;
+  selectedRouteIdRef: MutableRefObject<string | null>;
+  serviceStatusRef: MutableRefObject<'in_service' | 'out_of_service'>;
 }
 
 function parseAssignmentId(raw: unknown): string | null {
@@ -149,6 +153,8 @@ export function useAssignmentSync(handlers: AssignmentSyncHandlers): void {
     lastServerAssignmentAtRef,
     selectedManifestIdRef,
     selectedManifestId,
+    selectedRouteIdRef,
+    serviceStatusRef,
   } = handlers;
 
   const inFlightRef = useRef(false);
@@ -197,7 +203,12 @@ export function useAssignmentSync(handlers: AssignmentSyncHandlers): void {
         manualUnassignActiveRef.current = false;
         manualUnassignBlockedDriverIdRef.current = null;
         driverOverrideRef.current = false;
-        routeOverrideRef.current = false;
+        if (
+          !isAssignedRouteId(selectedRouteIdRef.current) ||
+          serviceStatusRef.current !== 'in_service'
+        ) {
+          routeOverrideRef.current = false;
+        }
       }
 
       const currentRouteId = result.currentRouteID != null
@@ -258,10 +269,18 @@ export function useAssignmentSync(handlers: AssignmentSyncHandlers): void {
         // iOS updateAssignment: route from assignment immediately when hasAssignment=1
         if (serverHasAssignment && assignment) {
           const assignedRouteId = parseAssignmentId(assignment.routeID);
-          const routeIdToApply =
-            isAssignedRouteId(currentRouteId) ? currentRouteId
-              : isAssignedRouteId(assignedRouteId) ? assignedRouteId
-                : getRouteIdFromAssignmentResult(result, assignment);
+          const routeIdFromServer = pickRouteIdFromAssignmentPoll(
+            assignedRouteId,
+            currentRouteId,
+            getRouteIdFromAssignmentResult(result, assignment),
+          );
+          const routeIdToApply = shouldKeepLocalRouteDuringPoll(
+            selectedRouteIdRef.current,
+            serviceStatusRef.current,
+            routeIdFromServer,
+          )
+            ? selectedRouteIdRef.current
+            : routeIdFromServer;
 
           if (routeIdToApply) {
             const label = await resolveRouteLabel(routeIdToApply);
@@ -314,6 +333,8 @@ export function useAssignmentSync(handlers: AssignmentSyncHandlers): void {
     onAssignmentApiResponse,
     lastServerAssignmentAtRef,
     selectedManifestIdRef,
+    selectedRouteIdRef,
+    serviceStatusRef,
   ]);
 
   applyAssignmentRef.current = applyAssignment;

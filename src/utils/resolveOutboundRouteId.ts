@@ -38,3 +38,42 @@ export function getMdtRouteIdForVehicleUpdate(params: {
 
   return -1;
 }
+
+/** Prefer assignment.routeID — server currentRouteID can lag after a route change. */
+export function pickRouteIdFromAssignmentPoll(
+  assignmentRouteId: string | null | undefined,
+  currentRouteId: string | null | undefined,
+  fallbackRouteId: string | null | undefined,
+): string | null {
+  if (isAssignedRouteId(assignmentRouteId)) {
+    return assignmentRouteId!;
+  }
+  if (isAssignedRouteId(currentRouteId)) {
+    return currentRouteId!;
+  }
+  if (isAssignedRouteId(fallbackRouteId)) {
+    return fallbackRouteId!;
+  }
+  return null;
+}
+
+/**
+ * routeID for vehicle/update — align with the route polyline on the device map (GPX / route.points).
+ */
+export function resolveTelemetryRouteId(params: {
+  selectedRouteId?: string | null;
+  mapEffectiveRouteId?: string | null;
+  pinnedTelemetryRouteId?: string | null;
+  mdtRouteId: string | number;
+}): string | number {
+  if (isAssignedRouteId(params.selectedRouteId)) {
+    return params.selectedRouteId!;
+  }
+  if (isAssignedRouteId(params.mapEffectiveRouteId)) {
+    return params.mapEffectiveRouteId!;
+  }
+  if (isAssignedRouteId(params.pinnedTelemetryRouteId)) {
+    return params.pinnedTelemetryRouteId!;
+  }
+  return params.mdtRouteId;
+}

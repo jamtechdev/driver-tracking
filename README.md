@@ -47,17 +47,25 @@ bundle exec pod install
 cd ..
 ```
 
-### 3. Environment Configuration
-
-Copy `.env.example` to `.env` and fill in your configuration:
+### 3. Mapbox tokens (one-time per machine)
 
 ```sh
 cp .env.example .env
 ```
 
-Update the following in `.env`:
-- `GOOGLE_MAPS_API_KEY` - Your Google Maps API key
-- `API_BASE_URL` - Your backend API URL
+Paste `MAPBOX_ACCESS_TOKEN` (pk) and `MAPBOX_DOWNLOADS_TOKEN` (sk), then:
+
+```sh
+npm run setup:mapbox
+```
+
+After every `git pull`, run `npm run setup:mapbox` again (or `npm install` if `.env` exists).
+
+Details: `scripts/MAPBOX_NATIVE_SETUP.md`
+
+Optional in `.env`:
+- `GOOGLE_MAPS_API_KEY`
+- `API_BASE_URL`
 
 ### 4. Android Google Maps Configuration
 

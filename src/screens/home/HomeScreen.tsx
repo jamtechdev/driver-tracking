@@ -58,7 +58,7 @@ const DEFAULT_STOP_ID = '0';
 
 import ScheduleGaugeImage from '../../components/ScheduleGaugeImage';
 import GeofenceAlertBanner from '../../components/GeofenceAlertBanner';
-import { resolveStopDisplayName } from '@/utils/stopDisplayName';
+import { resolveStopDisplayName, toStopNameText } from '@/utils/stopDisplayName';
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const { driver, passengerCount, setPassengerCount, selectedRouteId, hasShownSupervisorModal, setHasShownSupervisorModal, vehicleId, apcCount, selectedRoute } = useAuth();
@@ -75,7 +75,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     geofenceAlert,
     currentStopGeofence,
   } = useDriverModel();
-  console.log('nextStop======>>>>>>', nextStop);
   const [isGpsFlashing, setIsGpsFlashing] = useState(false);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fareCategories } = useDriverData();
@@ -112,15 +111,34 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [mdtId, setMdtId] = useState<string>('');
   const MDT_ID_KEY = '@driver_tracking:mdt_id';
 
-  const nextStopName = useMemo(
-    () =>
-      resolveStopDisplayName({
-        selectedRoute,
-        currentStopGeofence,
-        nextStop,
-      }),
-    [selectedRoute, currentStopGeofence, nextStop],
-  );
+  const currentStopName = useMemo(() => {
+    if (!currentStopGeofence) return '';
+
+    const geofenceId = String(currentStopGeofence.geofenceID ?? '').trim();
+    const geofenceName = toStopNameText(currentStopGeofence.name);
+
+    const byGeofenceLink = schedule.find(
+      (item) => geofenceId && String(item.link ?? '').trim() === geofenceId,
+    );
+    const byName = schedule.find(
+      (item) => toStopNameText(item.longName) && toStopNameText(item.longName) === geofenceName,
+    );
+
+    return (
+      toStopNameText(byGeofenceLink?.longName) ||
+      toStopNameText(byName?.longName) ||
+      geofenceName
+    );
+  }, [currentStopGeofence, schedule]);
+
+  const nextStopName = useMemo(() => {
+    if (currentStopName) return currentStopName;
+    return resolveStopDisplayName({
+      selectedRoute,
+      currentStopGeofence,
+      nextStop,
+    });
+  }, [currentStopName, selectedRoute, currentStopGeofence, nextStop]);
 
   /** True when the bus is currently inside a stop geofence (at a stop). */
   const isAtStop = currentStopGeofence != null;
@@ -324,23 +342,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const containerSize = isLandscape ? gaugeSize : gaugeSize + 40;
   const gaugeImageWidth = gaugeSize + 40;
   const gaugeImageHeight = gaugeSize;
-
-
-  useEffect(() => {
-    console.log('================ HOME DEBUG ================');
-    console.log('selectedRoute:', selectedRoute);
-    console.log('currentStopGeofence:', JSON.stringify(currentStopGeofence));
-    console.log('nextStop.longName:', nextStop?.longName);
-    console.log('nextStopName (resolved):', nextStopName);
-    console.log('isAtStop:', isAtStop);
-    console.log('stopLabel:', stopLabel);
-    console.log('lastLocation:', lastLocation ? `${lastLocation.latitude.toFixed(5)},${lastLocation.longitude.toFixed(5)}` : null);
-    console.log('passengerCount:', passengerCount);
-    console.log('===========================================');
-  }, [selectedRoute, currentStopGeofence, nextStop, nextStopName, isAtStop, stopLabel, lastLocation, passengerCount]);
-
-
-
 
   return (
     <>

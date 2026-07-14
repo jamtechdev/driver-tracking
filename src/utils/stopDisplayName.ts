@@ -1,7 +1,5 @@
 /**
- * Stop name shown above the OTP gauge.
- * When inside a stop geofence, use that geofence name (iOS manual CLCircularRegion check).
- * Otherwise fall back to schedule-based next stop while traversing the route.
+ * Stop name helpers shared by HomeScreen and navigation.
  */
 
 export interface StopGeofenceSnapshot {
@@ -10,7 +8,13 @@ export interface StopGeofenceSnapshot {
 }
 
 export interface StopScheduleSnapshot {
-  longName?: string | null;
+  longName?: string | number | null;
+  link?: number | string | null;
+}
+
+export function toStopNameText(name: unknown): string {
+  if (name == null) return '';
+  return String(name).trim();
 }
 
 export function resolveStopDisplayName(params: {
@@ -21,10 +25,10 @@ export function resolveStopDisplayName(params: {
   const route = params.selectedRoute?.trim();
   if (route === 'Out of Service') return '...';
 
-  const geofenceName = params.currentStopGeofence?.name?.trim();
+  const geofenceName = toStopNameText(params.currentStopGeofence?.name);
   if (geofenceName) return geofenceName;
 
-  const nextName = params.nextStop?.longName?.trim();
+  const nextName = toStopNameText(params.nextStop?.longName);
   if (nextName) return nextName;
 
   return '...';

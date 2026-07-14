@@ -137,7 +137,15 @@ export async function vehicleUpdate(params: VehicleUpdateParams): Promise<void> 
     minsLate: params.minsLate,
   });
   // console.log('Vehicle Update Params:', params);
-  // console.log('Vehicle Update URL:', JSON.stringify(url));
+  if (__DEV__) {
+    console.log('[position.api] vehicle/update', {
+      lat: params.lat,
+      lng: params.lng,
+      vehicleID: params.vehicleID,
+      routeID: params.routeID,
+      url,
+    });
+  }
   const resp = await axios.get(url, { timeout: TIMEOUT });
   console.log('Vehicle Update Response:', JSON.stringify(resp?.data));
   return readAxiosData(resp, 'vehicleUpdate');

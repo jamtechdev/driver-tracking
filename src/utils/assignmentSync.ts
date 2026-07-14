@@ -35,6 +35,19 @@ export function hasServerAssignment(result: AssignmentResponse): boolean {
 /** Ignore transient empty assignment before clearing route / pushing OOS to admin. */
 export const ASSIGNMENT_ROUTE_STICKY_MS = 45000;
 
+/** Keep tablet route when in service — assignment poll currentRouteID often lags GPX route. */
+export function shouldKeepLocalRouteDuringPoll(
+  localRouteId: string | null | undefined,
+  serviceStatus: 'in_service' | 'out_of_service',
+  serverRouteId: string | null | undefined,
+): boolean {
+  if (serviceStatus !== 'in_service') return false;
+  if (!isAssignedRouteId(localRouteId) || !isAssignedRouteId(serverRouteId)) {
+    return false;
+  }
+  return String(localRouteId) !== String(serverRouteId);
+}
+
 /** Route ID from assignment payload or currentRouteID (iOS selectRouteID -2 / currentRouteID). */
 export function getRouteIdFromAssignmentResult(
   result: AssignmentResponse,

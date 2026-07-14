@@ -29,7 +29,7 @@ import {
   parseAssignmentDriverId,
   resolveVehicleAssignmentSources,
 } from '@/utils/assignmentDriverId';
-import { hasServerAssignment, ASSIGNMENT_ROUTE_STICKY_MS, getRouteIdFromAssignmentResult } from '@/utils/assignmentSync';
+import { hasServerAssignment, ASSIGNMENT_ROUTE_STICKY_MS, getRouteIdFromAssignmentResult, shouldKeepLocalRouteDuringPoll } from '@/utils/assignmentSync';
 import { getMdtRouteIdForVehicleUpdate } from '@/utils/resolveOutboundRouteId';
 import {
   findDriverById,
@@ -310,7 +310,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       result,
       result.assignment ?? assignmentRef.current,
     );
-    if (routeFromApi) {
+    const keepLocalRoute = shouldKeepLocalRouteDuringPoll(
+      selectedRouteIdRef.current,
+      serviceStatusRef.current,
+      routeFromApi,
+    );
+    if (routeFromApi && !keepLocalRoute) {
       lastAssignmentCurrentRouteIdRef.current = routeFromApi;
       lastAssignmentRouteIdRef.current = routeFromApi;
     }
@@ -321,7 +326,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (result.assignment) {
       assignmentRef.current = result.assignment;
       const ar = parseAssignmentDriverId(result.assignment.routeID);
-      if (isAssignedRouteId(ar)) {
+      const keepLocalRoute = shouldKeepLocalRouteDuringPoll(
+        selectedRouteIdRef.current,
+        serviceStatusRef.current,
+        ar,
+      );
+      if (isAssignedRouteId(ar) && !keepLocalRoute) {
         lastAssignmentRouteIdRef.current = ar;
       }
     } else if (
@@ -726,6 +736,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
 
+          if (
+            updates.serviceStatus === 'in_service' &&
+            isAssignedRouteId(updates.selectedRouteId)
+          ) {
+            routeOverrideRef.current = true;
+            routeOverrideRefForTelemetry.current = true;
+            routeLastSelectedRef.current = Date.now() / 1000;
+          }
+
           return updates;
         }
       }
@@ -1010,6 +1029,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     manifestId: number | null,
     serviceStatus: 'in_service' | 'out_of_service',
   ) => {
+    if (serviceStatus === 'in_service' && isAssignedRouteId(routeId)) {
+      routeOverrideRef.current = true;
+      routeOverrideRefForTelemetry.current = true;
+      routeLastSelectedRef.current = Date.now() / 1000;
+    } else if (serviceStatus === 'out_of_service') {
+      routeOverrideRef.current = false;
+      routeOverrideRefForTelemetry.current = false;
+    }
     setState((s) => {
       if (
         s.selectedRoute === label &&
@@ -1116,6 +1143,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     lastServerAssignmentAtRef,
     selectedManifestIdRef,
     selectedManifestId: state.selectedManifestId,
+    selectedRouteIdRef,
+    serviceStatusRef,
   });
 
   const selectRouteOrStatus = useCallback((

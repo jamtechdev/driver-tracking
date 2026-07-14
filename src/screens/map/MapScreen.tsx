@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import Toast from 'react-native-toast-message';
 import MainLayout from '../../components/MainLayout';
 import VehicleMapMarkerContent from '../../components/map/VehicleMapMarkerContent';
 import VehicleInfoMapOverlay from '../../components/map/VehicleInfoMapOverlay';
@@ -41,6 +42,14 @@ import {
   TABLET_DEVICE_VEHICLE_ID,
 } from '../../utils/mapVehicleInfo';
 import { getAllVehicles } from '../../api/vehicle.api';
+import StartNavigationButton from '../../components/navigation/StartNavigationButton';
+import MapboxNavigationOverlay from '../../components/navigation/MapboxNavigationOverlay';
+import { useMapboxTurnByTurnNavigation } from '../../hooks/useMapboxTurnByTurnNavigation';
+import { buildNavigationStopsFromSchedule } from '../../features/navigation/navigationStopUtils';
+import { resolveNavigationLocation } from '../../features/navigation/navigationLocation';
+import { isMapboxAccessTokenValid } from '../../config/mapbox.config';
+import { useMdtTurnByTurnFeature } from '../../hooks/useMdtTurnByTurnFeature';
+import { PEAK_DEFAULT_PARAMS } from '../../config/env';
 import {
   createVehicleHeadingResolver,
   isVehicleLocationFresh,
@@ -71,12 +80,23 @@ try {
 }
 
 const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) => {
-  const { isAcquiringSat, trackingMode, setTrackingMode, lastLocation, serverAlert } = useDriverModel();
+  const {
+    isAcquiringSat,
+    trackingMode,
+    setTrackingMode,
+    lastLocation,
+    serverAlert,
+    schedule,
+    nextStop,
+    locationError,
+  } = useDriverModel();
   const { emergencyActivated } = useEmergency();
   const { location, error: mapLocationError, heading } = useMapLocation();
   const { vehicleId, selectedRouteId, selectedRoute: selectedRouteName, driver, vehicleName } = useAuth();
   const { effectiveRouteId, hasMapAssignment, blockPeerVehicleIds } = useMapAssignment();
   const { agency, routes, stops } = useDriverData();
+  const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID || agency?.agencyID || '');
+  const turnByTurnFeature = useMdtTurnByTurnFeature(agencyID || null);
   const [vehiclesPosition, setVehiclesPosition] = useState<any[]>([]);
   const resolveVehicleHeading = useRef(createVehicleHeadingResolver()).current;
   const mapRef = useRef<any>(null);
@@ -111,14 +131,59 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   const [mapRegionTick, setMapRegionTick] = useState(0);
   const [mapLayout, setMapLayout] = useState({ width: 1, height: 1 });
 
+  const navigableStops = useMemo(
+    () => buildNavigationStopsFromSchedule(schedule, stops),
+    [schedule, stops],
+  );
+
+  const navigationLocation = useMemo(
+    () => resolveNavigationLocation(location, lastLocation, heading),
+    [location, lastLocation, heading],
+  );
+
+  /** Same GPS fix sent to admin via DriverModel vehicle/update. */
+  const telemetryCoordinate = useMemo(() => {
+    if (lastLocation) {
+      return { latitude: lastLocation.latitude, longitude: lastLocation.longitude };
+    }
+    if (location) {
+      return { latitude: location.latitude, longitude: location.longitude };
+    }
+    return null;
+  }, [lastLocation, location]);
+
+  const navigationLocationError = locationError ?? mapLocationError ?? null;
+
+  const handleNavigationTripCompleted = useCallback(
+    (routeId: string | null) => {
+      Toast.show({
+        type: 'success',
+        text1: 'Trip complete',
+        text2: 'All assigned stops have been reached.',
+      });
+      navigation.navigate('PostTrip', { routeId: routeId ?? '0' });
+    },
+    [navigation],
+  );
+
+  const turnByTurn = useMapboxTurnByTurnNavigation({
+    schedule,
+    allStops: stops,
+    nextStop,
+    lastLocation: navigationLocation,
+    locationError: navigationLocationError,
+    routeId: effectiveRouteId ?? selectedRouteId,
+    onTripCompleted: handleNavigationTripCompleted,
+  });
+
   const infoVehicle = liveInfoVehicle ?? selectedVehicle;
 
   const infoMapCoordinate = useMemo(() => {
     if (!infoVehicle) return null;
 
     if (isOwnTabletMapVehicle(infoVehicle, vehicleId)) {
-      if (!location) return null;
-      return { latitude: location.latitude, longitude: location.longitude };
+      if (!telemetryCoordinate) return null;
+      return telemetryCoordinate;
     }
 
     const fromVehicle = parseVehicleLatLng(infoVehicle);
@@ -126,18 +191,18 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
       return { latitude: fromVehicle.lat, longitude: fromVehicle.lng };
     }
     return null;
-  }, [infoVehicle, location, vehicleId]);
+  }, [infoVehicle, telemetryCoordinate, vehicleId]);
 
   const infoBubbleCoordinate = useMemo(() => {
     if (infoMapCoordinate) return infoMapCoordinate;
     if (!selectedVehicle) return null;
     const parsed = parseVehicleLatLng(selectedVehicle);
     if (parsed) return { latitude: parsed.lat, longitude: parsed.lng };
-    if (isOwnTabletMapVehicle(selectedVehicle, vehicleId) && location) {
-      return { latitude: location.latitude, longitude: location.longitude };
+    if (isOwnTabletMapVehicle(selectedVehicle, vehicleId) && telemetryCoordinate) {
+      return telemetryCoordinate;
     }
     return null;
-  }, [infoMapCoordinate, selectedVehicle, vehicleId, location]);
+  }, [infoMapCoordinate, selectedVehicle, vehicleId, telemetryCoordinate]);
 
   const handleMapLayout = useCallback((event: { nativeEvent: { layout: { width: number; height: number } } }) => {
     const { width, height } = event.nativeEvent.layout;
@@ -578,7 +643,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           );
         })}
         {/* Tablet / device GPS marker — tap opens same vehicle info overlay as other markers */}
-        {location && tabletMapVehicle && (
+        {telemetryCoordinate && tabletMapVehicle && (
           <Marker
             key={buildTabletMarkerKey(
               tabletBlinkMode !== 'none',
@@ -588,10 +653,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             identifier={String(tabletMapVehicle.vehicleID)}
             calloutEnabled={false}
             image={vehicleMarkerImage()}
-            coordinate={{
-              latitude: location.latitude,
-              longitude: location.longitude,
-            }}
+            coordinate={telemetryCoordinate}
             anchor={{ x: 0.5, y: 0.5 }}
             flat
             tracksViewChanges={vehicleMarkerTracksViewChanges(tabletBlinkMode !== 'none' || tabletInfoOpen)}
@@ -699,6 +761,54 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           </TouchableOpacity>
         </View>
       )}
+
+      {!turnByTurn.isNavigating ? (
+        <View style={[styles.startNavigationHost, isTabView && isMobile && styles.startNavigationHostMobile]}>
+          <StartNavigationButton
+            onPress={() => {
+              if (!turnByTurnFeature.enabled || !isMapboxAccessTokenValid()) {
+                return;
+              }
+              void turnByTurn.startNavigation();
+            }}
+            disabled={
+              !isMapboxAccessTokenValid() ||
+              !turnByTurnFeature.enabled ||
+              (!turnByTurn.canStart && !turnByTurn.isNavigating)
+            }
+            loading={turnByTurn.status === 'preparing'}
+            stopCount={navigableStops.length}
+            featureEnabled={turnByTurnFeature.enabled && isMapboxAccessTokenValid()}
+            featureLoading={turnByTurnFeature.loading}
+            ctaText={
+              !isMapboxAccessTokenValid()
+                ? 'Mapbox token missing. Add pk token to .env and run npm run setup:mapbox.'
+                : undefined
+            }
+          />
+        </View>
+      ) : null}
+
+      <MapboxNavigationOverlay
+        visible={turnByTurn.isNavigating}
+        frozenNativeSession={turnByTurn.frozenNativeSession}
+        navigationState={{
+          status: turnByTurn.status,
+          stops: turnByTurn.stops,
+          currentStopIndex: turnByTurn.currentStopIndex,
+          errorMessage: turnByTurn.errorMessage,
+          cancelNavigation: turnByTurn.cancelNavigation,
+          currentDestination: turnByTurn.currentDestination,
+          upcomingStops: turnByTurn.upcomingStops,
+          handleNativeArrive: turnByTurn.handleNativeArrive,
+          handleNativeRouteProgress: turnByTurn.handleNativeRouteProgress,
+          handleNativeError: turnByTurn.handleNativeError,
+          handleNativeCancel: turnByTurn.handleNativeCancel,
+        }}
+        lastLocation={navigationLocation}
+        routeName={selectedRouteName}
+        routeColor={routeColor}
+      />
 
       {/* Button to open position overlay (when closed) */}
       {/* {!showPositionOverlay && (
@@ -1037,6 +1147,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
+  },
+  startNavigationHost: {
+    position: 'absolute',
+    left: 16,
+    right: 136,
+    bottom: 24,
+    zIndex: 20,
+  },
+  startNavigationHostMobile: {
+    right: 16,
   },
 });
 
