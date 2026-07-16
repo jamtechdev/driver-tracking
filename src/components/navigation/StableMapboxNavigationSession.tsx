@@ -50,7 +50,7 @@ function StableMapboxNavigationSessionComponent({
       waypoints={session.waypoints}
       distanceUnit="metric"
       language="en"
-      mute={false}
+      mute={true}
       showCancelButton={false}
       shouldSimulateRoute={false}
       hideStatusView={false}

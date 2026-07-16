@@ -81,6 +81,35 @@ export const requestBackgroundLocationPermission = async (): Promise<boolean> =>
   }
 };
 
+/**
+ * Android 13+ notification permission — Mapbox Navigation uses a foreground
+ * service notification. Denial should not block nav, but granting avoids
+ * library warnings and FGS issues on some devices.
+ */
+export async function requestPostNotificationsPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android' || Platform.Version < 33) {
+    return true;
+  }
+
+  try {
+    const granted = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+      {
+        title: 'Notification Permission',
+        message:
+          'Turn-by-turn navigation shows a persistent notification while a trip is active.',
+        buttonNeutral: 'Ask Me Later',
+        buttonNegative: 'Cancel',
+        buttonPositive: 'OK',
+      },
+    );
+    return granted === PermissionsAndroid.RESULTS.GRANTED;
+  } catch (err) {
+    console.warn('[permissions] Android notification request failed:', err);
+    return false;
+  }
+}
+
 /** Request foreground then background location — call once the app UI is visible. */
 export async function requestInitialAppLocationPermissions(): Promise<boolean> {
   const foregroundGranted = await requestLocationPermission();

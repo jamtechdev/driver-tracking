@@ -44,9 +44,11 @@ export default function StartNavigationButton({
     ? ctaText
     : featureLoading
       ? 'Checking navigation access…'
-      : stopCount > 0
-        ? `${stopCount} stop${stopCount === 1 ? '' : 's'} in route order`
-        : 'Waiting for assigned stops';
+      : ctaText
+        ? ctaText
+        : stopCount > 0
+          ? `${stopCount} stop${stopCount === 1 ? '' : 's'} in route order`
+          : 'Waiting for assigned stops';
 
   return (
     <TouchableOpacity

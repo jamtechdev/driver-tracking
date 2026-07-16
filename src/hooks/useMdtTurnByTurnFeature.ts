@@ -1,9 +1,19 @@
 /**
  * Loads MDTTURNBYTURN agency feature flag for Mapbox start-navigation.
+ *
+ * Production path:
+ *   POST .../index.php
+ *   app_id=DR3, key=..., controller=agency, action=featureValues, agencyID=<login agency>
+ *   → find name MDTTURNBYTURN, use featureValue true/false
+ *
+ * Manual QA: set MDT_TURN_BY_TURN_TEST_OVERRIDE in mapbox.config.ts
  */
 
 import { useEffect, useState } from 'react';
-import { isMdtTurnByTurnEnabled } from '@/api/featureValues.api';
+import {
+  isMdtTurnByTurnEnabled,
+  isValidAgencyIdForFeatures,
+} from '@/api/featureValues.api';
 import { getMdtTurnByTurnTestOverride } from '@/config/mapbox.config';
 
 export interface MdtTurnByTurnFeatureState {
@@ -28,6 +38,11 @@ export function useMdtTurnByTurnFeature(
 
     const testOverride = getMdtTurnByTurnTestOverride();
     if (testOverride !== null) {
+      if (__DEV__) {
+        console.warn(
+          `[MDTTURNBYTURN] TEST OVERRIDE active → ${testOverride}. Comment out MDT_TURN_BY_TURN_TEST_OVERRIDE for real API.`,
+        );
+      }
       setEnabled(testOverride);
       setLoading(false);
       setError(null);
@@ -37,7 +52,8 @@ export function useMdtTurnByTurnFeature(
 
     setIsTestOverride(false);
 
-    if (!agencyID || String(agencyID).trim() === '') {
+    if (!isValidAgencyIdForFeatures(agencyID)) {
+      // Wait for login agency — keep disabled, not a hard error
       setEnabled(false);
       setLoading(false);
       setError(null);
@@ -49,13 +65,14 @@ export function useMdtTurnByTurnFeature(
 
     void (async () => {
       try {
-        const on = await isMdtTurnByTurnEnabled(agencyID);
+        const on = await isMdtTurnByTurnEnabled(agencyID as string | number);
         if (!cancelled) {
           setEnabled(on);
           setError(null);
         }
       } catch (e) {
         if (!cancelled) {
+          // Fail closed: no turn-by-turn if flag cannot be loaded
           setEnabled(false);
           setError(
             e instanceof Error ? e.message : 'Failed to load navigation feature flag',

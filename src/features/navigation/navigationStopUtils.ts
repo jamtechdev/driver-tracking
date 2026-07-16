@@ -7,6 +7,7 @@ import type { StopData } from '@/context/DriverDataContext';
 import { calculateDistance } from '@/utils/helpers';
 import { toStopNameText } from '@/utils/stopDisplayName';
 import type { NavigationStop } from './types';
+import { MAX_MAPBOX_SESSION_STOPS } from './mapboxNativeRoute';
 
 export function normalizeLatLng(
   lat: number,
@@ -125,14 +126,105 @@ export function scheduleRowToNavigationStop(
 export function buildNavigationStopsFromSchedule(
   schedule: ScheduleStop[],
   allStops: StopData[] = [],
+  anchorStop: ScheduleStop | null = null,
 ): NavigationStop[] {
-  const orderedSchedule = sortScheduleStopsSequentially(schedule);
+  const scopedSchedule = filterScheduleForNavigation(schedule, anchorStop);
+  const orderedSchedule = sortScheduleStopsSequentially(scopedSchedule);
   const stops: NavigationStop[] = [];
+  const seenKeys = new Set<string>();
+
   orderedSchedule.forEach((row) => {
+    const key = scheduleStopKey(row);
+    if (seenKeys.has(key)) return;
     const navStop = scheduleRowToNavigationStop(row, allStops, stops.length);
-    if (navStop) stops.push(navStop);
+    if (!navStop) return;
+    seenKeys.add(key);
+    stops.push(navStop);
   });
+
   return stops.map((stop, index) => ({ ...stop, sequenceIndex: index }));
+}
+
+/**
+ * Fallback when schedule has no coordinates but the map already shows routeStops.
+ * Uses static agency stop list in route.routeStops order.
+ */
+export function buildNavigationStopsFromRouteStops(
+  routeStops: StopData[],
+): NavigationStop[] {
+  const stops: NavigationStop[] = [];
+  const seen = new Set<string>();
+
+  routeStops.forEach((stop, index) => {
+    const id = String(stop.stopID ?? '');
+    if (!id || seen.has(id)) return;
+    const coords = coordsFromStopData(stop);
+    if (!coords) return;
+    seen.add(id);
+    stops.push({
+      id: `route:${id}`,
+      longName: toStopNameText(stop.longName) || `Stop ${index + 1}`,
+      link: Number.isFinite(Number(stop.stopID)) ? Number(stop.stopID) : undefined,
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      sequenceIndex: stops.length,
+    });
+  });
+
+  return stops.map((stop, index) => ({ ...stop, sequenceIndex: index }));
+}
+
+/**
+ * Prefer the stops drawn on the map when they form a valid Mapbox-sized list.
+ * Schedule can contain a full day / multi-trip with dozens of rows — that looked
+ * like "4 stops on map" but sent 50+ coordinates to Mapbox.
+ */
+export function resolveNavigableStops(
+  schedule: ScheduleStop[],
+  allStops: StopData[],
+  anchorStop: ScheduleStop | null,
+  routeStops: StopData[] = [],
+): NavigationStop[] {
+  const fromMap = buildNavigationStopsFromRouteStops(routeStops);
+  const fromSchedule = buildNavigationStopsFromSchedule(schedule, allStops, anchorStop);
+
+  // Map circles are what the driver sees — prefer them when they fit Mapbox limits
+  // and schedule is empty, huge, or much larger than the map route.
+  const mapUsable =
+    fromMap.length > 0 && fromMap.length <= MAX_MAPBOX_SESSION_STOPS;
+
+  if (mapUsable) {
+    if (
+      fromSchedule.length === 0 ||
+      fromSchedule.length > MAX_MAPBOX_SESSION_STOPS ||
+      fromSchedule.length > fromMap.length * 2
+    ) {
+      return fromMap;
+    }
+  }
+
+  if (fromSchedule.length > 0) return fromSchedule;
+  return fromMap;
+}
+
+/** Limit schedule rows to the active trip/block so Mapbox does not route across regions. */
+export function filterScheduleForNavigation(
+  schedule: ScheduleStop[],
+  anchorStop: ScheduleStop | null,
+): ScheduleStop[] {
+  if (!anchorStop || schedule.length === 0) return schedule;
+
+  if (anchorStop.tripID != null) {
+    const sameTrip = schedule.filter((row) => row.tripID === anchorStop.tripID);
+    if (sameTrip.length > 0) return sameTrip;
+  }
+
+  if (anchorStop.blockID != null) {
+    const sameBlock = schedule.filter((row) => row.blockID === anchorStop.blockID);
+    if (sameBlock.length > 0) return sameBlock;
+  }
+
+  return schedule;
 }
 
 function stopMatchesScheduleRow(

@@ -13,6 +13,7 @@ import {
   findNavigationStopIndex,
   mergeNavigationStopWithSchedule,
   refreshNavigationStopsFromSchedule,
+  resolveNavigableStops,
   scheduleStopKey,
   scheduleStopsMatch,
 } from '@/features/navigation/navigationStopUtils';
@@ -22,7 +23,39 @@ import type {
   NavigationStop,
   TurnByTurnNavigationState,
 } from '@/features/navigation/types';
-import { requestLocationPermission } from '@/utils/permissions';
+import {
+  requestLocationPermission,
+  requestPostNotificationsPermission,
+} from '@/utils/permissions';
+
+/** Library fires this when POST_NOTIFICATIONS is denied — not a fatal nav failure. */
+function isNonFatalMapboxError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('notification permission') ||
+    lower.includes('notifications permission')
+  );
+}
+
+/** User-friendly message for Mapbox RouterFailure dumps. */
+function formatMapboxNativeError(message: string): string {
+  const trimmed = message.trim();
+  if (!trimmed) return 'Mapbox navigation failed to start.';
+
+  if (/routerfailure|error finding route/i.test(trimmed)) {
+    // Only match Mapbox's real "too many coordinates" — do NOT match long URLs
+    // that simply contain many lat/lng pairs (false positive before).
+    if (/too many coordinates/i.test(trimmed)) {
+      return 'Too many stops for one Mapbox request (max 25). Try again with a shorter trip.';
+    }
+    if (trimmed.length > 180) {
+      return 'Mapbox could not calculate a driving route for these stops. Check stop coordinates or try again.';
+    }
+    return trimmed;
+  }
+
+  return trimmed.length > 220 ? `${trimmed.slice(0, 217)}…` : trimmed;
+}
 import {
   buildMapboxSessionRouteStops,
   buildFrozenMapboxNativeSession,
@@ -39,6 +72,8 @@ export interface NativeRouteProgress {
 export interface UseMapboxTurnByTurnNavigationOptions {
   schedule: ScheduleStop[];
   allStops?: StopData[];
+  /** Same stop list drawn on the map (route.routeStops) — fallback if schedule lacks coords. */
+  mapRouteStops?: StopData[];
   nextStop: ScheduleStop | null;
   lastLocation: LastLocation | null;
   locationError: string | null;
@@ -71,12 +106,44 @@ const INITIAL_STATE: TurnByTurnNavigationState = {
   isOffline: false,
 };
 
+function isActiveNavigationStatus(status: NavigationStatus): boolean {
+  return (
+    status === 'preparing' ||
+    status === 'navigating' ||
+    status === 'rerouting' ||
+    status === 'arriving' ||
+    status === 'error'
+  );
+}
+
+/** Survives MapScreen remounts (e.g. layout flips) so rotate does not dump the driver to Start Navigation. */
+type PersistedNavigationSession = {
+  state: TurnByTurnNavigationState;
+  frozenNativeSession: FrozenMapboxNativeSession | null;
+  lastSyncedNextStopKey: string | null;
+};
+
+let persistedNavigationSession: PersistedNavigationSession | null = null;
+
+function clearPersistedNavigationSession(): void {
+  persistedNavigationSession = null;
+}
+
+function persistActiveNavigationSession(session: PersistedNavigationSession): void {
+  if (isActiveNavigationStatus(session.state.status)) {
+    persistedNavigationSession = session;
+  } else {
+    clearPersistedNavigationSession();
+  }
+}
+
 export function useMapboxTurnByTurnNavigation(
   options: UseMapboxTurnByTurnNavigationOptions,
 ): UseMapboxTurnByTurnNavigationResult {
   const {
     schedule,
     allStops = [],
+    mapRouteStops = [],
     nextStop,
     lastLocation,
     locationError,
@@ -84,21 +151,25 @@ export function useMapboxTurnByTurnNavigation(
     routeId,
   } = options;
 
-  const [state, setState] = useState<TurnByTurnNavigationState>(INITIAL_STATE);
+  const [state, setState] = useState<TurnByTurnNavigationState>(
+    () => persistedNavigationSession?.state ?? INITIAL_STATE,
+  );
   const [frozenNativeSession, setFrozenNativeSession] = useState<FrozenMapboxNativeSession | null>(
-    null,
+    () => persistedNavigationSession?.frozenNativeSession ?? null,
   );
 
   const stateRef = useRef(state);
   const advancingStopRef = useRef(false);
-  const lastSyncedNextStopKeyRef = useRef<string | null>(null);
+  const lastSyncedNextStopKeyRef = useRef<string | null>(
+    persistedNavigationSession?.lastSyncedNextStopKey ?? null,
+  );
   const nativeProgressRef = useRef<NativeRouteProgress | null>(null);
   const onTripCompletedRef = useRef(onTripCompleted);
   const routeIdRef = useRef<string | null | undefined>(routeId);
 
   const scheduledStops = useMemo(
-    () => buildNavigationStopsFromSchedule(schedule, allStops),
-    [schedule, allStops],
+    () => resolveNavigableStops(schedule, allStops, nextStop, mapRouteStops),
+    [schedule, allStops, nextStop, mapRouteStops],
   );
 
   useEffect(() => {
@@ -113,6 +184,14 @@ export function useMapboxTurnByTurnNavigation(
     routeIdRef.current = routeId ?? null;
   }, [routeId]);
 
+  useEffect(() => {
+    persistActiveNavigationSession({
+      state,
+      frozenNativeSession,
+      lastSyncedNextStopKey: lastSyncedNextStopKeyRef.current,
+    });
+  }, [state, frozenNativeSession]);
+
   const clearNativeSession = useCallback(() => {
     setFrozenNativeSession(null);
     nativeProgressRef.current = null;
@@ -121,6 +200,7 @@ export function useMapboxTurnByTurnNavigation(
   const completeTrip = useCallback(() => {
     advancingStopRef.current = false;
     lastSyncedNextStopKeyRef.current = null;
+    clearPersistedNavigationSession();
     clearNativeSession();
     onTripCompletedRef.current?.(routeIdRef.current ?? null);
     setState(INITIAL_STATE);
@@ -243,15 +323,22 @@ export function useMapboxTurnByTurnNavigation(
   const handleNativeError = useCallback((message: string) => {
     const trimmed = message.trim();
     if (!trimmed) return;
+    // Mapbox RN lib calls onError when POST_NOTIFICATIONS is denied even after
+    // the native view mounts — that must not dump the user back to the map.
+    if (isNonFatalMapboxError(trimmed)) {
+      console.warn('[MapboxNavigation] non-fatal:', trimmed);
+      return;
+    }
     setState((prev) => ({
       ...prev,
       status: 'error',
-      errorMessage: trimmed,
+      errorMessage: formatMapboxNativeError(trimmed),
     }));
   }, []);
 
   const handleNativeCancel = useCallback(() => {
     lastSyncedNextStopKeyRef.current = null;
+    clearPersistedNavigationSession();
     clearNativeSession();
     setState({
       ...INITIAL_STATE,
@@ -345,6 +432,10 @@ export function useMapboxTurnByTurnNavigation(
       return;
     }
 
+    // Request before mounting native view so Android 13+ devices don't get an
+    // immediate onError that closes the navigation overlay.
+    await requestPostNotificationsPermission();
+
     if (!lastLocation) {
       setState((prev) => ({
         ...prev,
@@ -354,7 +445,7 @@ export function useMapboxTurnByTurnNavigation(
       return;
     }
 
-    const stops = buildNavigationStopsFromSchedule(schedule, allStops);
+    const stops = resolveNavigableStops(schedule, allStops, nextStop, mapRouteStops);
     if (stops.length === 0) {
       setState((prev) => ({
         ...prev,
@@ -387,11 +478,20 @@ export function useMapboxTurnByTurnNavigation(
     stateRef.current = nextState;
 
     startNavigationSession(startIndex, origin);
-  }, [lastLocation, locationError, schedule, allStops, nextStop, startNavigationSession]);
+  }, [
+    lastLocation,
+    locationError,
+    schedule,
+    allStops,
+    mapRouteStops,
+    nextStop,
+    startNavigationSession,
+  ]);
 
   const cancelNavigation = useCallback(() => {
     advancingStopRef.current = false;
     lastSyncedNextStopKeyRef.current = null;
+    clearPersistedNavigationSession();
     clearNativeSession();
     setState({
       ...INITIAL_STATE,
@@ -406,6 +506,7 @@ export function useMapboxTurnByTurnNavigation(
   const canStart =
     scheduledStops.length > 0 &&
     isMapboxAccessTokenValid() &&
+    !!lastLocation &&
     !locationError &&
     (state.status === 'idle' ||
       state.status === 'error' ||
@@ -430,11 +531,14 @@ export function useMapboxTurnByTurnNavigation(
     return liveStops.slice(state.currentStopIndex);
   }, [liveStops, state.currentStopIndex]);
 
+  // Keep overlay open on 'error' so the user sees the message instead of a
+  // silent bounce back to the Google Maps screen.
   const isNavigating =
     state.status === 'preparing' ||
     state.status === 'navigating' ||
     state.status === 'rerouting' ||
-    state.status === 'arriving';
+    state.status === 'arriving' ||
+    state.status === 'error';
 
   return {
     ...state,

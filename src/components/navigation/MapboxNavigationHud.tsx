@@ -90,9 +90,11 @@ function EndNavigationButton({
 function NextStopCard({
   metric,
   theme,
+  label,
 }: {
   metric: PerStopRouteMetric;
   theme: NavigationHudTheme;
+  label: string;
 }) {
   const name = toStopNameText(metric.stop.longName) || `Stop ${metric.stopIndex + 1}`;
 
@@ -106,7 +108,7 @@ function NextStopCard({
         },
       ]}
     >
-      <Text style={[styles.nextStopLabel, { color: theme.sheetSecondary }]}>Next stop</Text>
+      <Text style={[styles.nextStopLabel, { color: theme.sheetSecondary }]}>{label}</Text>
       <Text style={[styles.nextStopName, { color: theme.sheetPrimary }]} numberOfLines={2}>
         {name}
       </Text>
@@ -123,8 +125,8 @@ function NextStopCard({
   );
 }
 
-function formatNextStopSummary(metric: PerStopRouteMetric | null): string {
-  if (!metric) return 'No further stops';
+function formatStopSummary(metric: PerStopRouteMetric | null, fallback: string): string {
+  if (!metric) return fallback;
   const name = toStopNameText(metric.stop.longName) || `Stop ${metric.stopIndex + 1}`;
   return `${formatEtaTime(metric.etaTimestamp)} · ${formatNavigationDistanceMeters(metric.distanceMeters)} · ${formatNavigationDuration(metric.durationSeconds)} · ${name}`;
 }
@@ -143,23 +145,29 @@ export default function MapboxNavigationHud({
   routeProgress,
   onEndNavigation,
 }: MapboxNavigationHudProps) {
-  const nextStopMetric = useMemo(() => {
-    if (upcomingStops.length < 2) return null;
-    const metrics = computePerStopRouteMetrics({
+  const stopMetrics = useMemo(() => {
+    if (upcomingStops.length === 0) return [];
+    return computePerStopRouteMetrics({
       remainingStops: upcomingStops,
       currentStopIndex,
       driverLocation,
       routeProgress,
     });
-    return metrics[1] ?? null;
   }, [upcomingStops, currentStopIndex, driverLocation, routeProgress]);
+
+  const currentDestinationMetric = stopMetrics[0] ?? null;
+  const followingStopMetrics = stopMetrics.slice(1, 4);
 
   const [sheetExpanded, setSheetExpanded] = useState(false);
 
   const collapsedSummary = useMemo(
-    () => formatNextStopSummary(nextStopMetric),
-    [nextStopMetric],
+    () => formatStopSummary(currentDestinationMetric, 'No active stop'),
+    [currentDestinationMetric],
   );
+
+  const currentStopName =
+    toStopNameText(currentDestinationMetric?.stop.longName) ||
+    (currentDestinationMetric ? `Stop ${currentDestinationMetric.stopIndex + 1}` : 'Finding stop…');
 
   const sheetSurfaceStyle = [
     styles.sheet,
@@ -186,7 +194,7 @@ export default function MapboxNavigationHud({
               onPress={() => setSheetExpanded(false)}
               activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel="Collapse next stop details"
+              accessibilityLabel="Collapse stop details"
             >
               <View style={styles.sheetHandle} />
               <MaterialIcons
@@ -197,13 +205,26 @@ export default function MapboxNavigationHud({
               />
             </TouchableOpacity>
 
-            {nextStopMetric ? (
-              <NextStopCard metric={nextStopMetric} theme={theme} />
+            {currentDestinationMetric ? (
+              <NextStopCard
+                metric={currentDestinationMetric}
+                theme={theme}
+                label="Current stop"
+              />
             ) : (
               <Text style={[styles.emptyNextStop, { color: theme.sheetSecondary }]}>
-                No further stops on this trip
+                No active stop on this trip
               </Text>
             )}
+
+            {followingStopMetrics.map((metric) => (
+              <NextStopCard
+                key={`upcoming-${metric.stopIndex}-${metric.stop.id}`}
+                metric={metric}
+                theme={theme}
+                label={`Upcoming · stop ${metric.stopIndex + 1}`}
+              />
+            ))}
 
             <TouchableOpacity
               style={[styles.endSheetButton, { backgroundColor: theme.exitBg }]}
@@ -224,29 +245,26 @@ export default function MapboxNavigationHud({
             onPress={() => setSheetExpanded(true)}
             activeOpacity={0.92}
             accessibilityRole="button"
-            accessibilityLabel={`Next stop: ${collapsedSummary}`}
-            accessibilityHint="Expands next stop details"
+            accessibilityLabel={`Current stop: ${collapsedSummary}`}
+            accessibilityHint="Expands current and upcoming stop details"
           >
             <View style={styles.collapsedRow}>
               <Text
                 style={[styles.collapsedText, { color: theme.sheetPrimary }]}
                 numberOfLines={1}
               >
-                {nextStopMetric ? (
+                {currentDestinationMetric ? (
                   <>
                     <Text style={[styles.collapsedEta, { color: theme.eta }]}>
-                      {formatEtaTime(nextStopMetric.etaTimestamp)}
+                      {formatEtaTime(currentDestinationMetric.etaTimestamp)}
                     </Text>
                     <Text style={{ color: theme.sheetSecondary }}> · </Text>
-                    {formatNavigationDistanceMeters(nextStopMetric.distanceMeters)}
+                    {formatNavigationDistanceMeters(currentDestinationMetric.distanceMeters)}
                     <Text style={{ color: theme.sheetSecondary }}> · </Text>
-                    {formatNavigationDuration(nextStopMetric.durationSeconds)}
-                    <Text style={{ color: theme.sheetSecondary }}> · </Text>
-                    {toStopNameText(nextStopMetric.stop.longName) ||
-                      `Stop ${nextStopMetric.stopIndex + 1}`}
+                    {currentStopName}
                   </>
                 ) : (
-                  'No further stops'
+                  'No active stop'
                 )}
               </Text>
               <MaterialIcons name="keyboard-arrow-up" size={22} color={theme.sheetSecondary} />

@@ -58,10 +58,13 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   } = useBrightness();
   const { isSyncingVehicle } = useAuth();
   const { width, height } = useWindowDimensions();
-  // Use Platform.isPad for iPad (iPad Mini portrait = 744px, would fail width >= 768)
-  const isTablet = (Platform.OS === 'ios' && Platform.isPad) || width >= 600;
+  // Use shortest side so phones stay "phone" in landscape. Width-only (>=600)
+  // flipped isTablet on rotate, remounted children, and killed Mapbox nav state.
+  const isTablet =
+    (Platform.OS === 'ios' && Platform.isPad) || Math.min(width, height) >= 600;
   const isMobile = !isTablet;
   const isLandscape = width > height;
+  const showTabletSidebar = isTablet && showSidebar;
 
   useEffect(() => {
     if (sidebarVisible) {
@@ -121,23 +124,13 @@ const MainLayout: React.FC<MainLayoutProps> = ({
         style={styles.container}
         edges={[]}
       >
-        {isTablet && showSidebar ? (
-          <View style={styles.tabletRow}>
-            <View style={styles.tabletSidebar}>
-              {sidebarContent}
-            </View>
-            <View style={styles.tabletMain}>
-              <View style={[styles.content, styles.contentTop]}>{mainContent}</View>
-              <View style={styles.bottomBarWrapper}>
-                <BottomBar
-                  navigation={navigation}
-                  onDriverPress={openDriverModal}
-                />
-              </View>
-            </View>
-          </View>
-        ) : (
-          <>
+        {/* Keep main content in one stable subtree so orientation / tablet
+            sidebar toggles do not remount MapScreen (and Mapbox session). */}
+        <View style={[styles.shell, showTabletSidebar && styles.shellWithSidebar]}>
+          {showTabletSidebar ? (
+            <View style={styles.tabletSidebar}>{sidebarContent}</View>
+          ) : null}
+          <View style={styles.mainColumn}>
             <View style={[styles.content, styles.contentTop]}>{mainContent}</View>
             <View style={styles.bottomBarWrapper}>
               <BottomBar
@@ -145,8 +138,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({
                 onDriverPress={openDriverModal}
               />
             </View>
-          </>
-        )}
+          </View>
+        </View>
         <SelectDriverModal
           visible={driverModalVisible}
           onClose={closeDriverModal}
@@ -244,11 +237,13 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: COLORS.background,
   },
-  tabletRow: {
+  shell: {
     flex: 1,
-    flexDirection: 'row',
     width: '100%',
     minWidth: 0,
+  },
+  shellWithSidebar: {
+    flexDirection: 'row',
   },
   tabletSidebar: {
     width: 120,
@@ -256,7 +251,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: COLORS.sidebarBorder,
   },
-  tabletMain: {
+  mainColumn: {
     flex: 1,
     minWidth: 0,
   },

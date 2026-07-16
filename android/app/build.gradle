@@ -87,6 +87,14 @@ android {
     buildFeatures {
         buildConfig = true
     }
+
+    // Windows MAX_PATH: keep CMake/ninja intermediates on a short path (not under the
+    // deep project folder). Pair with CMAKE_OBJECT_PATH_MAX below.
+    externalNativeBuild {
+        cmake {
+            buildStagingDirectory "C:/c/dt"
+        }
+    }
     
     defaultConfig {
         applicationId "com.drivertracking"
@@ -96,6 +104,16 @@ android {
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         testBuildType System.getProperty("testBuildType", "debug")
+
+        // Windows: object .o relative paths embed full source paths and can exceed
+        // 260 chars. Use 250 (Windows practical limit) so CMake hashes long names.
+        // Do NOT set this too low (e.g. 128): if the object *directory* alone exceeds
+        // the limit, CMake skips hashing and ninja fails with MAX_PATH.
+        externalNativeBuild {
+            cmake {
+                arguments "-DCMAKE_OBJECT_PATH_MAX=250"
+            }
+        }
 
         // (Maps disabled for now)
     }
@@ -139,4 +157,13 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     // Align with react-native-maps + react-native-geolocation-service (background GPS).
     implementation("com.google.android.gms:play-services-location:21.3.0")
+}
+
+// @pawan-pk/react-native-mapbox-navigation: CMake configure can run before library
+// codegen writes jni/CMakeLists.txt (clean / first RelWithDebInfo). Force order.
+afterEvaluate {
+    def mapboxCodegen = ":pawan-pk_react-native-mapbox-navigation:generateCodegenArtifactsFromSchema"
+    tasks.matching { it.name.startsWith("configureCMake") }.configureEach { task ->
+        task.dependsOn(mapboxCodegen)
+    }
 }

@@ -18,6 +18,15 @@ export const MIN_STOP_SEPARATION_METERS = 8;
 
 
 
+/** Mapbox Directions API allows at most 25 coordinates per request. */
+export const MAX_MAPBOX_ROUTE_COORDINATES = 25;
+
+/** Max driving distance between consecutive scheduled stops (filters bad coords). */
+export const MAX_CONSECUTIVE_STOP_DISTANCE_METERS = 120_000;
+
+/** Max session stops — origin + waypoints + destination must stay within Mapbox limit. */
+export const MAX_MAPBOX_SESSION_STOPS = MAX_MAPBOX_ROUTE_COORDINATES - 1;
+
 export interface MapboxNativeWaypoint {
 
   latitude: number;
@@ -125,6 +134,52 @@ export function sanitizeNavigationStopsForRoute(stops: NavigationStop[]): Naviga
 
 }
 
+/** Drop stops too far from the previous stop (wrong agency coords / mixed regions). */
+export function truncateStopsByMaxLegDistance(
+  stops: NavigationStop[],
+  maxLegMeters: number = MAX_CONSECUTIVE_STOP_DISTANCE_METERS,
+): NavigationStop[] {
+  if (stops.length <= 1) return stops;
+
+  const kept: NavigationStop[] = [stops[0]];
+  for (let index = 1; index < stops.length; index += 1) {
+    const previous = kept[kept.length - 1];
+    const current = stops[index];
+    const legMeters = calculateDistance(
+      previous.latitude,
+      previous.longitude,
+      current.latitude,
+      current.longitude,
+    );
+    if (legMeters > maxLegMeters) {
+      console.warn(
+        `[MapboxRoute] Dropping ${stops.length - index} stop(s) after "${current.longName}" — ` +
+          `${Math.round(legMeters / 1000)}km leg exceeds ${Math.round(maxLegMeters / 1000)}km limit.`,
+      );
+      break;
+    }
+    kept.push(current);
+  }
+  return kept;
+}
+
+/** Keep only the first N stops so origin + waypoints + destination <= Mapbox limit. */
+export function capNavigationStopsForMapbox(
+  stops: NavigationStop[],
+  maxStops: number = MAX_MAPBOX_SESSION_STOPS,
+): NavigationStop[] {
+  if (stops.length <= maxStops) return stops;
+  console.warn(
+    `[MapboxRoute] Truncating ${stops.length} stops to ${maxStops} (Mapbox coordinate limit).`,
+  );
+  return stops.slice(0, maxStops).map((stop, index) => ({ ...stop, sequenceIndex: index }));
+}
+
+export function countMapboxRouteCoordinates(sessionStops: NavigationStop[]): number {
+  // origin + intermediate waypoints + destination
+  return sessionStops.length + 1;
+}
+
 
 
 export function validateFrozenMapboxNativeSession(
@@ -227,7 +282,9 @@ export function buildFrozenMapboxNativeSession(
 
 
 
-  const sanitizedStops = sanitizeNavigationStopsForRoute(sessionStops);
+  const sanitizedStops = truncateStopsByMaxLegDistance(
+    capNavigationStopsForMapbox(sanitizeNavigationStopsForRoute(sessionStops)),
+  );
 
   if (sanitizedStops.length === 0) return null;
 

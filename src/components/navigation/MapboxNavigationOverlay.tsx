@@ -9,6 +9,7 @@ import {
   Platform,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
   useColorScheme,
 } from 'react-native';
@@ -117,7 +118,20 @@ export default function MapboxNavigationOverlay({
     : null;
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen">
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      supportedOrientations={[
+        'portrait',
+        'portrait-upside-down',
+        'landscape',
+        'landscape-left',
+        'landscape-right',
+      ]}
+      statusBarTranslucent={Platform.OS === 'android'}
+      onRequestClose={navigationState.cancelNavigation}
+    >
       {visible ? <KeepAwake /> : null}
       <View style={[styles.container, { backgroundColor: theme.canvas }]}>
         {canRenderNavigation && frozenNativeSession ? (
@@ -136,6 +150,15 @@ export default function MapboxNavigationOverlay({
                 <Text style={[styles.errorText, { color: theme.error }]}>
                   {navigationState.errorMessage ?? 'Navigation is unavailable.'}
                 </Text>
+                <TouchableOpacity
+                  style={[styles.closeBtn, { backgroundColor: theme.banner }]}
+                  onPress={navigationState.cancelNavigation}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close navigation"
+                >
+                  <Text style={styles.closeBtnText}>Back to map</Text>
+                </TouchableOpacity>
               </>
             ) : (
               <ActivityIndicator size="large" color={theme.banner} />
@@ -179,5 +202,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  closeBtn: {
+    marginTop: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  closeBtnText: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

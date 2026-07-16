@@ -59,16 +59,17 @@ export const MAPBOX_CONFIG = {
 };
 
 /**
- * Manual QA — force Start Navigation on/off without agency API.
+ * Manual QA — force Start Navigation on/off WITHOUT agency API.
  *
- * Testing:
- *   export const MDT_TURN_BY_TURN_TEST_OVERRIDE = 'true';   // force enable
- *   export const MDT_TURN_BY_TURN_TEST_OVERRIDE = 'false';  // force disable + CTA
+ * For REAL API behavior (client / production): keep UNDEFINED so MDTTURNBYTURN is used.
+ * For local QA without Peak flag: set to 'true' or 'false'.
  *
- * Client build — comment out the line below (API flag is used):
+ *   export const MDT_TURN_BY_TURN_TEST_OVERRIDE = 'true';
+ *   export const MDT_TURN_BY_TURN_TEST_OVERRIDE = 'false';
  */
-export const MDT_TURN_BY_TURN_TEST_OVERRIDE = 'true';
 // export const MDT_TURN_BY_TURN_TEST_OVERRIDE: string | undefined = undefined;
+export const MDT_TURN_BY_TURN_TEST_OVERRIDE='true';
+
 
 /** `'true'` | `'false'` override, or `null` when test flag is off. */
 export function getMdtTurnByTurnTestOverride(): boolean | null {

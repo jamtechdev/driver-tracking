@@ -45,7 +45,7 @@ import { getAllVehicles } from '../../api/vehicle.api';
 import StartNavigationButton from '../../components/navigation/StartNavigationButton';
 import MapboxNavigationOverlay from '../../components/navigation/MapboxNavigationOverlay';
 import { useMapboxTurnByTurnNavigation } from '../../hooks/useMapboxTurnByTurnNavigation';
-import { buildNavigationStopsFromSchedule } from '../../features/navigation/navigationStopUtils';
+import { resolveNavigableStops } from '../../features/navigation/navigationStopUtils';
 import { resolveNavigationLocation } from '../../features/navigation/navigationLocation';
 import { isMapboxAccessTokenValid } from '../../config/mapbox.config';
 import { useMdtTurnByTurnFeature } from '../../hooks/useMdtTurnByTurnFeature';
@@ -103,7 +103,8 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   const [mapReady, setMapReady] = useState(false);
   const [showPositionOverlay, setShowPositionOverlay] = useState(false);
   const { width, height } = useWindowDimensions();
-  const isMobile = width < 600;
+  // Shortest side — phones in landscape must not flip to "tablet" UI.
+  const isMobile = Math.min(width, height) < 600;
   const isLandscape = width > height;
   const [initialRegion, setInitialRegion] = useState({
     ...MAPS_CONFIG.DEFAULT_REGION,
@@ -130,11 +131,6 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   }, [selectedVehicle, vehiclesPosition, vehicleId]);
   const [mapRegionTick, setMapRegionTick] = useState(0);
   const [mapLayout, setMapLayout] = useState({ width: 1, height: 1 });
-
-  const navigableStops = useMemo(
-    () => buildNavigationStopsFromSchedule(schedule, stops),
-    [schedule, stops],
-  );
 
   const navigationLocation = useMemo(
     () => resolveNavigationLocation(location, lastLocation, heading),
@@ -165,16 +161,6 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     },
     [navigation],
   );
-
-  const turnByTurn = useMapboxTurnByTurnNavigation({
-    schedule,
-    allStops: stops,
-    nextStop,
-    lastLocation: navigationLocation,
-    locationError: navigationLocationError,
-    routeId: effectiveRouteId ?? selectedRouteId,
-    onTripCompleted: handleNavigationTripCompleted,
-  });
 
   const infoVehicle = liveInfoVehicle ?? selectedVehicle;
 
@@ -334,6 +320,32 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   }, [stops]);
 
   const routeStops = useMemo(() => getRouteStops(selectedRoute), [selectedRoute, getRouteStops]);
+
+  const navigableStops = useMemo(
+    () => resolveNavigableStops(schedule, stops, nextStop, routeStops),
+    [schedule, stops, nextStop, routeStops],
+  );
+
+  const turnByTurn = useMapboxTurnByTurnNavigation({
+    schedule,
+    allStops: stops,
+    mapRouteStops: routeStops,
+    nextStop,
+    lastLocation: navigationLocation,
+    locationError: navigationLocationError,
+    routeId: effectiveRouteId ?? selectedRouteId,
+    onTripCompleted: handleNavigationTripCompleted,
+  });
+
+  useEffect(() => {
+    if (turnByTurn.status !== 'error' || !turnByTurn.errorMessage) return;
+    Toast.show({
+      type: 'error',
+      text1: 'Navigation error',
+      text2: turnByTurn.errorMessage,
+      visibilityTime: 4000,
+    });
+  }, [turnByTurn.status, turnByTurn.errorMessage]);
 
   // Fresh vehicles on the same route when assigned; otherwise all fresh vehicles except self
   const otherVehicles = useMemo(() => {
@@ -781,9 +793,18 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
             featureEnabled={turnByTurnFeature.enabled && isMapboxAccessTokenValid()}
             featureLoading={turnByTurnFeature.loading}
             ctaText={
-              !isMapboxAccessTokenValid()
-                ? 'Mapbox token missing. Add pk token to .env and run npm run setup:mapbox.'
-                : undefined
+              // Priority: feature flag → token → GPS → stops
+              !turnByTurnFeature.enabled && !turnByTurnFeature.loading
+                ? turnByTurnFeature.error
+                  ? `Turn-by-turn unavailable (${turnByTurnFeature.error})`
+                  : undefined
+                : !isMapboxAccessTokenValid()
+                  ? 'Mapbox token missing. Add pk token to .env and run npm run setup:mapbox.'
+                  : !navigationLocation
+                    ? 'Waiting for GPS fix before navigation can start.'
+                    : navigableStops.length === 0
+                      ? 'Waiting for assigned stops with coordinates.'
+                      : undefined
             }
           />
         </View>
