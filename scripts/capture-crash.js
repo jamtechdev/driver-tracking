@@ -1,31 +1,12 @@
 const { execSync, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { applyAndroidHomeToEnv } = require('./android-sdk-home');
 
 const isWindows = process.platform === 'win32';
 const projectRoot = path.join(__dirname, '..');
 
-// Set Android SDK environment variables
-const androidHome = isWindows
-  ? 'C:\\Users\\JAMTECH\\AppData\\Local\\Android\\Sdk'
-  : process.env.ANDROID_HOME || (process.env.HOME + '/Library/Android/sdk');
-
-process.env.ANDROID_HOME = androidHome;
-process.env.PATH = isWindows
-  ? [
-      `${androidHome}\\platform-tools`,
-      `${androidHome}\\emulator`,
-      `${androidHome}\\tools`,
-      `${androidHome}\\tools\\bin`,
-      process.env.PATH,
-    ].join(';')
-  : [
-      `${androidHome}/platform-tools`,
-      `${androidHome}/emulator`,
-      `${androidHome}/tools`,
-      `${androidHome}/tools/bin`,
-      process.env.PATH,
-    ].join(':');
+applyAndroidHomeToEnv();
 
 function getSingleDeviceSerial() {
   try {

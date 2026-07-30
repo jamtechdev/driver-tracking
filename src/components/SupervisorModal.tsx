@@ -20,6 +20,7 @@ import VehicleInfoMapOverlay from '@/components/map/VehicleInfoMapOverlay';
 import { useMapVehicleMarkerPress } from '@/hooks/useMapVehicleMarkerPress';
 import { useVehicleInfoWindow } from '@/hooks/useVehicleInfoWindow';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { orderStopsByRouteStopIds } from '@/features/navigation/navigationStopUtils';
 import { COLORS } from '../theme/colors';
 import { useDriverData } from '@/context/DriverDataContext';
 import { useAuth } from '@/context/AuthContext';
@@ -200,9 +201,7 @@ const SupervisorModal: React.FC<SupervisorModalProps> = ({ visible, onClose }) =
     const getRouteStops = useCallback((route: Record<string, unknown> | null | undefined) => {
         const rStops = route?.routeStops;
         if (!rStops || !Array.isArray(rStops) || stops.length === 0) return [];
-        return stops.filter(stop =>
-            rStops.some((id: unknown) => String(id) === String(stop.stopID)),
-        );
+        return orderStopsByRouteStopIds(rStops as Array<string | number>, stops);
     }, [stops]);
 
     /** All valid routes with parsed polyline points (shown by default). */

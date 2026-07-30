@@ -124,6 +124,7 @@ export class DirectionModel {
       totalRouteTime: this.totalRouteTime,
       previousExpectedLink: this.expectedLink,
       previousBlockID: this.expectedBlockID,
+      previousAtLink: this.atLink,
     });
 
     this.atLink = result.atLink;

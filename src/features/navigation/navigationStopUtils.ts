@@ -7,7 +7,6 @@ import type { StopData } from '@/context/DriverDataContext';
 import { calculateDistance } from '@/utils/helpers';
 import { toStopNameText } from '@/utils/stopDisplayName';
 import type { NavigationStop } from './types';
-import { MAX_MAPBOX_SESSION_STOPS } from './mapboxNativeRoute';
 
 export function normalizeLatLng(
   lat: number,
@@ -175,9 +174,39 @@ export function buildNavigationStopsFromRouteStops(
 }
 
 /**
- * Prefer the stops drawn on the map when they form a valid Mapbox-sized list.
- * Schedule can contain a full day / multi-trip with dozens of rows — that looked
- * like "4 stops on map" but sent 50+ coordinates to Mapbox.
+ * Resolve StopData rows in the exact order of route.routeStops IDs
+ * (not the agency-wide stops array order).
+ */
+export function orderStopsByRouteStopIds(
+  routeStopIds: Array<string | number> | null | undefined,
+  allStops: StopData[],
+): StopData[] {
+  if (!routeStopIds || !Array.isArray(routeStopIds) || allStops.length === 0) {
+    return [];
+  }
+
+  const byId = new Map<string, StopData>();
+  for (const stop of allStops) {
+    byId.set(String(stop.stopID), stop);
+  }
+
+  const ordered: StopData[] = [];
+  const seen = new Set<string>();
+  for (const id of routeStopIds) {
+    const key = String(id);
+    if (!key || seen.has(key)) continue;
+    const stop = byId.get(key);
+    if (!stop) continue;
+    seen.add(key);
+    ordered.push(stop);
+  }
+  return ordered;
+}
+
+/**
+ * Prefer the stops drawn on the map (route.routeStops order) for turn-by-turn.
+ * Navigation is stop-based — not agency polyline / Map Matching geometry.
+ * Schedule is only a fallback when the map has no usable stop list.
  */
 export function resolveNavigableStops(
   schedule: ScheduleStop[],
@@ -186,25 +215,13 @@ export function resolveNavigableStops(
   routeStops: StopData[] = [],
 ): NavigationStop[] {
   const fromMap = buildNavigationStopsFromRouteStops(routeStops);
-  const fromSchedule = buildNavigationStopsFromSchedule(schedule, allStops, anchorStop);
-
-  // Map circles are what the driver sees — prefer them when they fit Mapbox limits
-  // and schedule is empty, huge, or much larger than the map route.
-  const mapUsable =
-    fromMap.length > 0 && fromMap.length <= MAX_MAPBOX_SESSION_STOPS;
-
-  if (mapUsable) {
-    if (
-      fromSchedule.length === 0 ||
-      fromSchedule.length > MAX_MAPBOX_SESSION_STOPS ||
-      fromSchedule.length > fromMap.length * 2
-    ) {
-      return fromMap;
-    }
+  if (fromMap.length > 0) {
+    return fromMap;
   }
 
+  const fromSchedule = buildNavigationStopsFromSchedule(schedule, allStops, anchorStop);
   if (fromSchedule.length > 0) return fromSchedule;
-  return fromMap;
+  return [];
 }
 
 /** Limit schedule rows to the active trip/block so Mapbox does not route across regions. */
@@ -238,9 +255,31 @@ function stopMatchesScheduleRow(
   ) {
     return true;
   }
-  return stop.link === scheduleStop.link;
+  if (stop.link === scheduleStop.link) return true;
+
+  // Route-stop lists key by stopID/name; schedule link is often a polyline index.
+  const stopName = toStopNameText(stop.longName).toLowerCase();
+  const scheduleName = toStopNameText(scheduleStop.longName).toLowerCase();
+  if (stopName && scheduleName && stopName === scheduleName) {
+    return true;
+  }
+
+  if (stop.id?.startsWith('route:')) {
+    const routeStopId = stop.id.slice('route:'.length);
+    const scheduleStopId =
+      scheduleStop.stopID ?? scheduleStop.stopId ?? scheduleStop.StopID;
+    if (scheduleStopId != null && String(scheduleStopId) === routeStopId) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
+/**
+ * Index of the logical next stop in the navigable stop list.
+ * Prefers forward matches from fromIndex so sequence stays monotonic.
+ */
 export function findNavigationStopIndex(
   stops: NavigationStop[],
   scheduleStop: ScheduleStop | null | undefined,
@@ -254,8 +293,36 @@ export function findNavigationStopIndex(
     if (stopMatchesScheduleRow(stops[index], scheduleStop)) return index;
   }
 
+  // Name/id match may only exist behind us on a loop — still search whole list forward-first.
   for (let index = 0; index < fromIndex; index += 1) {
     if (stopMatchesScheduleRow(stops[index], scheduleStop)) return index;
+  }
+
+  // Coordinate proximity fallback when names/links differ between schedule and routeStops.
+  const schedLat =
+    typeof scheduleStop.lat === 'number'
+      ? scheduleStop.lat
+      : parseFloat(String(scheduleStop.lat ?? ''));
+  const schedLng =
+    typeof scheduleStop.lng === 'number'
+      ? scheduleStop.lng
+      : parseFloat(String(scheduleStop.lng ?? ''));
+  if (Number.isFinite(schedLat) && Number.isFinite(schedLng)) {
+    let bestIndex = fromIndex;
+    let bestDistance = Infinity;
+    for (let index = fromIndex; index < stops.length; index += 1) {
+      const distance = calculateDistance(
+        schedLat,
+        schedLng,
+        stops[index].latitude,
+        stops[index].longitude,
+      );
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+    if (bestDistance <= 75) return bestIndex;
   }
 
   return fromIndex;

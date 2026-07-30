@@ -69,6 +69,65 @@ describe('directionEngine', () => {
     }
   });
 
+  it('projects onto polyline segments for atLink (not only vertices)', () => {
+    const timeInSeconds = 36000;
+    const expected = buildExpectedLinks(schedule, linkAverages, timeInSeconds, 3600);
+
+    // Midway between link 0 (40.0) and link 1 (40.01) — vertex-only snap could flip.
+    const result = findCurrentLinkWithLocation({
+      lat: 40.005,
+      lng: -75.0,
+      course: 0,
+      links,
+      linkAverages,
+      routeSchedule: schedule,
+      expectedLinks: expected,
+      timeInSeconds,
+      totalRouteTime: 3600,
+      previousAtLink: 0,
+    });
+
+    expect(result.atLink).toBeGreaterThanOrEqual(0);
+    expect(result.atLink).toBeLessThanOrEqual(1);
+    expect(result.nextStop?.longName).toBe('Stop B');
+  });
+
+  it('prefers forward continuity when previousAtLink is set on overlapping geometry', () => {
+    const loopLinks = parseRoutePointsToLinks(
+      '40.0,-75.0;40.01,-75.0;40.01,-74.99;40.0,-74.99;40.0,-75.0',
+    );
+    const loopAverages = [10, 10, 10, 10, 10];
+    const loopSchedule: DirectionScheduleItem[] = [
+      {
+        blockID: '1',
+        link: 3,
+        calculatedArrivalTime: 36300,
+        stopName: 'Stop C',
+        longName: 'Stop C',
+        unscheduled: false,
+        tripID: 100,
+      },
+    ];
+    const timeInSeconds = 36000;
+    const expected = buildExpectedLinks(loopSchedule, loopAverages, timeInSeconds, 3600);
+
+    const result = findCurrentLinkWithLocation({
+      lat: 40.005,
+      lng: -75.0,
+      course: 0,
+      links: loopLinks,
+      linkAverages: loopAverages,
+      routeSchedule: loopSchedule,
+      expectedLinks: expected,
+      timeInSeconds,
+      totalRouteTime: 3600,
+      previousAtLink: 0,
+    });
+
+    expect(result.atLink).toBeLessThanOrEqual(2);
+    expect(result.nextStop?.longName).toBe('Stop C');
+  });
+
   it('returns unknown minsLate when no expected links', () => {
     const result = findCurrentLinkWithLocation({
       lat: 40.0,

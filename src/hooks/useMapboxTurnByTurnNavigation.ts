@@ -74,6 +74,8 @@ export interface UseMapboxTurnByTurnNavigationOptions {
   allStops?: StopData[];
   /** Same stop list drawn on the map (route.routeStops) — fallback if schedule lacks coords. */
   mapRouteStops?: StopData[];
+  /** Agency published polyline (`route.points`) for Map Matching exact-path guidance. */
+  agencyRoutePoints?: NavigationCoordinate[];
   nextStop: ScheduleStop | null;
   lastLocation: LastLocation | null;
   locationError: string | null;
@@ -90,8 +92,11 @@ export interface UseMapboxTurnByTurnNavigationResult extends TurnByTurnNavigatio
   isNavigating: boolean;
   /** Frozen once at session start — native map never receives updated route props. */
   frozenNativeSession: FrozenMapboxNativeSession | null;
+  /** True while native reports off the matched agency path (reroute disabled for training). */
+  isOffRoute: boolean;
   handleNativeArrive: () => void;
   handleNativeRouteProgress: (progress: NativeRouteProgress) => void;
+  handleNativeOffRoute: (offRoute: boolean) => void;
   handleNativeError: (message: string) => void;
   handleNativeCancel: () => void;
 }
@@ -144,6 +149,7 @@ export function useMapboxTurnByTurnNavigation(
     schedule,
     allStops = [],
     mapRouteStops = [],
+    agencyRoutePoints = [],
     nextStop,
     lastLocation,
     locationError,
@@ -157,6 +163,13 @@ export function useMapboxTurnByTurnNavigation(
   const [frozenNativeSession, setFrozenNativeSession] = useState<FrozenMapboxNativeSession | null>(
     () => persistedNavigationSession?.frozenNativeSession ?? null,
   );
+  const [isOffRoute, setIsOffRoute] = useState(false);
+  const agencyRoutePointsRef = useRef(agencyRoutePoints);
+  agencyRoutePointsRef.current = agencyRoutePoints;
+  const lastLocationRef = useRef(lastLocation);
+  lastLocationRef.current = lastLocation;
+  /** Full-trip route line — set once at start, reused on every per-leg rematch. */
+  const overviewRouteRef = useRef<NavigationCoordinate[] | null>(null);
 
   const stateRef = useRef(state);
   const advancingStopRef = useRef(false);
@@ -195,6 +208,8 @@ export function useMapboxTurnByTurnNavigation(
   const clearNativeSession = useCallback(() => {
     setFrozenNativeSession(null);
     nativeProgressRef.current = null;
+    setIsOffRoute(false);
+    overviewRouteRef.current = null;
   }, []);
 
   const completeTrip = useCallback(() => {
@@ -222,11 +237,36 @@ export function useMapboxTurnByTurnNavigation(
         schedule,
         allStops,
       );
+      // Remaining schedule for HUD; native session matches only the next stop (per-leg).
       const routeStops = buildMapboxSessionRouteStops(refreshedStops, targetIndex);
       if (routeStops.length === 0) return;
 
-      const frozen = buildFrozenMapboxNativeSession(origin, routeStops);
+      const frozen = buildFrozenMapboxNativeSession(
+        origin,
+        routeStops,
+        agencyRoutePointsRef.current,
+        overviewRouteRef.current,
+      );
       if (!frozen) {
+        // Soft-skip bad legs instead of killing the whole trip UI.
+        if (current.status === 'navigating' && targetIndex + 1 < refreshedStops.length) {
+          console.warn(
+            '[MapboxNavigation] skipping stop with invalid spacing/coords; advancing.',
+          );
+          setState((prev) => ({
+            ...prev,
+            stops: refreshedStops,
+            currentStopIndex: targetIndex + 1,
+            progress: null,
+          }));
+          stateRef.current = {
+            ...stateRef.current,
+            stops: refreshedStops,
+            currentStopIndex: targetIndex + 1,
+            progress: null,
+          };
+          return;
+        }
         setState((prev) => ({
           ...prev,
           status: 'error',
@@ -242,6 +282,22 @@ export function useMapboxTurnByTurnNavigation(
         return;
       }
 
+      // Freeze the MapScreen agency polyline once (full path, not per-leg stub).
+      if (!overviewRouteRef.current) {
+        const agency = agencyRoutePointsRef.current.filter(
+          (p) =>
+            Number.isFinite(p.latitude) &&
+            Number.isFinite(p.longitude) &&
+            Math.abs(p.latitude) <= 90 &&
+            Math.abs(p.longitude) <= 180,
+        );
+        if (agency.length >= 2) {
+          overviewRouteRef.current = agency.map((p) => ({ ...p }));
+        } else if (frozen.overviewRouteCoordinates?.length) {
+          overviewRouteRef.current = frozen.overviewRouteCoordinates;
+        }
+      }
+
       const nextState = {
         ...current,
         stops: refreshedStops,
@@ -252,7 +308,14 @@ export function useMapboxTurnByTurnNavigation(
         errorMessage: null,
       };
 
-      setFrozenNativeSession(frozen);
+      setIsOffRoute(false);
+      // Keep the same native Mapbox view mounted — only swap the matched leg route.
+      // Overview line stays the same reference across legs.
+      setFrozenNativeSession({
+        ...frozen,
+        overviewRouteCoordinates:
+          overviewRouteRef.current ?? frozen.overviewRouteCoordinates,
+      });
       setState(nextState);
       stateRef.current = nextState;
     },
@@ -273,8 +336,20 @@ export function useMapboxTurnByTurnNavigation(
 
       if (targetIndex === current.currentStopIndex) return;
 
-      // Native multi-stop route already includes upcoming legs — only update UI index.
+      // Per-leg Map Matching: rematch when DriverModel jumps ahead in the sequence.
       if (current.status === 'navigating' || current.status === 'arriving') {
+        const location = lastLocationRef.current;
+        if (
+          location &&
+          Number.isFinite(location.latitude) &&
+          Number.isFinite(location.longitude)
+        ) {
+          startNavigationSession(targetIndex, {
+            latitude: location.latitude,
+            longitude: location.longitude,
+          });
+          return;
+        }
         setState((prev) => ({
           ...prev,
           currentStopIndex: targetIndex,
@@ -287,7 +362,7 @@ export function useMapboxTurnByTurnNavigation(
         };
       }
     },
-    [completeTrip],
+    [completeTrip, startNavigationSession],
   );
 
   const advanceAfterArrival = useCallback(() => {
@@ -295,6 +370,19 @@ export function useMapboxTurnByTurnNavigation(
     const nextIndex = current.currentStopIndex + 1;
     if (nextIndex >= current.stops.length) {
       completeTrip();
+      return;
+    }
+
+    const location = lastLocationRef.current;
+    if (
+      location &&
+      Number.isFinite(location.latitude) &&
+      Number.isFinite(location.longitude)
+    ) {
+      startNavigationSession(nextIndex, {
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
       return;
     }
 
@@ -308,16 +396,28 @@ export function useMapboxTurnByTurnNavigation(
       currentStopIndex: nextIndex,
       progress: null,
     };
-  }, [completeTrip]);
+  }, [completeTrip, startNavigationSession]);
 
   const handleNativeArrive = useCallback(() => {
+    setIsOffRoute(false);
     advanceAfterArrival();
   }, [advanceAfterArrival]);
-
   const handleNativeRouteProgress = useCallback((nativeProgress: NativeRouteProgress) => {
     const current = stateRef.current;
     if (current.status !== 'navigating') return;
     nativeProgressRef.current = nativeProgress;
+  }, []);
+
+  const handleNativeOffRoute = useCallback((offRoute: boolean) => {
+    const current = stateRef.current;
+    if (
+      current.status !== 'navigating' &&
+      current.status !== 'arriving' &&
+      current.status !== 'rerouting'
+    ) {
+      return;
+    }
+    setIsOffRoute(offRoute);
   }, []);
 
   const handleNativeError = useCallback((message: string) => {
@@ -550,8 +650,10 @@ export function useMapboxTurnByTurnNavigation(
     upcomingStops,
     isNavigating,
     frozenNativeSession,
+    isOffRoute,
     handleNativeArrive,
     handleNativeRouteProgress,
+    handleNativeOffRoute,
     handleNativeError,
     handleNativeCancel,
   };

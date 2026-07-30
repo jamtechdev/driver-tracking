@@ -102,7 +102,7 @@ export interface PerStopRouteMetric {
   isCurrent: boolean;
 }
 
-/** Per-stop ETA/distance scaled to native route progress (not one combined trip total). */
+/** Per-stop ETA/distance to each upcoming stop (consistent distance + time pairs). */
 export function computePerStopRouteMetrics(params: {
   remainingStops: NavigationStop[];
   currentStopIndex: number;
@@ -131,33 +131,49 @@ export function computePerStopRouteMetrics(params: {
     previous = stop;
   }
 
-  const legFraction = Math.max(0, Math.min(1, routeProgress?.fractionTraveled ?? 0));
-  if (legDistances.length > 0) {
-    legDistances[0] = Math.max(0, legDistances[0] * (1 - legFraction));
-  }
-
-  const rawTotal = legDistances.reduce((sum, meters) => sum + meters, 0);
-  const nativeDistance = Math.max(0, routeProgress?.distanceRemaining ?? rawTotal);
+  // Native distanceRemaining/durationRemaining are for the FULL remaining route,
+  // not the next stop — only use them to estimate average speed.
+  const nativeDistance = Math.max(0, routeProgress?.distanceRemaining ?? 0);
   const nativeDuration = Math.max(0, routeProgress?.durationRemaining ?? 0);
-  const scale = rawTotal > 0 ? nativeDistance / rawTotal : 1;
-  const scaledLegs = legDistances.map((meters) => meters * scale);
-  const averageMps = nativeDistance > 0 && nativeDuration > 0 ? nativeDistance / nativeDuration : 13.4;
+  const FALLBACK_MPS = 13.4; // ~30 mph urban transit-ish
+  const averageMps =
+    nativeDistance > 50 && nativeDuration > 1
+      ? nativeDistance / nativeDuration
+      : FALLBACK_MPS;
+
+  // Single remaining destination: prefer native progress when it looks sane vs straight-line.
+  const useNativeForCurrentStop =
+    remainingStops.length === 1 &&
+    nativeDistance > 0 &&
+    nativeDuration > 0 &&
+    legDistances[0] > 0 &&
+    // Reject absurd native values (e.g. duration tiny vs distance).
+    nativeDistance / nativeDuration < 50;
 
   let cumulativeDistance = 0;
 
   return remainingStops.map((stop, index) => {
-    cumulativeDistance += scaledLegs[index] ?? 0;
-    const durationSeconds =
-      nativeDistance > 0
-        ? nativeDuration * (cumulativeDistance / nativeDistance)
-        : cumulativeDistance / averageMps;
+    if (index === 0 && useNativeForCurrentStop) {
+      cumulativeDistance = nativeDistance;
+      return {
+        stopIndex: currentStopIndex + index,
+        stop,
+        distanceMeters: nativeDistance,
+        durationSeconds: nativeDuration,
+        etaTimestamp: computeEtaTimestamp(nativeDuration),
+        isCurrent: true,
+      };
+    }
+
+    cumulativeDistance += legDistances[index] ?? 0;
+    const durationSeconds = cumulativeDistance / averageMps;
 
     return {
       stopIndex: currentStopIndex + index,
       stop,
       distanceMeters: cumulativeDistance,
       durationSeconds,
-      etaTimestamp: routeProgress ? computeEtaTimestamp(durationSeconds) : null,
+      etaTimestamp: routeProgress || driverLocation ? computeEtaTimestamp(durationSeconds) : null,
       isCurrent: index === 0,
     };
   });

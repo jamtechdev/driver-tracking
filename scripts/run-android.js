@@ -1,34 +1,18 @@
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const {
+  applyAndroidHomeToEnv,
+  applyShortGradleUserHomeToEnv,
+} = require('./android-sdk-home');
 
 const isWindows = process.platform === 'win32';
 const projectRoot = path.join(__dirname, '..');
 
-// Set Android SDK environment variables
-const androidHome = isWindows 
-  ? 'C:\\Users\\JAMTECH\\AppData\\Local\\Android\\Sdk'
-  : process.env.ANDROID_HOME || process.env.HOME + '/Library/Android/sdk';
-
-if (isWindows) {
-  process.env.ANDROID_HOME = androidHome;
-  process.env.PATH = [
-    `${androidHome}\\platform-tools`,
-    `${androidHome}\\emulator`,
-    `${androidHome}\\tools`,
-    `${androidHome}\\tools\\bin`,
-    process.env.PATH
-  ].join(';');
-} else {
-  process.env.ANDROID_HOME = androidHome;
-  process.env.PATH = [
-    `${androidHome}/platform-tools`,
-    `${androidHome}/emulator`,
-    `${androidHome}/tools`,
-    `${androidHome}/tools/bin`,
-    process.env.PATH
-  ].join(':');
-}
+const androidHome = applyAndroidHomeToEnv();
+const gradleUserHome = applyShortGradleUserHomeToEnv();
+console.log(`[run-android] ANDROID_HOME=${androidHome}`);
+console.log(`[run-android] GRADLE_USER_HOME=${gradleUserHome || '(default)'}`);
 
 function run(cmd, options = {}) {
   execSync(cmd, {
@@ -64,6 +48,7 @@ function preflightWindowsLocks() {
   if (!isWindows) return;
 
   // Stop Gradle daemons to release any lingering native build handles.
+  // Important after relocating GRADLE_USER_HOME away from sandbox cache.
   runQuiet('cmd /c "cd android && gradlew.bat --stop"');
 
   // Kill common native build tool processes that can keep .so files open.
@@ -83,10 +68,50 @@ function preflightWindowsLocks() {
   rmrf(path.join(projectRoot, 'android', 'app', 'build'));
   rmrf(path.join(projectRoot, 'android', 'build'));
   rmrf(path.join(projectRoot, 'android', '.cxx'));
+  rmrf(path.join(projectRoot, 'android', 'app', '.cxx'));
+  // CMake staging keeps absolute prefab include paths — wipe when GRADLE_USER_HOME moves
+  // off Cursor's long sandbox cache or ninja keeps failing with MAX_PATH.
+  rmrf('C:\\c\\dt');
+  try {
+    fs.mkdirSync('C:\\c\\dt', { recursive: true });
+  } catch (_) {
+    // best-effort
+  }
+
+  // Library .cxx folders bake absolute GRADLE_USER_HOME prefab paths into ninja files.
+  wipeNativeModuleCxxCaches();
+}
+
+function wipeNativeModuleCxxCaches() {
+  const nodeModules = path.join(projectRoot, 'node_modules');
+  if (!fs.existsSync(nodeModules)) return;
+
+  const queue = [nodeModules];
+  while (queue.length > 0) {
+    const dir = queue.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.name === '.cxx') {
+        rmrf(full);
+        continue;
+      }
+      if (entry.name === 'android' || entry.name.startsWith('@') || dir === nodeModules) {
+        queue.push(full);
+      } else if (path.basename(dir).startsWith('@')) {
+        queue.push(full);
+      }
+    }
+  }
 }
 
 preflightWindowsLocks();
 
 // Run React Native Android
 run('react-native run-android');
-

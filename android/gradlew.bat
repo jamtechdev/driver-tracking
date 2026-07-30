@@ -31,6 +31,12 @@
 @rem Set local scope for the variables with windows NT shell
 if "%OS%"=="Windows_NT" setlocal
 
+@rem Cursor sandbox GRADLE_USER_HOME exceeds Windows MAX_PATH for RN prefab headers.
+echo %GRADLE_USER_HOME% | findstr /I "cursor-sandbox-cache" >nul
+if not errorlevel 1 set "GRADLE_USER_HOME=C:\g"
+if not defined GRADLE_USER_HOME set "GRADLE_USER_HOME=C:\g"
+if not exist "%GRADLE_USER_HOME%" mkdir "%GRADLE_USER_HOME%" >nul 2>&1
+
 set DIRNAME=%~dp0
 if "%DIRNAME%"=="" set DIRNAME=.
 @rem This is normally unused

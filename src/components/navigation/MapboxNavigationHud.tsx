@@ -36,6 +36,10 @@ export interface MapboxNavigationHudProps {
   upcomingStops: NavigationStop[];
   driverLocation: NavigationCoordinate | null;
   routeProgress: NativeRouteProgress | null;
+  /** Shown briefly when the driver reaches a stop. */
+  arrivalBanner?: { stopName: string } | null;
+  /** Training: matched agency path left — show return-to-route (no silent reroute). */
+  isOffRoute?: boolean;
   onEndNavigation: () => void;
 }
 
@@ -125,10 +129,15 @@ function NextStopCard({
   );
 }
 
-function formatStopSummary(metric: PerStopRouteMetric | null, fallback: string): string {
-  if (!metric) return fallback;
-  const name = toStopNameText(metric.stop.longName) || `Stop ${metric.stopIndex + 1}`;
-  return `${formatEtaTime(metric.etaTimestamp)} · ${formatNavigationDistanceMeters(metric.distanceMeters)} · ${formatNavigationDuration(metric.durationSeconds)} · ${name}`;
+const APPROACHING_METERS = 100;
+
+function stopPhase(
+  distanceMeters: number | null | undefined,
+): 'next' | 'approaching' {
+  if (distanceMeters != null && distanceMeters <= APPROACHING_METERS) {
+    return 'approaching';
+  }
+  return 'next';
 }
 
 export default function MapboxNavigationHud({
@@ -139,10 +148,12 @@ export default function MapboxNavigationHud({
   routeColor: _routeColor = '#1A73E8',
   routeName: _routeName,
   currentStopIndex,
-  totalStops: _totalStops,
+  totalStops,
   upcomingStops,
   driverLocation,
   routeProgress,
+  arrivalBanner = null,
+  isOffRoute = false,
   onEndNavigation,
 }: MapboxNavigationHudProps) {
   const stopMetrics = useMemo(() => {
@@ -160,14 +171,20 @@ export default function MapboxNavigationHud({
 
   const [sheetExpanded, setSheetExpanded] = useState(false);
 
-  const collapsedSummary = useMemo(
-    () => formatStopSummary(currentDestinationMetric, 'No active stop'),
-    [currentDestinationMetric],
-  );
+  const distanceToStop = currentDestinationMetric?.distanceMeters ?? null;
+  const phase = stopPhase(distanceToStop);
 
   const currentStopName =
     toStopNameText(currentDestinationMetric?.stop.longName) ||
     (currentDestinationMetric ? `Stop ${currentDestinationMetric.stopIndex + 1}` : 'Finding stop…');
+
+  const phaseLabel = phase === 'approaching' ? 'Approaching' : 'Next stop';
+  const phaseColor = phase === 'approaching' ? '#E37400' : theme.eta;
+
+  const stopProgressLabel =
+    totalStops > 0
+      ? `Stop ${Math.min(currentStopIndex + 1, totalStops)} of ${totalStops}`
+      : '';
 
   const sheetSurfaceStyle = [
     styles.sheet,
@@ -181,10 +198,44 @@ export default function MapboxNavigationHud({
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      <View style={[styles.topBar, { top: topOffset }]} pointerEvents="box-none">
-        <SpeedPill speedMps={speedMps} theme={theme} />
-        <EndNavigationButton theme={theme} onPress={onEndNavigation} />
-      </View>
+      {arrivalBanner ? (
+        <View
+          style={[styles.arrivalBanner, { top: topOffset }]}
+          accessibilityRole="alert"
+          accessibilityLabel={`Arrived at ${arrivalBanner.stopName}`}
+        >
+          <MaterialIcons name="flag" size={22} color="#FFF" />
+          <View style={styles.arrivalBannerTextWrap}>
+            <Text style={styles.arrivalBannerEyebrow}>Arrived</Text>
+            <Text style={styles.arrivalBannerName} numberOfLines={2}>
+              {arrivalBanner.stopName}
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={[styles.topBar, { top: topOffset }]} pointerEvents="box-none">
+          <SpeedPill speedMps={speedMps} theme={theme} />
+          <EndNavigationButton theme={theme} onPress={onEndNavigation} />
+        </View>
+      )}
+
+      {/* Off-route banner disabled — noisy / unnecessary for current training UX
+      {isOffRoute && !arrivalBanner ? (
+        <View
+          style={[styles.offRouteBanner, { top: topOffset + 56 }]}
+          accessibilityRole="alert"
+          accessibilityLabel="Off route. Return to the assigned route."
+        >
+          <MaterialIcons name="warning" size={22} color="#FFF" />
+          <View style={styles.arrivalBannerTextWrap}>
+            <Text style={styles.arrivalBannerEyebrow}>Off route</Text>
+            <Text style={styles.arrivalBannerName} numberOfLines={2}>
+              Return to the assigned route
+            </Text>
+          </View>
+        </View>
+      ) : null}
+      */}
 
       <View style={[styles.bottomHost, { paddingBottom: bottomInset }]} pointerEvents="box-none">
         {sheetExpanded ? (
@@ -205,11 +256,17 @@ export default function MapboxNavigationHud({
               />
             </TouchableOpacity>
 
+            {stopProgressLabel ? (
+              <Text style={[styles.stopProgress, { color: theme.sheetSecondary }]}>
+                {stopProgressLabel}
+              </Text>
+            ) : null}
+
             {currentDestinationMetric ? (
               <NextStopCard
                 metric={currentDestinationMetric}
                 theme={theme}
-                label="Current stop"
+                label={phaseLabel}
               />
             ) : (
               <Text style={[styles.emptyNextStop, { color: theme.sheetSecondary }]}>
@@ -222,7 +279,7 @@ export default function MapboxNavigationHud({
                 key={`upcoming-${metric.stopIndex}-${metric.stop.id}`}
                 metric={metric}
                 theme={theme}
-                label={`Upcoming · stop ${metric.stopIndex + 1}`}
+                label={`Then · stop ${metric.stopIndex + 1}`}
               />
             ))}
 
@@ -245,26 +302,37 @@ export default function MapboxNavigationHud({
             onPress={() => setSheetExpanded(true)}
             activeOpacity={0.92}
             accessibilityRole="button"
-            accessibilityLabel={`Current stop: ${collapsedSummary}`}
+            accessibilityLabel={`${phaseLabel}: ${currentStopName}`}
             accessibilityHint="Expands current and upcoming stop details"
           >
+            <View style={styles.collapsedHeader}>
+              <Text style={[styles.phaseBadge, { color: phaseColor }]}>{phaseLabel}</Text>
+              {stopProgressLabel ? (
+                <Text style={[styles.stopProgressInline, { color: theme.sheetSecondary }]}>
+                  {stopProgressLabel}
+                </Text>
+              ) : null}
+            </View>
+            <Text
+              style={[styles.collapsedStopName, { color: theme.sheetPrimary }]}
+              numberOfLines={2}
+            >
+              {currentStopName}
+            </Text>
             <View style={styles.collapsedRow}>
-              <Text
-                style={[styles.collapsedText, { color: theme.sheetPrimary }]}
-                numberOfLines={1}
-              >
+              <Text style={[styles.collapsedMeta, { color: theme.sheetSecondary }]} numberOfLines={1}>
                 {currentDestinationMetric ? (
                   <>
                     <Text style={[styles.collapsedEta, { color: theme.eta }]}>
                       {formatEtaTime(currentDestinationMetric.etaTimestamp)}
                     </Text>
-                    <Text style={{ color: theme.sheetSecondary }}> · </Text>
+                    {'  ·  '}
                     {formatNavigationDistanceMeters(currentDestinationMetric.distanceMeters)}
-                    <Text style={{ color: theme.sheetSecondary }}> · </Text>
-                    {currentStopName}
+                    {'  ·  '}
+                    {formatNavigationDuration(currentDestinationMetric.durationSeconds)}
                   </>
                 ) : (
-                  'No active stop'
+                  'Waiting for stop details…'
                 )}
               </Text>
               <MaterialIcons name="keyboard-arrow-up" size={22} color={theme.sheetSecondary} />
@@ -359,7 +427,7 @@ const styles = StyleSheet.create({
   sheetCollapsed: {
     paddingTop: 12,
     paddingBottom: 12,
-    gap: 0,
+    gap: 6,
   },
   sheetHandleRow: {
     alignItems: 'center',
@@ -368,12 +436,37 @@ const styles = StyleSheet.create({
   collapseIcon: {
     marginTop: -2,
   },
+  collapsedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  phaseBadge: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  stopProgress: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stopProgressInline: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  collapsedStopName: {
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 24,
+  },
   collapsedRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  collapsedText: {
+  collapsedMeta: {
     flex: 1,
     fontSize: 14,
     fontWeight: '600',
@@ -381,6 +474,63 @@ const styles = StyleSheet.create({
   },
   collapsedEta: {
     fontWeight: '700',
+  },
+  arrivalBanner: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#188038',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    ...Platform.select({
+      ios: {
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 10,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  offRouteBanner: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#C5221F',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    ...Platform.select({
+      ios: {
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 10,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  arrivalBannerTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  arrivalBannerEyebrow: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  arrivalBannerName: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 24,
   },
   sheetHandle: {
     alignSelf: 'center',

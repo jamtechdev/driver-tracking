@@ -380,27 +380,147 @@ function patchIos() {
   }
 
   let source = fs.readFileSync(iosSwift, 'utf8');
-  if (source.includes(MUTE_MARKER)) {
+  let changed = false;
+
+  if (!source.includes(MUTE_MARKER)) {
+    if (source.includes('NavigationSettings.shared.voiceMuted = strongSelf.mute')) {
+      source = source.replace(
+        'NavigationSettings.shared.voiceMuted = strongSelf.mute',
+        `NavigationSettings.shared.voiceMuted = true // ${MUTE_MARKER}`,
+      );
+      changed = true;
+      console.log('[patch-mapbox-puck] iOS mute patched');
+    } else if (source.includes('NavigationSettings.shared.voiceMuted = true')) {
+      source = source.replace(
+        'NavigationSettings.shared.voiceMuted = true',
+        `NavigationSettings.shared.voiceMuted = true // ${MUTE_MARKER}`,
+      );
+      changed = true;
+      console.log('[patch-mapbox-puck] iOS mute marked');
+    } else {
+      console.warn('[patch-mapbox-puck] iOS mute line not found');
+    }
+  } else {
     console.log('[patch-mapbox-puck] iOS mute already applied');
-    return;
   }
 
-  if (source.includes('NavigationSettings.shared.voiceMuted = strongSelf.mute')) {
-    source = source.replace(
-      'NavigationSettings.shared.voiceMuted = strongSelf.mute',
-      `NavigationSettings.shared.voiceMuted = true // ${MUTE_MARKER}`,
-    );
-    fs.writeFileSync(iosSwift, source);
-    console.log('[patch-mapbox-puck] iOS mute patched');
-  } else if (source.includes('NavigationSettings.shared.voiceMuted = true')) {
-    source = source.replace(
-      'NavigationSettings.shared.voiceMuted = true',
-      `NavigationSettings.shared.voiceMuted = true // ${MUTE_MARKER}`,
-    );
-    fs.writeFileSync(iosSwift, source);
-    console.log('[patch-mapbox-puck] iOS mute marked');
+  const fallbackMarker = 'DRIVER_TRACKING_MAP_MATCHING_FALLBACK_V1';
+  if (!source.includes(fallbackMarker)) {
+    if (
+      source.includes('embedWithMapMatching(matching)') &&
+      source.includes('Directions.shared.calculateRoutes(matching: options)')
+    ) {
+      // Prefer agency Map Matching, but fall back to Directions so the blue route line still shows.
+      const oldEmbedTail = `        // DRIVER_TRACKING_MAP_MATCHING_V1: prefer agency shape when provided
+        if let matching = parseRouteCoordinates(), matching.count >= 2 {
+            embedWithMapMatching(matching)
+            return
+        }
+
+        let originWaypoint = Waypoint(coordinate: CLLocationCoordinate2D(latitude: startOrigin[1] as! CLLocationDegrees, longitude: startOrigin[0] as! CLLocationDegrees))
+        var waypointsArray = [originWaypoint]
+
+        // Add Waypoints
+        waypointsArray.append(contentsOf: waypoints)
+
+        let destinationWaypoint = Waypoint(coordinate: CLLocationCoordinate2D(latitude: destination[1] as! CLLocationDegrees, longitude: destination[0] as! CLLocationDegrees), name: destinationTitle as String)
+        waypointsArray.append(destinationWaypoint)
+
+        let options = NavigationRouteOptions(waypoints: waypointsArray, profileIdentifier: .automobileAvoidingTraffic)
+
+        let locale = self.language.replacingOccurrences(of: "-", with: "_")
+        options.locale = Locale(identifier: locale)
+        options.distanceMeasurementSystem =  distanceUnit == "imperial" ? .imperial : .metric
+        options.includesAlternativeRoutes = false // DRIVER_TRACKING_NO_ALTERNATES_V1
+
+        Directions.shared.calculateRoutes(options: options) { [weak self] result in
+            self?.handleRouteResponse(result)
+        }
+    }`;
+
+      const newEmbedTail = `        // DRIVER_TRACKING_MAP_MATCHING_V1: prefer agency shape when provided
+        if let matching = parseRouteCoordinates(), matching.count >= 2 {
+            embedWithMapMatching(matching)
+            return
+        }
+
+        embedWithDirections()
+    }
+
+    /// Directions stop→stop route (also used when Map Matching fails so blue line still shows).
+    // ${fallbackMarker}
+    private func embedWithDirections() {
+        guard startOrigin.count == 2 && destination.count == 2 else {
+            embedding = false
+            return
+        }
+
+        let originWaypoint = Waypoint(coordinate: CLLocationCoordinate2D(latitude: startOrigin[1] as! CLLocationDegrees, longitude: startOrigin[0] as! CLLocationDegrees))
+        var waypointsArray = [originWaypoint]
+
+        waypointsArray.append(contentsOf: waypoints)
+
+        let destinationWaypoint = Waypoint(coordinate: CLLocationCoordinate2D(latitude: destination[1] as! CLLocationDegrees, longitude: destination[0] as! CLLocationDegrees), name: destinationTitle as String)
+        waypointsArray.append(destinationWaypoint)
+
+        let options = NavigationRouteOptions(waypoints: waypointsArray, profileIdentifier: .automobileAvoidingTraffic)
+
+        let locale = self.language.replacingOccurrences(of: "-", with: "_")
+        options.locale = Locale(identifier: locale)
+        options.distanceMeasurementSystem =  distanceUnit == "imperial" ? .imperial : .metric
+        options.includesAlternativeRoutes = false // DRIVER_TRACKING_NO_ALTERNATES_V1
+
+        Directions.shared.calculateRoutes(options: options) { [weak self] result in
+            self?.handleRouteResponse(result)
+        }
+    }`;
+
+      if (source.includes(oldEmbedTail)) {
+        source = source.replace(oldEmbedTail, newEmbedTail);
+        changed = true;
+      }
+
+      const oldMatchingCb = `        Directions.shared.calculateRoutes(matching: options) { [weak self] result in
+            self?.handleRouteResponse(result)
+        }
+    }`;
+
+      const newMatchingCb = `        Directions.shared.calculateRoutes(matching: options) { [weak self] result in
+            guard let strongSelf = self else { return }
+            // ${fallbackMarker}: keep blue Directions line if match fails
+            switch result {
+            case .failure:
+                strongSelf.embedWithDirections()
+            case .success(let response):
+                let routes = response.routeResponse.routes ?? []
+                if routes.isEmpty {
+                    strongSelf.embedWithDirections()
+                } else {
+                    strongSelf.handleRouteResponse(result)
+                }
+            }
+        }
+    }`;
+
+      if (source.includes(oldMatchingCb) && !source.includes(fallbackMarker)) {
+        source = source.replace(oldMatchingCb, newMatchingCb);
+        changed = true;
+      }
+
+      if (source.includes(fallbackMarker)) {
+        console.log('[patch-mapbox-puck] iOS Map Matching → Directions fallback patched');
+      } else {
+        console.warn('[patch-mapbox-puck] iOS Map Matching fallback pattern not found');
+      }
+    } else {
+      console.warn('[patch-mapbox-puck] iOS Map Matching methods missing — skip fallback patch');
+    }
   } else {
-    console.warn('[patch-mapbox-puck] iOS mute line not found');
+    console.log('[patch-mapbox-puck] iOS Map Matching fallback already applied');
+  }
+
+  if (changed) {
+    fs.writeFileSync(iosSwift, source);
   }
 }
 
@@ -438,10 +558,481 @@ function patchNotificationSoftFail() {
 }
 
 patchAndroid();
+patchAndroidMapMatchingReroute();
+patchAndroidMapMatchingTrainingV2();
+patchAndroidNavCamera3d();
+patchAndroidOffRouteBridge();
+patchAndroidOverviewRouteVisible();
 patchIos();
+patchIosOffRouteTraining();
 patchNotificationSoftFail();
+patchMapboxJsOffRoute();
 patchNewArchCodegenDefault();
 patchViewManagerNewArchProps();
+
+/**
+ * Legacy V1 kept Map Matching reroute enabled. Training mode needs it disabled.
+ */
+function patchAndroidMapMatchingReroute() {
+  if (!fs.existsSync(androidKt)) return;
+  let source = fs.readFileSync(androidKt, 'utf8');
+  const marker = 'DRIVER_TRACKING_MAP_MATCHING_REROUTE_V1';
+  if (source.includes(marker) || source.includes('DRIVER_TRACKING_MAP_MATCHING_TRAINING_V2')) {
+    console.log('[patch-mapbox-puck] Android Map Matching reroute already applied');
+    return;
+  }
+
+  if (!source.includes('disableRerouteAwayFromMatchedPath()')) {
+    console.warn('[patch-mapbox-puck] disableRerouteAwayFromMatchedPath not found — skip');
+    return;
+  }
+
+  // Prefer the already-split helper form if present from a prior manual edit.
+  if (!source.includes('disableContinuousAlternativesOnly()')) {
+    source = source.replace(
+      /\/\*\* Keep guidance on the matched agency path; avoid Directions shortcuts on off-route\. \*\/\s*private fun disableRerouteAwayFromMatchedPath\(\) \{\s*try \{\s*val method = mapboxNavigation\?\.javaClass\?\.methods\?\.firstOrNull \{ candidate ->\s*candidate\.name == "setRerouteEnabled" && candidate\.parameterTypes\.size == 1\s*\}\s*method\?\.invoke\(mapboxNavigation, false\)\s*\} catch \(_: Throwable\) \{\s*\/\/ Older \/ alternate SDK builds — continuous-alternatives disable below still helps\.\s*\}\s*try \{\s*val method = mapboxNavigation\?\.javaClass\?\.methods\?\.firstOrNull \{ candidate ->\s*candidate\.name == "setContinuousAlternativesEnabled" &&\s*candidate\.parameterTypes\.size == 1\s*\}\s*method\?\.invoke\(mapboxNavigation, false\)\s*\} catch \(_: Throwable\) \{\s*\/\/ no-op\s*\}\s*\}/,
+      `/** Keep guidance on the matched agency path; avoid Directions shortcuts on off-route. */
+  private fun disableRerouteAwayFromMatchedPath() {
+    try {
+      val method = mapboxNavigation?.javaClass?.methods?.firstOrNull { candidate ->
+        candidate.name == "setRerouteEnabled" && candidate.parameterTypes.size == 1
+      }
+      method?.invoke(mapboxNavigation, false)
+    } catch (_: Throwable) {
+      // Older / alternate SDK builds — continuous-alternatives disable below still helps.
+    }
+    disableContinuousAlternativesOnly()
+  }
+
+  // ${marker}
+  private fun disableContinuousAlternativesOnly() {
+    try {
+      val method = mapboxNavigation?.javaClass?.methods?.firstOrNull { candidate ->
+        candidate.name == "setContinuousAlternativesEnabled" &&
+          candidate.parameterTypes.size == 1
+      }
+      method?.invoke(mapboxNavigation, false)
+    } catch (_: Throwable) {
+      // no-op
+    }
+  }`,
+    );
+  }
+
+  source = source.replace(
+    /disableRerouteAwayFromMatchedPath\(\)\s*\n\s*setRouteAndStartNavigation\(primary\)/,
+    `// ${marker}:
+          // Do NOT disable reroute — off-path GPS (simulator / noisy fix) freezes guidance.
+          // Still suppress continuous alternate route lines.
+          disableContinuousAlternativesOnly()
+          setRouteAndStartNavigation(primary)`,
+  );
+
+  if (!source.includes(marker) && !source.includes('disableContinuousAlternativesOnly()')) {
+    console.warn('[patch-mapbox-puck] Android Map Matching reroute patch did not apply');
+    return;
+  }
+
+  fs.writeFileSync(androidKt, source, 'utf8');
+  console.log('[patch-mapbox-puck] Android Map Matching reroute patched');
+}
+
+/**
+ * Client/training: Map Matching must disable silent Directions reroute and keep
+ * the agency path. Off-route is a feature to score, not a bug to hide.
+ */
+function patchAndroidMapMatchingTrainingV2() {
+  if (!fs.existsSync(androidKt)) return;
+  let source = fs.readFileSync(androidKt, 'utf8');
+  const unstuckMarker = 'DRIVER_TRACKING_MAP_MATCHING_UNSTUCK_V3';
+  if (source.includes(unstuckMarker)) {
+    console.log('[patch-mapbox-puck] Android Map Matching unstuck V3 already applied');
+    return;
+  }
+
+  // Prefer unstuck V3: never globally disable reroute (freezes TBT off-path).
+  if (
+    source.includes('disableRerouteAwayFromMatchedPath()') &&
+    source.includes('setRouteAndStartNavigation(primary)')
+  ) {
+    source = source.replace(
+      /\/\/ DRIVER_TRACKING_MAP_MATCHING_TRAINING_V2:[\s\S]*?disableRerouteAwayFromMatchedPath\(\)\s*\n\s*setRouteAndStartNavigation\(primary\)/,
+      `// ${unstuckMarker}:
+          // Do NOT call setRerouteEnabled(false). Map-matched routes already use
+          // RerouteDisabled (no Directions shortcut). Global disable freezes TBT
+          // when GPS is slightly off the line (simulators / noisy fixes).
+          // OffRouteObserver still surfaces "return to route" for training.
+          disableContinuousAlternativesOnly()
+          setRouteAndStartNavigation(primary)`,
+    );
+    source = source.replace(
+      /\/\/ DRIVER_TRACKING_MAP_MATCHING_REROUTE_V1:[\s\S]*?disableContinuousAlternativesOnly\(\)\s*\n\s*setRouteAndStartNavigation\(primary\)/,
+      `// ${unstuckMarker}:
+          disableContinuousAlternativesOnly()
+          setRouteAndStartNavigation(primary)`,
+    );
+    if (!source.includes(unstuckMarker) && source.includes('disableRerouteAwayFromMatchedPath()\n          setRouteAndStartNavigation')) {
+      source = source.replace(
+        /disableRerouteAwayFromMatchedPath\(\)\s*\n\s*setRouteAndStartNavigation\(primary\)/,
+        `// ${unstuckMarker}:
+          disableContinuousAlternativesOnly()
+          setRouteAndStartNavigation(primary)`,
+      );
+    }
+  }
+
+  if (source.includes('.tidy(true)')) {
+    source = source.replace('.tidy(true)', '.tidy(false)');
+  }
+
+  if (!source.includes(unstuckMarker) && !source.includes('disableContinuousAlternativesOnly()\n          setRouteAndStartNavigation')) {
+    console.warn('[patch-mapbox-puck] Android Map Matching unstuck V3 pattern not found');
+    return;
+  }
+
+  if (!source.includes(unstuckMarker)) {
+    source = source.replace(
+      'disableContinuousAlternativesOnly()\n          setRouteAndStartNavigation(primary)',
+      `// ${unstuckMarker}\n          disableContinuousAlternativesOnly()\n          setRouteAndStartNavigation(primary)`,
+    );
+  }
+
+  fs.writeFileSync(androidKt, source, 'utf8');
+  console.log('[patch-mapbox-puck] Android Map Matching unstuck V3 patched');
+}
+
+/**
+ * Always draw the MapScreen-style full agency path as the only visible route line.
+ * SDK per-leg line is kept transparent so TBT still works without the short wrong stub.
+ */
+function patchAndroidOverviewRouteVisible() {
+  if (!fs.existsSync(androidKt)) return;
+  let source = fs.readFileSync(androidKt, 'utf8');
+  const marker = 'DRIVER_TRACKING_OVERVIEW_ROUTE_V3';
+  if (source.includes(marker)) {
+    console.log('[patch-mapbox-puck] Android overview route visibility V3 already applied');
+    return;
+  }
+
+  // Prefer replacing V2 observer block; fall back to V1.
+  const oldObserverV2 = `// DRIVER_TRACKING_OVERVIEW_ROUTE_V2:
+      // Always draw the full agency overview (MapScreen-style path) AND the SDK
+      // active-leg route line. Previously overview-only skipped the SDK line, and
+      // when the custom layer failed the driver saw no route path at all.
+      if (overviewRouteCoordinates.size >= 2) {
+        ensureAgencyOverviewRouteLine()
+      }
+      routeLineApi.setNavigationRoutes(primaryOnly) { value ->
+        binding.mapView.mapboxMap.style?.apply {
+          routeLineView.renderRouteDrawData(this, value)
+          // Re-assert overview above route-line mutations if it was dropped.
+          if (overviewRouteCoordinates.size >= 2) {
+            ensureAgencyOverviewRouteLine(this)
+          }
+        }
+      }`;
+
+  const oldObserverV1 = `// DRIVER_TRACKING_OVERVIEW_ROUTE_V1:
+      // Full agency line is drawn once. Skip redrawing the short per-leg route line
+      // so TBT can rematch each stop without flickering the visible path.
+      if (overviewRouteCoordinates.size >= 2) {
+        ensureAgencyOverviewRouteLine()
+      } else {
+        routeLineApi.setNavigationRoutes(primaryOnly) { value ->
+          binding.mapView.mapboxMap.style?.apply {
+            routeLineView.renderRouteDrawData(this, value)
+          }
+        }
+      }`;
+
+  const newObserver = `// ${marker}:
+      // Draw the full MapScreen agency path. Hide the short per-leg SDK stub so
+      // drivers only see the complete published route (same as MapScreen).
+      if (overviewRouteCoordinates.size >= 2) {
+        ensureAgencyOverviewRouteLine()
+        routeLineApi.clearRouteLine { value ->
+          binding.mapView.mapboxMap.style?.let { style ->
+            routeLineView.renderClearRouteLineValue(style, value)
+            ensureAgencyOverviewRouteLine(style)
+          }
+        }
+      } else {
+        routeLineApi.setNavigationRoutes(primaryOnly) { value ->
+          binding.mapView.mapboxMap.style?.apply {
+            routeLineView.renderRouteDrawData(this, value)
+          }
+        }
+      }`;
+
+  if (source.includes(oldObserverV2)) {
+    source = source.replace(oldObserverV2, newObserver);
+  } else if (source.includes(oldObserverV1)) {
+    source = source.replace(oldObserverV1, newObserver);
+  } else if (!source.includes(marker)) {
+    console.warn('[patch-mapbox-puck] overview routesObserver pattern not found');
+  }
+
+  fs.writeFileSync(androidKt, source, 'utf8');
+  console.log('[patch-mapbox-puck] Android overview route visibility V3 patched');
+}
+
+function patchAndroidNavCamera3d() {
+  if (!fs.existsSync(androidKt)) return;
+  let source = fs.readFileSync(androidKt, 'utf8');
+  const marker = 'DRIVER_TRACKING_NAV_CAMERA_3D_V1';
+  if (source.includes(marker)) {
+    console.log('[patch-mapbox-puck] Android nav camera 3D already applied');
+    return;
+  }
+
+  if (source.includes('configureGoogleMapsStyleCamera')) {
+    source = source.replace(
+      /private fun configureGoogleMapsStyleCamera\(isLandscape: Boolean\) \{[\s\S]*?\n  \}/,
+      `private fun configureGoogleMapsStyleCamera(isLandscape: Boolean) {
+    val metrics = Resources.getSystem().displayMetrics
+    val horizontal = 40.0 * metrics.density
+    val top = if (isLandscape) 30.0 * metrics.density else 100.0 * metrics.density
+    val bottom = metrics.heightPixels * 0.58
+    viewportDataSource.followingPadding = EdgeInsets(top, horizontal, bottom, horizontal)
+    // ${marker}: zoomed-in pitched following (not flat overview)
+    viewportDataSource.options.followingFrameOptions.apply {
+      maximizeViewableGeometryWhenPitchZero = false
+      defaultPitch = 50.0
+      maxZoom = 17.5
+    }
+    viewportDataSource.followingPitchPropertyOverride(50.0)
+    viewportDataSource.evaluate()
+  }`,
+    );
+  }
+
+  source = source.replace(
+    /\.zoom\(14\.0\)\s*\n\s*\.center\(origin\)/,
+    `.zoom(16.5)\n      .pitch(50.0)\n      .center(origin)`,
+  );
+
+  if (!source.includes(marker)) {
+    console.warn('[patch-mapbox-puck] Android nav camera 3D pattern not found');
+    return;
+  }
+
+  fs.writeFileSync(androidKt, source, 'utf8');
+  console.log('[patch-mapbox-puck] Android nav camera 3D patched');
+}
+
+function patchAndroidOffRouteBridge() {
+  if (!fs.existsSync(androidKt)) return;
+  let source = fs.readFileSync(androidKt, 'utf8');
+  const marker = 'DRIVER_TRACKING_OFF_ROUTE_V1';
+  if (source.includes(marker)) {
+    console.log('[patch-mapbox-puck] Android off-route bridge already applied');
+  } else {
+    if (!source.includes('import com.mapbox.navigation.core.trip.session.OffRouteObserver')) {
+      source = source.replace(
+        'import com.mapbox.navigation.core.trip.session.LocationObserver\n',
+        'import com.mapbox.navigation.core.trip.session.LocationObserver\nimport com.mapbox.navigation.core.trip.session.OffRouteObserver\n',
+      );
+    }
+
+    if (!source.includes('offRouteObserver')) {
+      source = source.replace(
+        /private val arrivalObserver = object : ArrivalObserver \{[\s\S]*?^\s*\}\n/,
+        (match) => `${match}
+  // ${marker}: bridge off-route for training (no silent recalculate)
+  private val offRouteObserver = OffRouteObserver { offRoute ->
+    val event = Arguments.createMap()
+    event.putBoolean("offRoute", offRoute)
+    context
+      .getJSModule(RCTEventEmitter::class.java)
+      .receiveEvent(id, "onOffRoute", event)
+  }
+`,
+      );
+    }
+
+    if (!source.includes('registerOffRouteObserver')) {
+      source = source.replace(
+        'mapboxNavigation?.registerVoiceInstructionsObserver(voiceInstructionsObserver)',
+        `mapboxNavigation?.registerVoiceInstructionsObserver(voiceInstructionsObserver)
+    mapboxNavigation?.registerOffRouteObserver(offRouteObserver)`,
+      );
+    }
+
+    if (!source.includes('unregisterOffRouteObserver')) {
+      source = source.replace(
+        'mapboxNavigation?.unregisterVoiceInstructionsObserver(voiceInstructionsObserver)',
+        `mapboxNavigation?.unregisterVoiceInstructionsObserver(voiceInstructionsObserver)
+    mapboxNavigation?.unregisterOffRouteObserver(offRouteObserver)`,
+      );
+    }
+
+    fs.writeFileSync(androidKt, source, 'utf8');
+    console.log('[patch-mapbox-puck] Android off-route bridge patched');
+  }
+
+  const managerPath = path.join(
+    __dirname,
+    '..',
+    'node_modules',
+    '@pawan-pk',
+    'react-native-mapbox-navigation',
+    'android',
+    'src',
+    'main',
+    'java',
+    'com',
+    'mapboxnavigation',
+    'MapboxNavigationViewManager.kt',
+  );
+  if (!fs.existsSync(managerPath)) return;
+  let manager = fs.readFileSync(managerPath, 'utf8');
+  if (!manager.includes('"onOffRoute"')) {
+    manager = manager.replace(
+      '"onRouteProgressChange", MapBuilder.of("registrationName", "onRouteProgressChange"),\n    )',
+      `"onRouteProgressChange", MapBuilder.of("registrationName", "onRouteProgressChange"),
+      // ${marker}
+      "onOffRoute", MapBuilder.of("registrationName", "onOffRoute"),
+    )`,
+    );
+    fs.writeFileSync(managerPath, manager, 'utf8');
+    console.log('[patch-mapbox-puck] Android onOffRoute event registered');
+  }
+}
+
+function patchIosOffRouteTraining() {
+  if (!fs.existsSync(iosSwift)) return;
+  let source = fs.readFileSync(iosSwift, 'utf8');
+  const marker = 'DRIVER_TRACKING_OFF_ROUTE_V1';
+  if (source.includes(marker) && source.includes('shouldRerouteFrom')) {
+    console.log('[patch-mapbox-puck] iOS off-route training already applied');
+  } else {
+    if (!source.includes('@objc var onOffRoute')) {
+      source = source.replace(
+        '@objc var onArrive: RCTDirectEventBlock?',
+        `@objc var onArrive: RCTDirectEventBlock?\n    // ${marker}\n    @objc var onOffRoute: RCTDirectEventBlock?`,
+      );
+    }
+    if (!source.includes('lastOffRouteSignalAt')) {
+      source = source.replace(
+        'var embedding: Bool',
+        `var embedding: Bool\n    // ${marker}\n    private var lastOffRouteSignalAt: Date?`,
+      );
+    }
+    if (!source.includes('reroutesProactively = false') && !source.includes('shouldRerouteFrom')) {
+      // shouldRerouteFrom returning false is the supported training hook
+    }
+    if (!source.includes('shouldRerouteFrom')) {
+      source = source.replace(
+        /public func navigationViewController\(_ navigationViewController: NavigationViewController, didArriveAt waypoint: Waypoint\) -> Bool \{[\s\S]*?return true;\s*\n\s*\}/,
+        (match) => `${match}
+
+    // ${marker} + TRAINING_V2: surface off-route; do not auto-reroute
+    public func navigationViewController(_ navigationViewController: NavigationViewController, shouldRerouteFrom location: CLLocation) -> Bool {
+        lastOffRouteSignalAt = Date()
+        onOffRoute?(["offRoute": true])
+        return false
+    }`,
+      );
+    }
+    if (!source.includes('lastOffRouteSignalAt') || !source.includes('onOffRoute?(["offRoute": false])')) {
+      // Progress clear handled if shouldReroute block added; ensure didUpdate clears
+      if (
+        source.includes('onRouteProgressChange?([') &&
+        !source.includes('onOffRoute?(["offRoute": false])')
+      ) {
+        source = source.replace(
+          /("distanceRemaining": progress\.distanceRemaining\s*\n\s*\])\n\s*\}/,
+          `$1
+        ])
+        if let last = lastOffRouteSignalAt, Date().timeIntervalSince(last) > 2.0 {
+            lastOffRouteSignalAt = nil
+            onOffRoute?(["offRoute": false])
+        }
+    }`,
+        );
+      }
+    }
+    fs.writeFileSync(iosSwift, source, 'utf8');
+    console.log('[patch-mapbox-puck] iOS off-route training patched');
+  }
+
+  const iosManager = path.join(
+    __dirname,
+    '..',
+    'node_modules',
+    '@pawan-pk',
+    'react-native-mapbox-navigation',
+    'ios',
+    'MapboxNavigationViewManager.m',
+  );
+  if (fs.existsSync(iosManager)) {
+    let mgr = fs.readFileSync(iosManager, 'utf8');
+    if (!mgr.includes('onOffRoute')) {
+      mgr = mgr.replace(
+        'RCT_EXPORT_VIEW_PROPERTY(onArrive, RCTDirectEventBlock)\n',
+        'RCT_EXPORT_VIEW_PROPERTY(onArrive, RCTDirectEventBlock)\nRCT_EXPORT_VIEW_PROPERTY(onOffRoute, RCTDirectEventBlock)\n',
+      );
+      fs.writeFileSync(iosManager, mgr, 'utf8');
+      console.log('[patch-mapbox-puck] iOS onOffRoute export patched');
+    }
+  }
+}
+
+function patchMapboxJsOffRoute() {
+  const marker = 'DRIVER_TRACKING_OFF_ROUTE_V1';
+  for (const file of mapboxJsFiles) {
+    if (!fs.existsSync(file)) continue;
+    let source = fs.readFileSync(file, 'utf8');
+    if (source.includes('onOffRoute') && source.includes(marker)) continue;
+    if (!source.includes('onArrive') || !source.includes('onCancelNavigation')) continue;
+
+    if (!source.includes('onOffRoute,')) {
+      source = source.replace(
+        /onCancelNavigation,\s*\n\s*onError,/,
+        `onCancelNavigation,\n      onError,\n      onOffRoute,`,
+      );
+    }
+    if (!source.includes('onOffRoute: event =>') && !source.includes('onOffRoute={(event)')) {
+      source = source.replace(
+        /onArrive: event => onArrive\?\.?\(event\.nativeEvent\),/,
+        `onArrive: event => onArrive?.(event.nativeEvent),\n        // ${marker}\n        onOffRoute: event => onOffRoute?.(event.nativeEvent),`,
+      );
+      source = source.replace(
+        /onArrive=\{\(event\) => onArrive\?\.\(event\.nativeEvent\)\}/,
+        `onArrive={(event) => onArrive?.(event.nativeEvent)}\n          // ${marker}\n          onOffRoute={(event) => onOffRoute?.(event.nativeEvent)}`,
+      );
+    }
+    if (source !== fs.readFileSync(file, 'utf8')) {
+      fs.writeFileSync(file, source, 'utf8');
+      console.log('[patch-mapbox-puck] JS onOffRoute patched:', path.basename(file));
+    }
+  }
+
+  const typesPath = path.join(
+    __dirname,
+    '..',
+    'node_modules',
+    '@pawan-pk',
+    'react-native-mapbox-navigation',
+    'src',
+    'types.ts',
+  );
+  if (fs.existsSync(typesPath)) {
+    let types = fs.readFileSync(typesPath, 'utf8');
+    if (!types.includes('onOffRoute?:')) {
+      types = types.replace(
+        'onArrive?: (event: NativeEvent<WaypointEvent>) => void;\n};',
+        `onArrive?: (event: NativeEvent<WaypointEvent>) => void;\n  /** Fired when the puck leaves / returns to the active matched route. */\n  onOffRoute?: (event: NativeEvent<{ offRoute: boolean }>) => void;\n};`,
+      );
+      types = types.replace(
+        'onArrive?: (point: WaypointEvent) => void;\n}',
+        `onArrive?: (point: WaypointEvent) => void;\n  onOffRoute?: (event: { offRoute: boolean }) => void;\n}`,
+      );
+      fs.writeFileSync(typesPath, types, 'utf8');
+      console.log('[patch-mapbox-puck] types onOffRoute patched');
+    }
+  }
+}
 
 /**
  * New Arch codegen expects setDistanceUnit / setLanguage / stubs for unused

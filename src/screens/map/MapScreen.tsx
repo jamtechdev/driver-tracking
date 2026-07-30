@@ -45,7 +45,7 @@ import { getAllVehicles } from '../../api/vehicle.api';
 import StartNavigationButton from '../../components/navigation/StartNavigationButton';
 import MapboxNavigationOverlay from '../../components/navigation/MapboxNavigationOverlay';
 import { useMapboxTurnByTurnNavigation } from '../../hooks/useMapboxTurnByTurnNavigation';
-import { resolveNavigableStops } from '../../features/navigation/navigationStopUtils';
+import { orderStopsByRouteStopIds, resolveNavigableStops } from '../../features/navigation/navigationStopUtils';
 import { resolveNavigationLocation } from '../../features/navigation/navigationLocation';
 import { isMapboxAccessTokenValid } from '../../config/mapbox.config';
 import { useMdtTurnByTurnFeature } from '../../hooks/useMdtTurnByTurnFeature';
@@ -314,9 +314,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   const getRouteStops = useCallback((route: any) => {
     const rStops = route?.routeStops;
     if (!rStops || !Array.isArray(rStops) || stops.length === 0) return [];
-    return stops.filter(stop =>
-      rStops.some((id: any) => String(id) === String(stop.stopID))
-    );
+    return orderStopsByRouteStopIds(rStops, stops);
   }, [stops]);
 
   const routeStops = useMemo(() => getRouteStops(selectedRoute), [selectedRoute, getRouteStops]);
@@ -330,6 +328,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
     schedule,
     allStops: stops,
     mapRouteStops: routeStops,
+    agencyRoutePoints: routePoints,
     nextStop,
     lastLocation: navigationLocation,
     locationError: navigationLocationError,
@@ -823,8 +822,10 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           upcomingStops: turnByTurn.upcomingStops,
           handleNativeArrive: turnByTurn.handleNativeArrive,
           handleNativeRouteProgress: turnByTurn.handleNativeRouteProgress,
+          handleNativeOffRoute: turnByTurn.handleNativeOffRoute,
           handleNativeError: turnByTurn.handleNativeError,
           handleNativeCancel: turnByTurn.handleNativeCancel,
+          isOffRoute: turnByTurn.isOffRoute,
         }}
         lastLocation={navigationLocation}
         routeName={selectedRouteName}

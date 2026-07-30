@@ -23,6 +23,7 @@ import type { FrozenMapboxNativeSession } from '@/features/navigation/mapboxNati
 import { StableMapboxNavigationSession } from '@/components/navigation/StableMapboxNavigationSession';
 import MapboxNavigationHud from '@/components/navigation/MapboxNavigationHud';
 import { getNavigationHudTheme } from '@/config/navigationMapStyle';
+import { toStopNameText } from '@/utils/stopDisplayName';
 
 /** Native Mapbox maneuver banner — keep floating HUD below it. */
 const NATIVE_MANEUVER_BANNER_CLEARANCE = Platform.select({
@@ -32,6 +33,7 @@ const NATIVE_MANEUVER_BANNER_CLEARANCE = Platform.select({
 });
 
 const ROUTE_PROGRESS_THROTTLE_MS = 1000;
+const ARRIVAL_BANNER_MS = 2500;
 
 interface NavigationChromeState {
   status: TurnByTurnNavigationState['status'];
@@ -43,8 +45,10 @@ interface NavigationChromeState {
   upcomingStops: TurnByTurnNavigationState['stops'];
   handleNativeArrive: () => void;
   handleNativeRouteProgress: (progress: NativeRouteProgress) => void;
+  handleNativeOffRoute: (offRoute: boolean) => void;
   handleNativeError: (message: string) => void;
   handleNativeCancel: () => void;
+  isOffRoute?: boolean;
 }
 
 interface MapboxNavigationOverlayProps {
@@ -67,7 +71,9 @@ export default function MapboxNavigationOverlay({
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const [routeProgress, setRouteProgress] = useState<NativeRouteProgress | null>(null);
+  const [arrivalBanner, setArrivalBanner] = useState<{ stopName: string } | null>(null);
   const lastProgressPushRef = useRef(0);
+  const arrivalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const theme = useMemo(
     () => getNavigationHudTheme(colorScheme === 'dark' ? 'dark' : 'light'),
@@ -77,16 +83,46 @@ export default function MapboxNavigationOverlay({
   useEffect(() => {
     if (!visible) {
       setRouteProgress(null);
+      setArrivalBanner(null);
       lastProgressPushRef.current = 0;
+      if (arrivalTimerRef.current) {
+        clearTimeout(arrivalTimerRef.current);
+        arrivalTimerRef.current = null;
+      }
     }
   }, [visible]);
+
+  const isOffRoute = Boolean(navigationState.isOffRoute);
+
+  useEffect(() => {
+    return () => {
+      if (arrivalTimerRef.current) {
+        clearTimeout(arrivalTimerRef.current);
+      }
+    };
+  }, []);
 
   const handlersRef = useRef(navigationState);
   handlersRef.current = navigationState;
 
   const nativeCallbacks = useMemo(
     () => ({
-      onArrive: () => handlersRef.current.handleNativeArrive(),
+      onArrive: () => {
+        const destination = handlersRef.current.currentDestination;
+        const stopName =
+          toStopNameText(destination?.longName) ||
+          `Stop ${(handlersRef.current.currentStopIndex ?? 0) + 1}`;
+
+        if (arrivalTimerRef.current) {
+          clearTimeout(arrivalTimerRef.current);
+        }
+        setArrivalBanner({ stopName });
+        arrivalTimerRef.current = setTimeout(() => {
+          setArrivalBanner(null);
+          handlersRef.current.handleNativeArrive();
+          arrivalTimerRef.current = null;
+        }, ARRIVAL_BANNER_MS);
+      },
       onRouteProgressChange: (progress: NativeRouteProgress) => {
         handlersRef.current.handleNativeRouteProgress(progress);
         const now = Date.now();
@@ -94,6 +130,9 @@ export default function MapboxNavigationOverlay({
           lastProgressPushRef.current = now;
           setRouteProgress(progress);
         }
+      },
+      onOffRoute: (offRoute: boolean) => {
+        handlersRef.current.handleNativeOffRoute(offRoute);
       },
       onError: (message: string) => handlersRef.current.handleNativeError(message),
       onCancel: () => handlersRef.current.handleNativeCancel(),
@@ -139,6 +178,7 @@ export default function MapboxNavigationOverlay({
             session={frozenNativeSession}
             onArrive={nativeCallbacks.onArrive}
             onRouteProgressChange={nativeCallbacks.onRouteProgressChange}
+            onOffRoute={nativeCallbacks.onOffRoute}
             onError={nativeCallbacks.onError}
             onCancel={nativeCallbacks.onCancel}
           />
@@ -179,6 +219,8 @@ export default function MapboxNavigationOverlay({
             upcomingStops={navigationState.upcomingStops}
             driverLocation={driverLocation}
             routeProgress={routeProgress}
+            arrivalBanner={arrivalBanner}
+            isOffRoute={isOffRoute}
             onEndNavigation={navigationState.cancelNavigation}
           />
         ) : null}

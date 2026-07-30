@@ -78,13 +78,14 @@ export function parseRoutePointsToLinks(points: string | null | undefined): Rout
 
   if (links.length > 1) {
     const first = links[0];
+    const second = links[1];
     const last = links[links.length - 1];
-    first.bearing = headingBetween(
-      last.latitude,
-      last.longitude,
-      first.latitude,
-      first.longitude,
-    );
+    // Only treat as a closed loop when endpoints nearly meet; otherwise use first→second.
+    const closedLoop =
+      haversineMiles(first.latitude, first.longitude, last.latitude, last.longitude) < 0.05;
+    first.bearing = closedLoop
+      ? headingBetween(last.latitude, last.longitude, first.latitude, first.longitude)
+      : headingBetween(first.latitude, first.longitude, second.latitude, second.longitude);
   }
 
   return links;
@@ -131,4 +132,118 @@ export function assignLinkDistances(
     ...link,
     distanceMiles: haversineMiles(lat, lng, link.latitude, link.longitude),
   }));
+}
+
+function bearingDifferenceDegrees(angle0: number, angle1: number): number {
+  let diff = angle1 - angle0;
+  while (diff < -180) diff += 360;
+  while (diff > 180) diff -= 360;
+  return Math.abs(diff);
+}
+
+export interface LinkProjection {
+  /** Vertex index on the agency polyline (same domain as schedule link). */
+  position: number;
+  distanceMiles: number;
+  bearing: number;
+  segmentIndex: number;
+  segmentT: number;
+}
+
+/**
+ * Snap GPS onto the closest polyline segment (not just vertices).
+ * Prefers forward progress when previousAtLink is known — critical for loops / overlaps.
+ */
+export function projectLocationOntoLinks(
+  links: RouteLink[],
+  lat: number,
+  lng: number,
+  course: number,
+  previousAtLink?: number,
+): LinkProjection | null {
+  if (links.length === 0) return null;
+
+  if (links.length === 1) {
+    return {
+      position: 0,
+      distanceMiles: haversineMiles(lat, lng, links[0].latitude, links[0].longitude),
+      bearing: links[0].bearing,
+      segmentIndex: 0,
+      segmentT: 0,
+    };
+  }
+
+  const half = links.length / 2;
+  let bestScore = -Infinity;
+  let best: LinkProjection = {
+    position: 0,
+    distanceMiles: haversineMiles(lat, lng, links[0].latitude, links[0].longitude),
+    bearing: links[0].bearing,
+    segmentIndex: 0,
+    segmentT: 0,
+  };
+
+  const considerSegment = (
+    segmentIndex: number,
+    a: RouteLink,
+    b: RouteLink,
+    nextPosition: number,
+  ) => {
+    const dx = b.latitude - a.latitude;
+    const dy = b.longitude - a.longitude;
+    let t = 0;
+    if (dx !== 0 || dy !== 0) {
+      t = Math.max(
+        0,
+        Math.min(1, ((lat - a.latitude) * dx + (lng - a.longitude) * dy) / (dx * dx + dy * dy)),
+      );
+    }
+    const projLat = a.latitude + t * dx;
+    const projLng = a.longitude + t * dy;
+    const distanceMiles = haversineMiles(lat, lng, projLat, projLng);
+    const bearing =
+      a.bearing || headingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+    const position = t >= 0.5 ? nextPosition : a.position;
+
+    let distanceScore = 1 - distanceMiles / 0.1;
+    if (distanceScore < 0) distanceScore = 0;
+
+    const bearingDiff = bearingDifferenceDegrees(course, bearing);
+    const bearingScore = (180 - bearingDiff) / 180;
+
+    let continuity = 0.5;
+    if (previousAtLink != null && Number.isFinite(previousAtLink) && links.length > 0) {
+      const forward = (position - previousAtLink + links.length) % links.length;
+      if (forward <= half) {
+        continuity = 1 - (forward / Math.max(half, 1)) * 0.45;
+      } else {
+        const backward = (previousAtLink - position + links.length) % links.length;
+        continuity = Math.max(0, 0.25 - (backward / Math.max(half, 1)) * 0.25);
+      }
+    }
+
+    const score = distanceScore * 0.7 + bearingScore * 0.45 + continuity * 0.65;
+    if (score > bestScore) {
+      bestScore = score;
+      best = {
+        position,
+        distanceMiles,
+        bearing,
+        segmentIndex,
+        segmentT: t,
+      };
+    }
+  };
+
+  for (let i = 0; i < links.length - 1; i += 1) {
+    considerSegment(i, links[i], links[i + 1], links[i + 1].position);
+  }
+
+  const first = links[0];
+  const last = links[links.length - 1];
+  if (haversineMiles(first.latitude, first.longitude, last.latitude, last.longitude) < 0.05) {
+    considerSegment(links.length - 1, last, first, first.position);
+  }
+
+  return best;
 }

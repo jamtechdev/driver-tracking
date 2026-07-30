@@ -8,7 +8,7 @@ import type {
   RouteLink,
   DirectionResult,
 } from './types';
-import { assignLinkDistances } from './linkGeometry';
+import { projectLocationOntoLinks } from './linkGeometry';
 
 export const MINS_LATE_UNKNOWN = -9999;
 
@@ -141,6 +141,8 @@ export function findCurrentLinkWithLocation(params: {
   totalRouteTime: number;
   previousExpectedLink?: number;
   previousBlockID?: string | null;
+  /** Prior GPS snap — keeps placement monotonic on loops / overlapping geometry. */
+  previousAtLink?: number;
 }): DirectionResult {
   const {
     lat,
@@ -152,6 +154,7 @@ export function findCurrentLinkWithLocation(params: {
     expectedLinks,
     timeInSeconds,
     totalRouteTime,
+    previousAtLink,
   } = params;
 
   const empty: DirectionResult = {
@@ -166,51 +169,31 @@ export function findCurrentLinkWithLocation(params: {
 
   if (links.length < 1) return empty;
 
-  const withDistance = assignLinkDistances(links, lat, lng);
-  const sorted = [...withDistance].sort((a, b) => a.distanceMiles - b.distanceMiles);
+  // Segment projection (not vertex-only) so complex agency shapes place correctly.
+  const projection = projectLocationOntoLinks(
+    links,
+    lat,
+    lng,
+    course,
+    previousAtLink,
+  );
+  const atLink = projection?.position ?? 0;
 
-  const halfLinks = links.length / 2;
-  let topLink = 0;
-  let topScore = -9999;
   let topClosestSchedLink: ExpectedLink | undefined;
+  let lowestLinkSchedDiff = 99999;
 
-  const candidateCount = Math.min(8, sorted.length);
-  for (let i = 0; i < candidateCount; i++) {
-    const link = sorted[i];
-    const bearingDiff = bearingDifference(course, link.bearing);
-    let distance = 1 - link.distanceMiles / 0.1;
-    if (distance < 0) distance = 0;
+  if (expectedLinks.length > 0) {
+    for (const schedLink of expectedLinks) {
+      const thisLinkSchedDiff = isLinkAfter(atLink, schedLink.link, linkAverages.length)
+        ? secondsFromLink(schedLink.link, atLink, linkAverages)
+        : secondsFromLink(atLink, schedLink.link, linkAverages);
 
-    let closestSchedLink: ExpectedLink | undefined;
-    let lowestLinkSchedDiff = 99999;
-
-    if (expectedLinks.length > 0) {
-      for (const schedLink of expectedLinks) {
-        const thisLinkSchedDiff = isLinkAfter(link.position, schedLink.link, linkAverages.length)
-          ? secondsFromLink(schedLink.link, link.position, linkAverages)
-          : secondsFromLink(link.position, schedLink.link, linkAverages);
-
-        if (thisLinkSchedDiff < lowestLinkSchedDiff) {
-          lowestLinkSchedDiff = thisLinkSchedDiff;
-          closestSchedLink = schedLink;
-        }
+      if (thisLinkSchedDiff < lowestLinkSchedDiff) {
+        lowestLinkSchedDiff = thisLinkSchedDiff;
+        topClosestSchedLink = schedLink;
       }
     }
-
-    const linkSchedDiff =
-      lowestLinkSchedDiff === 99999 ? 0 : (halfLinks - lowestLinkSchedDiff) / halfLinks;
-
-    const score =
-      distance * 0.6 + ((180 - bearingDiff) / 180) * 0.5 + linkSchedDiff * 0.8;
-
-    if (score > topScore) {
-      topScore = score;
-      topLink = link.position;
-      topClosestSchedLink = closestSchedLink;
-    }
   }
-
-  const atLink = topLink;
 
   if (!expectedLinks.length || !topClosestSchedLink) {
     return { ...empty, atLink };
