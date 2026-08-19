@@ -215,7 +215,6 @@ export default function MapboxNavigationOverlay({
             routeName={routeName}
             routeColor={routeColor}
             currentStopIndex={navigationState.currentStopIndex}
-            totalStops={navigationState.stops.length}
             upcomingStops={navigationState.upcomingStops}
             driverLocation={driverLocation}
             routeProgress={routeProgress}

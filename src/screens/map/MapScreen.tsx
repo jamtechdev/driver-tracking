@@ -150,17 +150,13 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
 
   const navigationLocationError = locationError ?? mapLocationError ?? null;
 
-  const handleNavigationTripCompleted = useCallback(
-    (routeId: string | null) => {
-      Toast.show({
-        type: 'success',
-        text1: 'Trip complete',
-        text2: 'All assigned stops have been reached.',
-      });
-      navigation.navigate('PostTrip', { routeId: routeId ?? '0' });
-    },
-    [navigation],
-  );
+  const handleNavigationTripCompleted = useCallback((_routeId: string | null) => {
+    Toast.show({
+      type: 'success',
+      text1: 'Trip complete',
+      text2: 'All assigned stops have been reached.',
+    });
+  }, []);
 
   const infoVehicle = liveInfoVehicle ?? selectedVehicle;
 

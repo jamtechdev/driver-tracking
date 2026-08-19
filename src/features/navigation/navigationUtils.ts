@@ -11,29 +11,27 @@ import type {
   NavigationStop,
 } from './types';
 
+/** Imperial distance for Mapbox HUD (matches mph speed). */
 export function formatNavigationDistance(meters: number): string {
   if (!Number.isFinite(meters) || meters < 0) return '—';
-  if (meters < 1000) {
-    return `${Math.round(meters)} m`;
-  }
   const miles = meters / 1609.344;
-  return `${miles.toFixed(miles < 10 ? 1 : 0)} mi`;
+  if (miles < 0.1) {
+    const feet = Math.max(1, Math.round(meters * 3.28084));
+    return `${feet} ft`;
+  }
+  return miles < 10 ? `${miles.toFixed(1)} mi` : `${Math.round(miles)} mi`;
 }
 
-/** Google Maps–style distance for turn-by-turn (meters, rounded). */
+/** Google Maps–style distance for turn-by-turn (imperial: ft / mi). */
 export function formatTurnByTurnDistance(meters: number): string {
   if (!Number.isFinite(meters) || meters < 0) return '—';
   if (meters < 10) return 'Now';
-  let rounded: number;
-  if (meters < 100) {
-    rounded = Math.max(10, Math.round(meters / 5) * 5);
-  } else if (meters < 1000) {
-    rounded = Math.round(meters / 10) * 10;
-  } else {
-    const km = meters / 1000;
-    return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+  const miles = meters / 1609.344;
+  if (miles < 0.1) {
+    const feet = Math.max(10, Math.round((meters * 3.28084) / 10) * 10);
+    return `${feet} ft`;
   }
-  return `${rounded} m`;
+  return miles < 10 ? `${miles.toFixed(1)} mi` : `${Math.round(miles)} mi`;
 }
 
 /** Always show meters/km (no miles) — used in navigation metrics. */

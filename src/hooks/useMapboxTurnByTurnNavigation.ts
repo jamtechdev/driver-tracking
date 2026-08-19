@@ -117,6 +117,7 @@ function isActiveNavigationStatus(status: NavigationStatus): boolean {
     status === 'navigating' ||
     status === 'rerouting' ||
     status === 'arriving' ||
+    status === 'completed' ||
     status === 'error'
   );
 }
@@ -213,14 +214,27 @@ export function useMapboxTurnByTurnNavigation(
   }, []);
 
   const completeTrip = useCallback(() => {
+    const current = stateRef.current;
+    if (current.status === 'completed') {
+      return;
+    }
+
     advancingStopRef.current = false;
     lastSyncedNextStopKeyRef.current = null;
-    clearPersistedNavigationSession();
-    clearNativeSession();
+    setIsOffRoute(false);
     onTripCompletedRef.current?.(routeIdRef.current ?? null);
-    setState(INITIAL_STATE);
-    stateRef.current = INITIAL_STATE;
-  }, [clearNativeSession]);
+
+    // Keep the native session + overlay mounted until End navigation / close is tapped.
+    const nextState: TurnByTurnNavigationState = {
+      ...current,
+      status: 'completed',
+      progress: null,
+      errorMessage: null,
+      currentStopIndex: Math.max(0, current.stops.length - 1),
+    };
+    setState(nextState);
+    stateRef.current = nextState;
+  }, []);
 
   const startNavigationSession = useCallback(
     (targetIndex: number, origin: NavigationCoordinate) => {
@@ -367,6 +381,9 @@ export function useMapboxTurnByTurnNavigation(
 
   const advanceAfterArrival = useCallback(() => {
     const current = stateRef.current;
+    if (current.status === 'completed' || current.status === 'cancelled') {
+      return;
+    }
     const nextIndex = current.currentStopIndex + 1;
     if (nextIndex >= current.stops.length) {
       completeTrip();
@@ -437,18 +454,18 @@ export function useMapboxTurnByTurnNavigation(
   }, []);
 
   const handleNativeCancel = useCallback(() => {
-    lastSyncedNextStopKeyRef.current = null;
-    clearPersistedNavigationSession();
-    clearNativeSession();
-    setState({
-      ...INITIAL_STATE,
-      status: 'cancelled',
-    });
-    stateRef.current = INITIAL_STATE;
-    setTimeout(() => {
-      setState(INITIAL_STATE);
-    }, 0);
-  }, [clearNativeSession]);
+    // Native SDK often fires cancel when the final leg ends. Do not dismiss the
+    // overlay — only End navigation / close (cancelNavigation) should.
+    const current = stateRef.current;
+    if (
+      current.status === 'completed' ||
+      current.status === 'idle' ||
+      current.status === 'cancelled'
+    ) {
+      return;
+    }
+    completeTrip();
+  }, [completeTrip]);
 
   // Keep stop names/coords in sync with live schedule (DriverModel enriched data).
   useEffect(() => {
@@ -631,13 +648,13 @@ export function useMapboxTurnByTurnNavigation(
     return liveStops.slice(state.currentStopIndex);
   }, [liveStops, state.currentStopIndex]);
 
-  // Keep overlay open on 'error' so the user sees the message instead of a
-  // silent bounce back to the Google Maps screen.
+  // Keep overlay open on 'error' and 'completed' until the driver taps End / close.
   const isNavigating =
     state.status === 'preparing' ||
     state.status === 'navigating' ||
     state.status === 'rerouting' ||
     state.status === 'arriving' ||
+    state.status === 'completed' ||
     state.status === 'error';
 
   return {

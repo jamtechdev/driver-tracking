@@ -69,7 +69,7 @@ function StableMapboxNavigationSessionComponent({
       {...({
         overviewRouteCoordinates: overviewRef.current,
       } as Record<string, unknown>)}
-      distanceUnit="metric"
+      distanceUnit="imperial"
       language="en"
       mute={true}
       showCancelButton={false}

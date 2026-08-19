@@ -17,7 +17,7 @@ import type { NavigationHudTheme } from '@/config/navigationMapStyle';
 import {
   computePerStopRouteMetrics,
   formatEtaTime,
-  formatNavigationDistanceMeters,
+  formatNavigationDistance,
   formatNavigationDuration,
   type PerStopRouteMetric,
 } from '@/features/navigation/navigationUtils';
@@ -32,7 +32,6 @@ export interface MapboxNavigationHudProps {
   routeName?: string | null;
   routeColor?: string;
   currentStopIndex: number;
-  totalStops: number;
   upcomingStops: NavigationStop[];
   driverLocation: NavigationCoordinate | null;
   routeProgress: NativeRouteProgress | null;
@@ -121,7 +120,7 @@ function NextStopCard({
           {formatEtaTime(metric.etaTimestamp)}
         </Text>
         {' · '}
-        {formatNavigationDistanceMeters(metric.distanceMeters)}
+        {formatNavigationDistance(metric.distanceMeters)}
         {' · '}
         {formatNavigationDuration(metric.durationSeconds)}
       </Text>
@@ -148,7 +147,6 @@ export default function MapboxNavigationHud({
   routeColor: _routeColor = '#1A73E8',
   routeName: _routeName,
   currentStopIndex,
-  totalStops,
   upcomingStops,
   driverLocation,
   routeProgress,
@@ -180,11 +178,6 @@ export default function MapboxNavigationHud({
 
   const phaseLabel = phase === 'approaching' ? 'Approaching' : 'Next stop';
   const phaseColor = phase === 'approaching' ? '#E37400' : theme.eta;
-
-  const stopProgressLabel =
-    totalStops > 0
-      ? `Stop ${Math.min(currentStopIndex + 1, totalStops)} of ${totalStops}`
-      : '';
 
   const sheetSurfaceStyle = [
     styles.sheet,
@@ -256,12 +249,6 @@ export default function MapboxNavigationHud({
               />
             </TouchableOpacity>
 
-            {stopProgressLabel ? (
-              <Text style={[styles.stopProgress, { color: theme.sheetSecondary }]}>
-                {stopProgressLabel}
-              </Text>
-            ) : null}
-
             {currentDestinationMetric ? (
               <NextStopCard
                 metric={currentDestinationMetric}
@@ -307,11 +294,6 @@ export default function MapboxNavigationHud({
           >
             <View style={styles.collapsedHeader}>
               <Text style={[styles.phaseBadge, { color: phaseColor }]}>{phaseLabel}</Text>
-              {stopProgressLabel ? (
-                <Text style={[styles.stopProgressInline, { color: theme.sheetSecondary }]}>
-                  {stopProgressLabel}
-                </Text>
-              ) : null}
             </View>
             <Text
               style={[styles.collapsedStopName, { color: theme.sheetPrimary }]}
@@ -327,7 +309,7 @@ export default function MapboxNavigationHud({
                       {formatEtaTime(currentDestinationMetric.etaTimestamp)}
                     </Text>
                     {'  ·  '}
-                    {formatNavigationDistanceMeters(currentDestinationMetric.distanceMeters)}
+                    {formatNavigationDistance(currentDestinationMetric.distanceMeters)}
                     {'  ·  '}
                     {formatNavigationDuration(currentDestinationMetric.durationSeconds)}
                   </>
@@ -447,14 +429,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
-  },
-  stopProgress: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  stopProgressInline: {
-    fontSize: 12,
-    fontWeight: '600',
   },
   collapsedStopName: {
     fontSize: 18,
