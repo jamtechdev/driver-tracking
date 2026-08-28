@@ -1,10 +1,13 @@
 import {
   findNavigationStopIndex,
   orderStopsByRouteStopIds,
+  resolveForwardStopIndex,
   resolveNavigableStops,
+  resolveStopHudPhase,
 } from '@/features/navigation/navigationStopUtils';
 import type { ScheduleStop } from '@/context/DriverModelContext';
 import type { StopData } from '@/context/DriverDataContext';
+import type { NavigationStop } from '@/features/navigation/types';
 
 describe('stop-based turn-by-turn', () => {
   const stops = [
@@ -54,5 +57,64 @@ describe('stop-based turn-by-turn', () => {
     } as ScheduleStop;
 
     expect(findNavigationStopIndex(navigable, nextStop)).toBe(1);
+  });
+});
+
+describe('resolveForwardStopIndex', () => {
+  const honeywell: NavigationStop = {
+    id: '153910',
+    longName: 'Braeswood Blvd @ Honeywell Rd EB',
+    latitude: 29.7,
+    longitude: -95.5,
+    sequenceIndex: 0,
+  };
+  const barger: NavigationStop = {
+    id: '153911',
+    longName: 'Braeswood Blvd @ Barger Rd EB',
+    latitude: 29.7,
+    longitude: -95.4985,
+    sequenceIndex: 1,
+  };
+  const braeburn: NavigationStop = {
+    id: '153912',
+    longName: 'S Braeswood Blvd @ Braeburn Glen Blvd',
+    latitude: 29.7,
+    longitude: -95.497,
+    sequenceIndex: 2,
+  };
+  const stops = [honeywell, barger, braeburn];
+
+  it('stays on Honeywell while approaching it', () => {
+    const puck = { latitude: 29.7, longitude: -95.5008 };
+    expect(resolveForwardStopIndex(puck, stops, 0)).toBe(0);
+  });
+
+  it('advances to Barger after passing Honeywell along the street', () => {
+    const puck = { latitude: 29.7, longitude: -95.4994 };
+    expect(resolveForwardStopIndex(puck, stops, 0)).toBe(1);
+  });
+
+  it('advances to Braeburn after passing Barger', () => {
+    const puck = { latitude: 29.7, longitude: -95.4976 };
+    expect(resolveForwardStopIndex(puck, stops, 1)).toBe(2);
+  });
+
+  it('does not skip Honeywell to a far downstream stop from a distant GPS fix', () => {
+    const puck = { latitude: 29.7, longitude: -95.48 };
+    expect(resolveForwardStopIndex(puck, stops, 0)).toBe(0);
+  });
+
+  it('never moves backward', () => {
+    const puck = { latitude: 29.7, longitude: -95.5008 };
+    expect(resolveForwardStopIndex(puck, stops, 1)).toBe(1);
+  });
+});
+
+describe('resolveStopHudPhase', () => {
+  it('uses 100m for approaching and 20m for arrived', () => {
+    expect(resolveStopHudPhase(150)).toBe('next');
+    expect(resolveStopHudPhase(80)).toBe('approaching');
+    expect(resolveStopHudPhase(20)).toBe('arrived');
+    expect(resolveStopHudPhase(8)).toBe('arrived');
   });
 });

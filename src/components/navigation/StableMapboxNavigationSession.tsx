@@ -13,6 +13,7 @@ export interface StableMapboxNavigationSessionProps {
   session: FrozenMapboxNativeSession;
   onArrive: () => void;
   onRouteProgressChange: (progress: NativeRouteProgress) => void;
+  onLocationChange?: (location: { latitude: number; longitude: number }) => void;
   onOffRoute?: (offRoute: boolean) => void;
   onError: (message: string) => void;
   onCancel: () => void;
@@ -43,12 +44,16 @@ function StableMapboxNavigationSessionComponent({
   session,
   onArrive,
   onRouteProgressChange,
+  onLocationChange,
   onOffRoute,
   onError,
   onCancel,
 }: StableMapboxNavigationSessionProps) {
   const stableOnArrive = useStableHandler(onArrive);
   const stableOnProgress = useStableHandler(onRouteProgressChange);
+  const stableOnLocation = useStableHandler(
+    onLocationChange ?? ((_: { latitude: number; longitude: number }) => undefined),
+  );
   const stableOnOffRoute = useStableHandler(onOffRoute ?? ((_: boolean) => undefined));
   const stableOnError = useStableHandler(onError);
   const stableOnCancel = useStableHandler(onCancel);
@@ -77,6 +82,18 @@ function StableMapboxNavigationSessionComponent({
       hideStatusView={false}
       onArrive={stableOnArrive}
       onRouteProgressChange={stableOnProgress}
+      onLocationChange={(location) => {
+        if (
+          location &&
+          Number.isFinite(location.latitude) &&
+          Number.isFinite(location.longitude)
+        ) {
+          stableOnLocation({
+            latitude: location.latitude,
+            longitude: location.longitude,
+          });
+        }
+      }}
       onOffRoute={(event) => {
         stableOnOffRoute(Boolean(event?.offRoute));
       }}

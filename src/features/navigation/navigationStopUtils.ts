@@ -6,7 +6,7 @@ import type { ScheduleStop } from '@/context/DriverModelContext';
 import type { StopData } from '@/context/DriverDataContext';
 import { calculateDistance } from '@/utils/helpers';
 import { toStopNameText } from '@/utils/stopDisplayName';
-import type { NavigationStop } from './types';
+import type { NavigationCoordinate, NavigationStop } from './types';
 
 export function normalizeLatLng(
   lat: number,
@@ -204,16 +204,21 @@ export function orderStopsByRouteStopIds(
 }
 
 /**
- * Prefer the stops drawn on the map (route.routeStops order) for turn-by-turn.
- * Navigation is stop-based — not agency polyline / Map Matching geometry.
- * Schedule is only a fallback when the map has no usable stop list.
+ * Prefer trip stopTimes order (sequence-sorted stopIDs) for turn-by-turn.
+ * Falls back to map routeStops, then schedule.
  */
 export function resolveNavigableStops(
   schedule: ScheduleStop[],
   allStops: StopData[],
   anchorStop: ScheduleStop | null,
   routeStops: StopData[] = [],
+  tripOrderedStops: StopData[] = [],
 ): NavigationStop[] {
+  const fromTrip = buildNavigationStopsFromRouteStops(tripOrderedStops);
+  if (fromTrip.length > 0) {
+    return fromTrip;
+  }
+
   const fromMap = buildNavigationStopsFromRouteStops(routeStops);
   if (fromMap.length > 0) {
     return fromMap;
@@ -373,4 +378,212 @@ export function estimateRemainingStopsMetrics(
     durationSeconds += segmentDistance / 13.4;
   }
   return { distanceMeters, durationSeconds };
+}
+
+/** Meters past a stop, along the line to the next stop, before HUD advances. */
+export const HUD_PASS_ALONG_METERS = 40;
+
+export const HUD_APPROACHING_METERS = 150;
+
+export const HUD_ARRIVAL_METERS = 20;
+
+/** After arriving, puck must leave this far before HUD advances to the next stop. */
+export const HUD_LEAVE_METERS = 35;
+
+/** Puck must be this close to the current stop before we may pass it (unless already approached). */
+export const HUD_NEAR_STOP_METERS = 150;
+
+/**
+ * Max distance for “passed away without visit” advances (offset curb pins / fast GPS).
+ * Beyond this, treat as a far GPS jump and do not skip.
+ */
+export const HUD_PASSED_AWAY_MAX_METERS = HUD_NEAR_STOP_METERS * 2;
+
+export type NavigationStopPhase = 'next' | 'approaching' | 'arrived';
+
+export type AdvancePastStopOptions = {
+  passAlongMeters?: number;
+  nearStopMeters?: number;
+  leaveMeters?: number;
+  /** Cap for advancing after leaving a stop without approach/arrive. */
+  passedAwayMaxMeters?: number;
+  /** True once puck (or native arrive) has been inside the approach radius. */
+  hasApproached?: boolean;
+  /** True once puck was inside the arrival radius or Mapbox fired arrive. */
+  hasArrived?: boolean;
+};
+
+export function resolveStopHudPhase(
+  distanceMeters: number | null | undefined,
+  approachingMeters: number = HUD_APPROACHING_METERS,
+  arrivalMeters: number = HUD_ARRIVAL_METERS,
+): NavigationStopPhase {
+  if (distanceMeters == null || !Number.isFinite(distanceMeters)) return 'next';
+  if (distanceMeters <= arrivalMeters) return 'arrived';
+  if (distanceMeters <= approachingMeters) return 'approaching';
+  return 'next';
+}
+
+function resolveAdvanceOptions(
+  passAlongMetersOrOptions?: number | AdvancePastStopOptions,
+): Required<AdvancePastStopOptions> {
+  const fromObject =
+    typeof passAlongMetersOrOptions === 'object' && passAlongMetersOrOptions != null
+      ? passAlongMetersOrOptions
+      : {
+          passAlongMeters:
+            typeof passAlongMetersOrOptions === 'number'
+              ? passAlongMetersOrOptions
+              : HUD_PASS_ALONG_METERS,
+        };
+  return {
+    passAlongMeters: fromObject.passAlongMeters ?? HUD_PASS_ALONG_METERS,
+    nearStopMeters: fromObject.nearStopMeters ?? HUD_NEAR_STOP_METERS,
+    leaveMeters: fromObject.leaveMeters ?? HUD_LEAVE_METERS,
+    passedAwayMaxMeters:
+      fromObject.passedAwayMaxMeters ?? HUD_PASSED_AWAY_MAX_METERS,
+    hasApproached: Boolean(fromObject.hasApproached),
+    hasArrived: Boolean(fromObject.hasArrived),
+  };
+}
+
+/**
+ * Signed meters from `current` toward `next` of the puck.
+ * Negative = still behind current. >= distance(current,next) = at/past next.
+ */
+export function alongMetersTowardNext(
+  puck: NavigationCoordinate,
+  current: NavigationCoordinate,
+  next: NavigationCoordinate,
+): number {
+  const ab = calculateDistance(
+    current.latitude,
+    current.longitude,
+    next.latitude,
+    next.longitude,
+  );
+  if (ab < 1) return 0;
+  const ap = calculateDistance(
+    puck.latitude,
+    puck.longitude,
+    current.latitude,
+    current.longitude,
+  );
+  const pb = calculateDistance(
+    puck.latitude,
+    puck.longitude,
+    next.latitude,
+    next.longitude,
+  );
+  return (ap * ap + ab * ab - pb * pb) / (2 * ab);
+}
+
+export function shouldAdvancePastStop(
+  puck: NavigationCoordinate,
+  current: NavigationCoordinate,
+  next: NavigationCoordinate,
+  passAlongMetersOrOptions: number | AdvancePastStopOptions = HUD_PASS_ALONG_METERS,
+): boolean {
+  const options = resolveAdvanceOptions(passAlongMetersOrOptions);
+  const distCurrent = calculateDistance(
+    puck.latitude,
+    puck.longitude,
+    current.latitude,
+    current.longitude,
+  );
+  const distNext = calculateDistance(
+    puck.latitude,
+    puck.longitude,
+    next.latitude,
+    next.longitude,
+  );
+  const stopSpacing = calculateDistance(
+    current.latitude,
+    current.longitude,
+    next.latitude,
+    next.longitude,
+  );
+  const along = alongMetersTowardNext(puck, current, next);
+  const passedAlong = along >= options.passAlongMeters;
+  const closerToNext = along > 15 && distNext + 15 < distCurrent;
+  const leftAfterArrival =
+    options.hasArrived && distCurrent >= options.leaveMeters;
+  const leftAfterApproach =
+    options.hasApproached &&
+    distCurrent >= options.leaveMeters &&
+    (along > 0 || distNext < distCurrent);
+
+  // Visited this stop (or Mapbox arrived) — advancing is allowed even after the
+  // puck is >120m away. The near-gate only blocks unvisited far GPS jumps.
+  if (options.hasArrived || options.hasApproached) {
+    return (
+      leftAfterArrival ||
+      leftAfterApproach ||
+      passedAlong ||
+      closerToNext ||
+      distCurrent > options.nearStopMeters
+    );
+  }
+
+  // Corridor along current→next (not crow-flies from the pin). Lets the HUD
+  // advance when the puck drove past a curb-offset stop without ever entering
+  // the approach radius, even once distCurrent > 300m — while still
+  // blocking multi-km GPS teleports (along ≫ stopSpacing + passedAwayMax).
+  const alongCorridorMax = stopSpacing + options.passedAwayMaxMeters;
+  const withinLegCorridor = along >= options.passAlongMeters && along <= alongCorridorMax;
+
+  // Puck clearly left this stop toward the next (bottom HUD → index+1), even if
+  // approach/arrive never fired (curb / off-road pin outside arrival radius).
+  const leftStopTowardNext =
+    withinLegCorridor &&
+    distCurrent >= options.leaveMeters &&
+    distNext < distCurrent;
+  if (leftStopTowardNext) return true;
+
+  // Already at/past the next stop's projection along the leg — never keep HUD
+  // stuck on the previous name while the puck keeps moving.
+  const reachedOrPastNext =
+    stopSpacing >= 1 &&
+    along >= Math.max(options.passAlongMeters, stopSpacing * 0.85) &&
+    distNext <= distCurrent;
+  if (reachedOrPastNext && along <= alongCorridorMax) return true;
+
+  if (distCurrent > options.nearStopMeters) return false;
+  return passedAlong || closerToNext;
+}
+
+/**
+ * First stop the puck has not yet passed, never moving backward from fromIndex.
+ * Unvisited far GPS must not skip ahead; approached/arrived stops may be left behind.
+ */
+export function resolveForwardStopIndex(
+  puck: NavigationCoordinate | null | undefined,
+  stops: NavigationStop[],
+  fromIndex = 0,
+  passAlongMetersOrOptions: number | AdvancePastStopOptions = HUD_PASS_ALONG_METERS,
+): number {
+  if (!stops.length) return 0;
+  if (
+    !puck ||
+    !Number.isFinite(puck.latitude) ||
+    !Number.isFinite(puck.longitude)
+  ) {
+    return Math.max(0, Math.min(fromIndex, stops.length - 1));
+  }
+
+  const options = resolveAdvanceOptions(passAlongMetersOrOptions);
+  let index = Math.max(0, Math.min(fromIndex, stops.length - 1));
+  const from = index;
+  while (index < stops.length - 1) {
+    // Sticky approach/arrive applies only to the current HUD stop — never skip the rest.
+    const stepOptions =
+      index === from
+        ? options
+        : { ...options, hasApproached: false, hasArrived: false };
+    if (!shouldAdvancePastStop(puck, stops[index], stops[index + 1], stepOptions)) {
+      break;
+    }
+    index += 1;
+  }
+  return index;
 }

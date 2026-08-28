@@ -49,6 +49,7 @@ import { orderStopsByRouteStopIds, resolveNavigableStops } from '../../features/
 import { resolveNavigationLocation } from '../../features/navigation/navigationLocation';
 import { isMapboxAccessTokenValid } from '../../config/mapbox.config';
 import { useMdtTurnByTurnFeature } from '../../hooks/useMdtTurnByTurnFeature';
+import { useTripOrderedStops } from '../../hooks/useTripOrderedStops';
 import { PEAK_DEFAULT_PARAMS } from '../../config/env';
 import {
   createVehicleHeadingResolver,
@@ -93,7 +94,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   const { emergencyActivated } = useEmergency();
   const { location, error: mapLocationError, heading } = useMapLocation();
   const { vehicleId, selectedRouteId, selectedRoute: selectedRouteName, driver, vehicleName } = useAuth();
-  const { effectiveRouteId, hasMapAssignment, blockPeerVehicleIds } = useMapAssignment();
+  const { effectiveRouteId, hasMapAssignment, blockPeerVehicleIds, assignedTripId } = useMapAssignment();
   const { agency, routes, stops } = useDriverData();
   const agencyID = String(PEAK_DEFAULT_PARAMS.agencyID || agency?.agencyID || '');
   const turnByTurnFeature = useMdtTurnByTurnFeature(agencyID || null);
@@ -315,15 +316,41 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
 
   const routeStops = useMemo(() => getRouteStops(selectedRoute), [selectedRoute, getRouteStops]);
 
+  const routeStopIds = useMemo(() => {
+    const raw = selectedRoute?.routeStops;
+    return Array.isArray(raw) ? (raw as Array<string | number>) : null;
+  }, [selectedRoute]);
+
+  const { tripOrderedStops, tripId } = useTripOrderedStops({
+    agencyID: agencyID || null,
+    routeStopIds,
+    assignedTripId,
+    allStops: stops,
+  });
+
+  /** Prefer stoptimes sequence for map + Mapbox; fall back to route.routeStops. */
+  const mapStopList = tripOrderedStops.length > 0 ? tripOrderedStops : routeStops;
+
   const navigableStops = useMemo(
-    () => resolveNavigableStops(schedule, stops, nextStop, routeStops),
-    [schedule, stops, nextStop, routeStops],
+    () => resolveNavigableStops(schedule, stops, nextStop, routeStops, tripOrderedStops),
+    [schedule, stops, nextStop, routeStops, tripOrderedStops],
   );
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    console.log('[Mapbox stops source]', {
+      tripId,
+      usingStopTimes: tripOrderedStops.length > 0,
+      stopTimesCount: tripOrderedStops.length,
+      routeStopsCount: routeStops.length,
+    });
+  }, [tripId, tripOrderedStops.length, routeStops.length]);
 
   const turnByTurn = useMapboxTurnByTurnNavigation({
     schedule,
     allStops: stops,
     mapRouteStops: routeStops,
+    tripOrderedStops,
     agencyRoutePoints: routePoints,
     nextStop,
     lastLocation: navigationLocation,
@@ -622,8 +649,8 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           />
         )}
 
-        {/* Selected route stops */}
-        {routeStops.map((stop) => {
+        {/* Selected route stops — prefer stoptimes order when tripID is available */}
+        {mapStopList.map((stop) => {
           const lat = typeof stop.lat === 'number' ? stop.lat : parseFloat(stop.lat as string);
           const lng = typeof stop.lng === 'number' ? stop.lng : parseFloat(stop.lng as string);
           if (isNaN(lat) || isNaN(lng)) return null;
@@ -818,6 +845,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
           upcomingStops: turnByTurn.upcomingStops,
           handleNativeArrive: turnByTurn.handleNativeArrive,
           handleNativeRouteProgress: turnByTurn.handleNativeRouteProgress,
+          handleNativeLocationChange: turnByTurn.handleNativeLocationChange,
           handleNativeOffRoute: turnByTurn.handleNativeOffRoute,
           handleNativeError: turnByTurn.handleNativeError,
           handleNativeCancel: turnByTurn.handleNativeCancel,

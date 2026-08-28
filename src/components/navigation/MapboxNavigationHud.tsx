@@ -2,7 +2,7 @@
  * Modern navigation HUD chrome for native Mapbox overlay.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Platform,
   StyleSheet,
@@ -21,6 +21,11 @@ import {
   formatNavigationDuration,
   type PerStopRouteMetric,
 } from '@/features/navigation/navigationUtils';
+import {
+  HUD_APPROACHING_METERS,
+  HUD_ARRIVAL_METERS,
+  resolveStopHudPhase,
+} from '@/features/navigation/navigationStopUtils';
 import { toStopNameText } from '@/utils/stopDisplayName';
 import { speedMpsToMph } from '@/api/position.api';
 
@@ -128,16 +133,11 @@ function NextStopCard({
   );
 }
 
-const APPROACHING_METERS = 100;
-
-function stopPhase(
-  distanceMeters: number | null | undefined,
-): 'next' | 'approaching' {
-  if (distanceMeters != null && distanceMeters <= APPROACHING_METERS) {
-    return 'approaching';
-  }
-  return 'next';
-}
+const PHASE_LABEL: Record<'next' | 'approaching' | 'arrived', string> = {
+  next: 'Next stop',
+  approaching: 'Approaching',
+  arrived: 'Arrived',
+};
 
 export default function MapboxNavigationHud({
   theme,
@@ -168,16 +168,32 @@ export default function MapboxNavigationHud({
   const followingStopMetrics = stopMetrics.slice(1, 4);
 
   const [sheetExpanded, setSheetExpanded] = useState(false);
+  const enteredFromOutsideRef = useRef<Record<string, boolean>>({});
 
   const distanceToStop = currentDestinationMetric?.distanceMeters ?? null;
-  const phase = stopPhase(distanceToStop);
+  const stopKey = currentDestinationMetric?.stop.id ?? String(currentStopIndex);
+  if (distanceToStop != null && distanceToStop > HUD_ARRIVAL_METERS + 10) {
+    enteredFromOutsideRef.current[stopKey] = true;
+  }
+  const rawPhase = resolveStopHudPhase(
+    distanceToStop,
+    HUD_APPROACHING_METERS,
+    HUD_ARRIVAL_METERS,
+  );
+  const phase =
+    rawPhase === 'arrived' && !enteredFromOutsideRef.current[stopKey]
+      ? distanceToStop != null && distanceToStop <= HUD_APPROACHING_METERS
+        ? 'approaching'
+        : 'next'
+      : rawPhase;
 
   const currentStopName =
     toStopNameText(currentDestinationMetric?.stop.longName) ||
     (currentDestinationMetric ? `Stop ${currentDestinationMetric.stopIndex + 1}` : 'Finding stop…');
 
-  const phaseLabel = phase === 'approaching' ? 'Approaching' : 'Next stop';
-  const phaseColor = phase === 'approaching' ? '#E37400' : theme.eta;
+  const phaseLabel = PHASE_LABEL[phase];
+  const phaseColor =
+    phase === 'arrived' ? '#188038' : phase === 'approaching' ? '#E37400' : theme.eta;
 
   const sheetSurfaceStyle = [
     styles.sheet,

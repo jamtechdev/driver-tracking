@@ -145,8 +145,8 @@ export function computePerStopRouteMetrics(params: {
     nativeDistance > 0 &&
     nativeDuration > 0 &&
     legDistances[0] > 0 &&
-    // Reject absurd native values (e.g. duration tiny vs distance).
-    nativeDistance / nativeDuration < 50;
+    nativeDistance / nativeDuration < 50 &&
+    nativeDistance < Math.max(legDistances[0] * 2.5, legDistances[0] + 400);
 
   let cumulativeDistance = 0;
 

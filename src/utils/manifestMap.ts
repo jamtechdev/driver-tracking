@@ -65,6 +65,64 @@ export const getPrimaryRouteIdFromManifestJson = (
   return best;
 };
 
+/** Peak block times are usually HHMM (e.g. 615 = 06:15). Overnight may exceed 2400. */
+function manifestTimeToMinutes(value: number): number {
+  if (!Number.isFinite(value)) return NaN;
+  // Already looks like minutes-since-midnight with small values used as plain minutes.
+  // HHMM: minutes component must be 0–59.
+  const hours = Math.floor(value / 100);
+  const mins = value % 100;
+  if (mins >= 0 && mins < 60 && hours >= 0 && hours < 48) {
+    return hours * 60 + mins;
+  }
+  return value;
+}
+
+/**
+ * Active / assigned trip id from block manifestJson.
+ * Prefers the trip whose startTime–endTime window covers now. Falls back to first trip for route.
+ */
+export const getAssignedTripIdFromManifestJson = (
+  manifestJson: string | undefined | null,
+  options?: {
+    routeId?: string | number | null;
+    nowMinutes?: number;
+  },
+): string | null => {
+  const entries = parseManifestJsonEntries(manifestJson).filter(
+    (entry) => entry.type === 'trip' && entry.id != null && String(entry.id).trim() !== '',
+  );
+  if (entries.length === 0) return null;
+
+  const routeKey =
+    options?.routeId != null && String(options.routeId).trim() !== ''
+      ? String(options.routeId)
+      : null;
+  const scoped = routeKey
+    ? entries.filter((entry) => String(entry.routeID ?? '') === routeKey)
+    : entries;
+  const pool = scoped.length > 0 ? scoped : entries;
+
+  const now =
+    options?.nowMinutes ??
+    (() => {
+      const d = new Date();
+      return d.getHours() * 60 + d.getMinutes();
+    })();
+
+  const inWindow = pool.find((entry) => {
+    const start = manifestTimeToMinutes(Number(entry.startTime));
+    const end = manifestTimeToMinutes(Number(entry.endTime));
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+    if (end >= start) return now >= start && now < end;
+    // Overnight window (e.g. 22:00 → 02:00 next day).
+    return now >= start || now < end;
+  });
+  if (inWindow?.id != null) return String(inWindow.id);
+
+  return pool[0]?.id != null ? String(pool[0].id) : null;
+};
+
 /**
  * Route ID used for vehicle updates / schedule when a block is assigned.
  * Prefers explicit route selection; falls back to primary trip route from manifestJson.

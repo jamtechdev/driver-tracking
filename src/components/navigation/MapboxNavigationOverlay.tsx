@@ -45,6 +45,7 @@ interface NavigationChromeState {
   upcomingStops: TurnByTurnNavigationState['stops'];
   handleNativeArrive: () => void;
   handleNativeRouteProgress: (progress: NativeRouteProgress) => void;
+  handleNativeLocationChange: (location: { latitude: number; longitude: number }) => void;
   handleNativeOffRoute: (offRoute: boolean) => void;
   handleNativeError: (message: string) => void;
   handleNativeCancel: () => void;
@@ -72,8 +73,12 @@ export default function MapboxNavigationOverlay({
   const colorScheme = useColorScheme();
   const [routeProgress, setRouteProgress] = useState<NativeRouteProgress | null>(null);
   const [arrivalBanner, setArrivalBanner] = useState<{ stopName: string } | null>(null);
+  const [nativePuck, setNativePuck] = useState<{ latitude: number; longitude: number } | null>(
+    null,
+  );
   const lastProgressPushRef = useRef(0);
   const arrivalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevStopIndexRef = useRef<number | null>(null);
 
   const theme = useMemo(
     () => getNavigationHudTheme(colorScheme === 'dark' ? 'dark' : 'light'),
@@ -84,7 +89,9 @@ export default function MapboxNavigationOverlay({
     if (!visible) {
       setRouteProgress(null);
       setArrivalBanner(null);
+      setNativePuck(null);
       lastProgressPushRef.current = 0;
+      prevStopIndexRef.current = null;
       if (arrivalTimerRef.current) {
         clearTimeout(arrivalTimerRef.current);
         arrivalTimerRef.current = null;
@@ -105,23 +112,38 @@ export default function MapboxNavigationOverlay({
   const handlersRef = useRef(navigationState);
   handlersRef.current = navigationState;
 
+  const showArrivalBanner = (stopName: string) => {
+    if (arrivalTimerRef.current) {
+      clearTimeout(arrivalTimerRef.current);
+    }
+    setArrivalBanner({ stopName });
+    arrivalTimerRef.current = setTimeout(() => {
+      setArrivalBanner(null);
+      arrivalTimerRef.current = null;
+    }, ARRIVAL_BANNER_MS);
+  };
+
+  useEffect(() => {
+    if (!visible) return;
+    const index = navigationState.currentStopIndex;
+    if (prevStopIndexRef.current == null) {
+      prevStopIndexRef.current = index;
+      return;
+    }
+    if (index > prevStopIndexRef.current) {
+      const arrivedStop = navigationState.stops[prevStopIndexRef.current];
+      const stopName =
+        toStopNameText(arrivedStop?.longName) ||
+        `Stop ${prevStopIndexRef.current + 1}`;
+      showArrivalBanner(stopName);
+    }
+    prevStopIndexRef.current = index;
+  }, [visible, navigationState.currentStopIndex, navigationState.stops]);
+
   const nativeCallbacks = useMemo(
     () => ({
       onArrive: () => {
-        const destination = handlersRef.current.currentDestination;
-        const stopName =
-          toStopNameText(destination?.longName) ||
-          `Stop ${(handlersRef.current.currentStopIndex ?? 0) + 1}`;
-
-        if (arrivalTimerRef.current) {
-          clearTimeout(arrivalTimerRef.current);
-        }
-        setArrivalBanner({ stopName });
-        arrivalTimerRef.current = setTimeout(() => {
-          setArrivalBanner(null);
-          handlersRef.current.handleNativeArrive();
-          arrivalTimerRef.current = null;
-        }, ARRIVAL_BANNER_MS);
+        handlersRef.current.handleNativeArrive();
       },
       onRouteProgressChange: (progress: NativeRouteProgress) => {
         handlersRef.current.handleNativeRouteProgress(progress);
@@ -130,6 +152,10 @@ export default function MapboxNavigationOverlay({
           lastProgressPushRef.current = now;
           setRouteProgress(progress);
         }
+      },
+      onLocationChange: (location: { latitude: number; longitude: number }) => {
+        setNativePuck(location);
+        handlersRef.current.handleNativeLocationChange(location);
       },
       onOffRoute: (offRoute: boolean) => {
         handlersRef.current.handleNativeOffRoute(offRoute);
@@ -152,9 +178,10 @@ export default function MapboxNavigationOverlay({
     Math.max(insets.top, 8) +
     (showHudChrome ? (NATIVE_MANEUVER_BANNER_CLEARANCE ?? 100) : 0);
 
-  const driverLocation = lastLocation
-    ? { latitude: lastLocation.latitude, longitude: lastLocation.longitude }
-    : null;
+  const driverLocation = nativePuck
+    ?? (lastLocation
+      ? { latitude: lastLocation.latitude, longitude: lastLocation.longitude }
+      : null);
 
   return (
     <Modal
@@ -178,6 +205,7 @@ export default function MapboxNavigationOverlay({
             session={frozenNativeSession}
             onArrive={nativeCallbacks.onArrive}
             onRouteProgressChange={nativeCallbacks.onRouteProgressChange}
+            onLocationChange={nativeCallbacks.onLocationChange}
             onOffRoute={nativeCallbacks.onOffRoute}
             onError={nativeCallbacks.onError}
             onCancel={nativeCallbacks.onCancel}

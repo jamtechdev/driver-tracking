@@ -10,6 +10,7 @@ import { isAssignedRouteId } from '@/utils/helpers';
 import {
   getPrimaryRouteIdFromManifestJson,
   getRouteIdsFromManifestJson,
+  getAssignedTripIdFromManifestJson,
 } from '@/utils/manifestMap';
 
 export interface MapAssignmentContext {
@@ -21,6 +22,8 @@ export interface MapAssignmentContext {
   blockPeerVehicleIds: Set<string>;
   /** All route IDs referenced by the active block manifest. */
   blockRouteIds: string[];
+  /** Assigned trip id from the active block (manifest trip `id`), when available. */
+  assignedTripId: string | null;
 }
 
 const EMPTY_CONTEXT: MapAssignmentContext = {
@@ -28,6 +31,7 @@ const EMPTY_CONTEXT: MapAssignmentContext = {
   hasMapAssignment: false,
   blockPeerVehicleIds: new Set(),
   blockRouteIds: [],
+  assignedTripId: null,
 };
 
 /**
@@ -72,38 +76,44 @@ export function useMapAssignment(): MapAssignmentContext {
   }, [selectedManifestId]);
 
   return useMemo(() => {
-    if (isAssignedRouteId(selectedRouteId)) {
-      return {
-        effectiveRouteId: String(selectedRouteId),
-        hasMapAssignment: true,
-        blockPeerVehicleIds: new Set<string>(),
-        blockRouteIds: [],
-      };
-    }
+    const manifest = selectedManifestId
+      ? manifests.find((m) => m.manifestID === selectedManifestId)
+      : undefined;
 
-    if (!selectedManifestId) {
-      return EMPTY_CONTEXT;
-    }
-
-    const manifest = manifests.find(m => m.manifestID === selectedManifestId);
     const blockRouteIds = manifest
       ? getRouteIdsFromManifestJson(manifest.manifestJson)
       : [];
-    const effectiveRouteId = manifest
+    const manifestRouteId = manifest
       ? getPrimaryRouteIdFromManifestJson(manifest.manifestJson)
+      : null;
+
+    // Route selection wins for map display; block still supplies tripID for stopTimes.
+    const effectiveRouteId = isAssignedRouteId(selectedRouteId)
+      ? String(selectedRouteId)
+      : manifestRouteId;
+
+    if (!isAssignedRouteId(effectiveRouteId) && !selectedManifestId) {
+      return EMPTY_CONTEXT;
+    }
+
+    const assignedTripId = manifest
+      ? getAssignedTripIdFromManifestJson(manifest.manifestJson, {
+          routeId: effectiveRouteId,
+        })
       : null;
 
     const blockPeerVehicleIds = new Set(
       manifestAssignments
-        .filter(a => a.manifestID === selectedManifestId && !a.disabled)
-        .map(a => String(a.vehicleID)),
+        .filter((a) => a.manifestID === selectedManifestId && !a.disabled)
+        .map((a) => String(a.vehicleID)),
     );
 
     return {
-      effectiveRouteId,
+      effectiveRouteId: isAssignedRouteId(effectiveRouteId) ? String(effectiveRouteId) : null,
       hasMapAssignment: isAssignedRouteId(effectiveRouteId),
       blockPeerVehicleIds,
       blockRouteIds,
+      assignedTripId,
     };
   }, [selectedRouteId, selectedManifestId, manifests, manifestAssignments]);
 }
