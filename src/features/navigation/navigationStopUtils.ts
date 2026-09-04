@@ -513,15 +513,14 @@ export function shouldAdvancePastStop(
     distCurrent >= options.leaveMeters &&
     (along > 0 || distNext < distCurrent);
 
-  // Visited this stop (or Mapbox arrived) — advancing is allowed even after the
-  // puck is >120m away. The near-gate only blocks unvisited far GPS jumps.
+  // Visited this stop (or Mapbox arrived) — advance only after leave / pass toward next.
+  // Do not skip from a bare far GPS jump while still marked arrived.
   if (options.hasArrived || options.hasApproached) {
     return (
       leftAfterArrival ||
       leftAfterApproach ||
       passedAlong ||
-      closerToNext ||
-      distCurrent > options.nearStopMeters
+      closerToNext
     );
   }
 

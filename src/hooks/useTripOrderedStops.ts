@@ -1,6 +1,14 @@
 /**
- * Load ordered stops for Mapbox from stoptimes API (dynamic tripID).
- * tripID is resolved from stoptimes by matching the route's stopIDs — not from schedule.
+ * Load ordered stops for Mapbox turn-by-turn from Peak stoptimes.
+ *
+ * Spec:
+ * 1. Call stoptimes&action=list&agencyID=...&tripID=<assignedTripId>
+ * 2. Sort rows by `sequence` ascending
+ * 3. Extract stopIDs in that order → Mapbox navigation stop list
+ *
+ * Prefer the assigned tripID (block / schedule). Only if missing, discover a
+ * tripID by overlapping route.routeStops against the agency stopTimes list,
+ * then re-fetch with &tripID= for the authoritative ordered list.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -9,16 +17,18 @@ import {
   getAgencyStopTimes,
   getStopTimesForTrip,
   resolveTripIdFromRouteStopIds,
-  type StopTimeRow,
 } from '@/api/stopTimes.api';
 import type { StopData } from '@/context/DriverDataContext';
 import { orderStopsByRouteStopIds } from '@/features/navigation/navigationStopUtils';
 
 export function useTripOrderedStops(params: {
   agencyID: string | null | undefined;
-  /** Stop IDs from route.routeStops — used to discover tripID in stoptimes. */
+  /** Stop IDs from route.routeStops — used only to discover tripID when none assigned. */
   routeStopIds?: Array<string | number> | null;
-  /** Optional block-assigned trip; otherwise tripID comes from stoptimes match. */
+  /**
+   * Trip you are assigned to (block manifest or schedule nextStop.tripID).
+   * Appended as &tripID= on the stoptimes list call.
+   */
   assignedTripId?: string | number | null;
   allStops: StopData[];
 }): {
@@ -74,11 +84,10 @@ export function useTripOrderedStops(params: {
     void (async () => {
       try {
         let resolvedTripId = explicitTrip;
-        let rows: StopTimeRow[] = [];
 
-        if (resolvedTripId) {
-          rows = await getStopTimesForTrip(agencyID, resolvedTripId);
-        } else {
+        // No assigned trip → discover from agency list + route stop overlap, then
+        // always re-fetch with &tripID= so sequence order is authoritative.
+        if (!resolvedTripId) {
           const agencyRows = await getAgencyStopTimes(agencyID);
           resolvedTripId = resolveTripIdFromRouteStopIds(routeStopIds, agencyRows);
           if (!resolvedTripId) {
@@ -88,19 +97,15 @@ export function useTripOrderedStops(params: {
             }
             return;
           }
-          rows = agencyRows.filter((row) => String(row.tripID) === resolvedTripId);
-          // Prefer a filtered trip request when cache overlap is thin.
-          if (rows.length === 0) {
-            rows = await getStopTimesForTrip(agencyID, resolvedTripId);
-          }
         }
 
+        const rows = await getStopTimesForTrip(agencyID, resolvedTripId);
         if (cancelled) return;
 
         const orderedIds = extractOrderedStopIdsFromStopTimes(rows);
         if (__DEV__) {
           console.log('[StopTimes→Mapbox]', {
-            source: explicitTrip ? 'assignedTripId' : 'stoptimes↔routeStops match',
+            source: explicitTrip ? 'assignedTripId&tripID=' : 'discovered then &tripID=',
             tripId: resolvedTripId,
             stopCount: orderedIds.length,
             orderedStopIDs: orderedIds,

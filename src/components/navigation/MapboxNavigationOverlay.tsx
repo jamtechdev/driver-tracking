@@ -11,7 +11,6 @@ import {
   Text,
   TouchableOpacity,
   View,
-  useColorScheme,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import KeepAwake from 'react-native-keep-awake';
@@ -25,15 +24,15 @@ import MapboxNavigationHud from '@/components/navigation/MapboxNavigationHud';
 import { getNavigationHudTheme } from '@/config/navigationMapStyle';
 import { toStopNameText } from '@/utils/stopDisplayName';
 
-/** Native Mapbox maneuver banner — keep floating HUD below it. */
-const NATIVE_MANEUVER_BANNER_CLEARANCE = Platform.select({
-  ios: 92,
-  android: 108,
-  default: 100,
+/** Space below the React stop-guidance banner for speed / end controls. */
+const STOP_GUIDANCE_BANNER_CLEARANCE = Platform.select({
+  ios: 108,
+  android: 112,
+  default: 110,
 });
 
-const ROUTE_PROGRESS_THROTTLE_MS = 1000;
-const ARRIVAL_BANNER_MS = 2500;
+const ROUTE_PROGRESS_THROTTLE_MS = 250;
+const ARRIVAL_BANNER_MS = 3200;
 
 interface NavigationChromeState {
   status: TurnByTurnNavigationState['status'];
@@ -45,7 +44,13 @@ interface NavigationChromeState {
   upcomingStops: TurnByTurnNavigationState['stops'];
   handleNativeArrive: () => void;
   handleNativeRouteProgress: (progress: NativeRouteProgress) => void;
-  handleNativeLocationChange: (location: { latitude: number; longitude: number }) => void;
+  handleNativeLocationChange: (location: {
+    latitude: number;
+    longitude: number;
+    heading?: number;
+    speed?: number;
+    accuracy?: number;
+  }) => void;
   handleNativeOffRoute: (offRoute: boolean) => void;
   handleNativeError: (message: string) => void;
   handleNativeCancel: () => void;
@@ -70,7 +75,6 @@ export default function MapboxNavigationOverlay({
   routeColor,
 }: MapboxNavigationOverlayProps) {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
   const [routeProgress, setRouteProgress] = useState<NativeRouteProgress | null>(null);
   const [arrivalBanner, setArrivalBanner] = useState<{ stopName: string } | null>(null);
   const [nativePuck, setNativePuck] = useState<{ latitude: number; longitude: number } | null>(
@@ -81,8 +85,9 @@ export default function MapboxNavigationOverlay({
   const prevStopIndexRef = useRef<number | null>(null);
 
   const theme = useMemo(
-    () => getNavigationHudTheme(colorScheme === 'dark' ? 'dark' : 'light'),
-    [colorScheme],
+    // Force dark HUD to match night Mapbox navigation map
+    () => getNavigationHudTheme('dark'),
+    [],
   );
 
   useEffect(() => {
@@ -135,6 +140,8 @@ export default function MapboxNavigationOverlay({
       const stopName =
         toStopNameText(arrivedStop?.longName) ||
         `Stop ${prevStopIndexRef.current + 1}`;
+      // Drop stale Mapbox leg remaining so the next stop is not labeled "Arrived".
+      setRouteProgress(null);
       showArrivalBanner(stopName);
     }
     prevStopIndexRef.current = index;
@@ -150,10 +157,30 @@ export default function MapboxNavigationOverlay({
         const now = Date.now();
         if (now - lastProgressPushRef.current >= ROUTE_PROGRESS_THROTTLE_MS) {
           lastProgressPushRef.current = now;
-          setRouteProgress(progress);
+          // Keep maneuver fields from native (turns / roundabouts) for the Google-style banner.
+          setRouteProgress({
+            distanceTraveled: progress.distanceTraveled,
+            durationRemaining: progress.durationRemaining,
+            fractionTraveled: progress.fractionTraveled,
+            distanceRemaining: progress.distanceRemaining,
+            legDurationRemaining: progress.legDurationRemaining,
+            distanceToNextManeuver: progress.distanceToNextManeuver,
+            maneuverInstruction: progress.maneuverInstruction,
+            maneuverPrimaryText: progress.maneuverPrimaryText,
+            maneuverType: progress.maneuverType,
+            maneuverModifier: progress.maneuverModifier,
+            maneuverStreetName: progress.maneuverStreetName,
+            legDestinationName: progress.legDestinationName,
+          });
         }
       },
-      onLocationChange: (location: { latitude: number; longitude: number }) => {
+      onLocationChange: (location: {
+        latitude: number;
+        longitude: number;
+        heading?: number;
+        speed?: number;
+        accuracy?: number;
+      }) => {
         setNativePuck(location);
         handlersRef.current.handleNativeLocationChange(location);
       },
@@ -176,7 +203,7 @@ export default function MapboxNavigationOverlay({
 
   const topHudOffset =
     Math.max(insets.top, 8) +
-    (showHudChrome ? (NATIVE_MANEUVER_BANNER_CLEARANCE ?? 100) : 0);
+    (showHudChrome ? (STOP_GUIDANCE_BANNER_CLEARANCE ?? 98) : 0);
 
   const driverLocation = nativePuck
     ?? (lastLocation
@@ -203,6 +230,7 @@ export default function MapboxNavigationOverlay({
         {canRenderNavigation && frozenNativeSession ? (
           <StableMapboxNavigationSession
             session={frozenNativeSession}
+            routeColor={routeColor}
             onArrive={nativeCallbacks.onArrive}
             onRouteProgressChange={nativeCallbacks.onRouteProgressChange}
             onLocationChange={nativeCallbacks.onLocationChange}
@@ -238,12 +266,14 @@ export default function MapboxNavigationOverlay({
           <MapboxNavigationHud
             theme={theme}
             topOffset={topHudOffset}
+            safeTopInset={Math.max(insets.top, 8)}
             bottomInset={Math.max(insets.bottom, 12)}
             speedMps={lastLocation?.speed}
             routeName={routeName}
             routeColor={routeColor}
             currentStopIndex={navigationState.currentStopIndex}
             upcomingStops={navigationState.upcomingStops}
+            allStops={navigationState.stops}
             driverLocation={driverLocation}
             routeProgress={routeProgress}
             arrivalBanner={arrivalBanner}

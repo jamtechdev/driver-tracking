@@ -1,7 +1,12 @@
 /**
  * Stop Times API — Peak Transit ordered stops for a trip.
- * GET .../controller=stoptimes&action=list&agencyID=...
- * Optional: &tripID=... to filter one trip (camelCase required).
+ *
+ * Base:
+ *   .../controller=stoptimes&action=list&agencyID=...
+ * Assigned trip (required for turn-by-turn order):
+ *   ...&tripID=XXX   ← camelCase tripID (lowercase "tripid" does NOT filter on Peak)
+ *
+ * Sort resulting stopTimes by `sequence` ascending, then take stopIDs in that order.
  */
 
 import axios from 'axios';
@@ -42,13 +47,14 @@ function buildStopTimesUrl(
     `${PEAK_BASE_URL}` +
     `&controller=stoptimes&action=list` +
     `&agencyID=${encodeURIComponent(String(agencyID))}`;
+  // Peak requires camelCase tripID — "tripid" returns the full agency list.
   if (tripID != null && String(tripID).trim() !== '') {
     url += `&tripID=${encodeURIComponent(String(tripID))}`;
   }
   return url;
 }
 
-/** Full agency stopTimes list (cached briefly). Used to discover tripID from route stopIDs. */
+/** Full agency stopTimes list (cached briefly). Used only to discover tripID when none assigned. */
 export const getAgencyStopTimes = async (
   agencyID: string | number,
 ): Promise<StopTimeRow[]> => {
@@ -70,6 +76,7 @@ export const getAgencyStopTimes = async (
   return rows;
 };
 
+/** Fetch stopTimes for one assigned trip (`&tripID=`), then keep only that trip's rows. */
 export const getStopTimesForTrip = async (
   agencyID: string | number,
   tripID: string | number,
@@ -131,7 +138,10 @@ export function resolveTripIdFromRouteStopIds(
   return bestTrip;
 }
 
-/** Sort stopTimes by sequence ascending and return unique stopIDs in that order. */
+/**
+ * Sort stopTimes by `sequence` ascending and return unique stopIDs in that order.
+ * This is the ordered list used for Mapbox turn-by-turn.
+ */
 export function extractOrderedStopIdsFromStopTimes(
   stopTimes: StopTimeRow[],
 ): Array<string | number> {
@@ -149,4 +159,9 @@ export function extractOrderedStopIdsFromStopTimes(
     ids.push(row.stopID);
   }
   return ids;
+}
+
+/** @internal test helper — clear agency cache between tests. */
+export function __resetAgencyStopTimesCacheForTests(): void {
+  agencyStopTimesCache = null;
 }

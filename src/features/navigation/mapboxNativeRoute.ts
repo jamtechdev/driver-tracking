@@ -202,12 +202,12 @@ export function buildFrozenMapboxNativeSession(
   origin: { latitude: number; longitude: number },
   sessionStops: NavigationStop[],
   agencyRoutePoints: NavigationCoordinate[] = [],
-  /** Optional pre-built full-trip overview line (stable across per-leg rematches). */
+  /** Optional pre-built full-trip overview line (stable across rematches). */
   overviewRouteCoordinates?: NavigationCoordinate[] | null,
 ): FrozenMapboxNativeSession | null {
   if (!isValidNavigationCoordinate(origin)) return null;
 
-  const useMapMatching = agencyRoutePoints.filter(isValidNavigationCoordinate).length >= 2;
+  const agencyShape = agencyRoutePoints.filter(isValidNavigationCoordinate);
   const sanitizedAll = truncateStopsByMaxLegDistance(
     sanitizeNavigationStopsForRoute(sessionStops),
   );
@@ -215,33 +215,34 @@ export function buildFrozenMapboxNativeSession(
   if (sanitizedAll.length === 0) return null;
 
   /**
-   * Exact-path + live TBT: match ONE leg at a time (driver → next stop) along the
-   * agency shape. Next leg is refreshed in-place on the same native view (no remount).
+   * Production (Android Directions-capable native): route ALL remaining stops in one
+   * session so the map shows the complete path + every stop, and TBT can advance
+   * leg-by-leg without depending on Map Matching props the stripped native view ignores.
+   *
+   * Still attach overviewRouteCoordinates (agency polyline) for native overlay when wired.
+   * Keep a Map Matching chain for current→next stop when agency shape exists (iOS / future).
    */
-  const sanitizedStops = useMapMatching
-    ? sanitizedAll.slice(0, 1)
-    : capNavigationStopsForMapbox(sanitizedAll);
+  const sanitizedStops = capNavigationStopsForMapbox(sanitizedAll);
 
   const destination = sessionDestinationFromStops(sanitizedStops);
   if (!destination) return null;
 
-  const routeCoordinates = useMapMatching
-    ? buildAgencyRouteMatchingCoordinates(origin, sanitizedStops, agencyRoutePoints)
-    : null;
+  const routeCoordinates =
+    agencyShape.length >= 2
+      ? buildAgencyRouteMatchingCoordinates(origin, sanitizedStops, agencyShape)
+      : null;
 
   const overview =
     overviewRouteCoordinates && overviewRouteCoordinates.length >= 2
       ? overviewRouteCoordinates
-      : useMapMatching
-        ? buildAgencyOverviewPolyline(origin, sanitizedAll, agencyRoutePoints)
+      : agencyShape.length >= 2
+        ? buildAgencyOverviewPolyline(origin, sanitizedAll, agencyShape)
         : null;
 
   const session: FrozenMapboxNativeSession = {
     startOrigin: { latitude: origin.latitude, longitude: origin.longitude },
     destination: { ...destination },
-    waypoints: useMapMatching
-      ? []
-      : buildMapboxNativeWaypoints(sanitizedStops).map((waypoint) => ({ ...waypoint })),
+    waypoints: buildMapboxNativeWaypoints(sanitizedStops).map((waypoint) => ({ ...waypoint })),
     ...(routeCoordinates && routeCoordinates.length >= 2
       ? { routeCoordinates: routeCoordinates.map((c) => ({ ...c })) }
       : {}),
@@ -455,7 +456,7 @@ export function sessionDestinationFromStops(
   return {
     latitude: destination.latitude,
     longitude: destination.longitude,
-    title: title || 'Destination',
+    title: title || `Stop ${sessionStops.length}`,
   };
 }
 

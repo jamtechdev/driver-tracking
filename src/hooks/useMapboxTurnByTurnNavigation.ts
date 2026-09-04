@@ -73,11 +73,24 @@ export interface NativeRouteProgress {
   durationRemaining: number;
   fractionTraveled: number;
   distanceRemaining: number;
+  /** Mapbox current-leg duration remaining (seconds). */
+  legDurationRemaining?: number;
+  /** Meters to the next road maneuver (turn / roundabout / etc.). */
+  distanceToNextManeuver?: number;
+  maneuverInstruction?: string;
+  maneuverPrimaryText?: string;
+  maneuverType?: string;
+  maneuverModifier?: string;
+  maneuverStreetName?: string;
+  legDestinationName?: string;
 }
 
 export interface NativePuckLocation {
   latitude: number;
   longitude: number;
+  heading?: number;
+  speed?: number;
+  accuracy?: number;
 }
 
 export interface UseMapboxTurnByTurnNavigationOptions {
@@ -192,10 +205,12 @@ export function useMapboxTurnByTurnNavigation(
       ? { latitude: lastLocation.latitude, longitude: lastLocation.longitude }
       : null,
   );
-  /** Full-trip route line — set once at start, reused on every per-leg rematch. */
+  /** Full-trip route line — set once at start, reused for the whole trip. */
   const overviewRouteRef = useRef<NavigationCoordinate[] | null>(null);
   const frozenNativeSessionRef = useRef(frozenNativeSession);
   frozenNativeSessionRef.current = frozenNativeSession;
+  /** When true, native already has the full multi-stop Directions session — never remount. */
+  const nativeFullTripRef = useRef(Boolean(frozenNativeSession));
 
   const stateRef = useRef(state);
   const advancingStopRef = useRef(false);
@@ -247,6 +262,7 @@ export function useMapboxTurnByTurnNavigation(
     nativeProgressRef.current = null;
     setIsOffRoute(false);
     overviewRouteRef.current = null;
+    nativeFullTripRef.current = false;
   }, []);
 
   const completeTrip = useCallback(() => {
@@ -347,6 +363,20 @@ export function useMapboxTurnByTurnNavigation(
         return;
       }
 
+      // Full-trip native session already mounted — HUD only (no remount / re-route).
+      if (
+        nativeFullTripRef.current &&
+        frozenNativeSessionRef.current &&
+        (current.status === 'navigating' ||
+          current.status === 'arriving' ||
+          current.status === 'completed')
+      ) {
+        applyHudIndex(targetIndex);
+        nativeDestIndexRef.current = targetIndex;
+        rematchingRef.current = false;
+        return;
+      }
+
       if (
         targetIndex === nativeDestIndexRef.current &&
         frozenNativeSessionRef.current &&
@@ -365,7 +395,7 @@ export function useMapboxTurnByTurnNavigation(
         schedule,
         allStops,
       );
-      // Remaining schedule for HUD; native session matches only the next stop (per-leg).
+      // Remaining schedule for the whole trip (native keeps this session until End).
       const routeStops = buildMapboxSessionRouteStops(refreshedStops, targetIndex);
       if (routeStops.length === 0) {
         rematchingRef.current = false;
@@ -443,8 +473,8 @@ export function useMapboxTurnByTurnNavigation(
       setIsOffRoute(false);
       nativeDestIndexRef.current = targetIndex;
       lastRematchAtRef.current = Date.now();
-      // Keep the same native Mapbox view mounted — only swap the matched leg route.
-      // Overview line stays the same reference across legs.
+      nativeFullTripRef.current = true;
+      // Mount native Mapbox once for the full remaining trip — never rebuild on stop arrive.
       setFrozenNativeSession({
         ...frozen,
         overviewRouteCoordinates:
@@ -470,6 +500,14 @@ export function useMapboxTurnByTurnNavigation(
       }
       const index = targetIndex ?? current.currentStopIndex;
       if (index < 0 || index >= current.stops.length) return;
+
+      // Full-trip session: only move the bottom HUD — keep the map mounted.
+      if (nativeFullTripRef.current && frozenNativeSessionRef.current) {
+        applyHudIndex(index);
+        nativeDestIndexRef.current = index;
+        return;
+      }
+
       if (index === nativeDestIndexRef.current && frozenNativeSessionRef.current) {
         return;
       }
@@ -477,7 +515,7 @@ export function useMapboxTurnByTurnNavigation(
       if (!origin) return;
       startNavigationSession(index, origin);
     },
-    [resolvePuckCoordinate, startNavigationSession],
+    [applyHudIndex, resolvePuckCoordinate, startNavigationSession],
   );
 
   const scheduleNativeRematchToHud = useCallback(() => {
@@ -544,6 +582,9 @@ export function useMapboxTurnByTurnNavigation(
       );
       if (nextIndex > stopIndex) {
         applyHudIndex(nextIndex);
+        if (nativeFullTripRef.current) {
+          nativeDestIndexRef.current = nextIndex;
+        }
         if (rematch) {
           scheduleNativeRematchToHud();
         }
@@ -555,14 +596,20 @@ export function useMapboxTurnByTurnNavigation(
   const handleNativeArrive = useCallback(() => {
     setIsOffRoute(false);
     const current = stateRef.current;
-    if (nativeDestIndexRef.current !== current.currentStopIndex) {
-      return;
-    }
     if (Date.now() < ignoreArriveUntilRef.current) {
       return;
     }
+    // Mapbox fires arrive per waypoint. Mark arrived, then advance only after
+    // the puck leaves toward the next stop — keeps banner + bottom sheet in sync.
+    // Do NOT rematch / remount Mapbox (that caused the post-stop flash).
     arrivedStopIndexRef.current = current.currentStopIndex;
     approachedStopIndexRef.current = current.currentStopIndex;
+    if (
+      !nativeFullTripRef.current &&
+      nativeDestIndexRef.current !== current.currentStopIndex
+    ) {
+      return;
+    }
     const puck = resolvePuckCoordinate();
     const dest = current.stops[current.currentStopIndex];
     if (puck && dest) {
@@ -572,22 +619,35 @@ export function useMapboxTurnByTurnNavigation(
         dest.latitude,
         dest.longitude,
       );
-      // Mapbox already arrived at this dest — if the puck has left (or is far), advance now.
       if (distance >= HUD_LEAVE_METERS) {
-        applyHudIndex(current.currentStopIndex + 1);
-        scheduleNativeRematchToHud();
+        const nextIndex = Math.min(
+          current.currentStopIndex + 1,
+          Math.max(current.stops.length - 1, 0),
+        );
+        applyHudIndex(nextIndex);
+        if (nativeFullTripRef.current) {
+          nativeDestIndexRef.current = nextIndex;
+        }
         return;
       }
     }
-    advanceHudFromPuck(puck, true);
-  }, [advanceHudFromPuck, applyHudIndex, resolvePuckCoordinate, scheduleNativeRematchToHud]);
+    // Still at the stop — wait for leave via puck / progress; do not skip ahead.
+    advanceHudFromPuck(puck, false);
+  }, [advanceHudFromPuck, applyHudIndex, resolvePuckCoordinate]);
 
   const handleNativeRouteProgress = useCallback(
     (nativeProgress: NativeRouteProgress) => {
       const current = stateRef.current;
       if (current.status !== 'navigating' && current.status !== 'arriving') return;
       nativeProgressRef.current = nativeProgress;
-      if (nativeDestIndexRef.current !== current.currentStopIndex) return;
+      // Per-leg sessions: only apply progress for the active native dest.
+      // Full-trip sessions: always accept progress (native owns all remaining legs).
+      if (
+        !nativeFullTripRef.current &&
+        nativeDestIndexRef.current !== current.currentStopIndex
+      ) {
+        return;
+      }
       if (Date.now() < ignoreArriveUntilRef.current) return;
       const remaining = nativeProgress.distanceRemaining;
       const fraction = nativeProgress.fractionTraveled;
@@ -609,7 +669,8 @@ export function useMapboxTurnByTurnNavigation(
         }
         arrivedStopIndexRef.current = current.currentStopIndex;
         approachedStopIndexRef.current = current.currentStopIndex;
-        advanceHudFromPuck(puck, true);
+        // Full-trip native session: HUD only — never rematch/remount on progress arrive.
+        advanceHudFromPuck(puck, !nativeFullTripRef.current);
       }
     },
     [advanceHudFromPuck, resolvePuckCoordinate],
@@ -658,43 +719,6 @@ export function useMapboxTurnByTurnNavigation(
     }));
   }, []);
 
-  const handleNativeCancel = useCallback(() => {
-    if (rematchingRef.current) return;
-    if (Date.now() - lastRematchAtRef.current < 4000) return;
-
-    const current = stateRef.current;
-    if (
-      current.status === 'completed' ||
-      current.status === 'idle' ||
-      current.status === 'cancelled'
-    ) {
-      return;
-    }
-
-    const puck = resolvePuckCoordinate();
-    const currentIndex = current.currentStopIndex;
-    const dest = current.stops[currentIndex];
-    if (puck && dest) {
-      noteProximityToCurrentStop(puck, currentIndex, dest);
-    }
-    const forwardIndex = Math.min(
-      resolveForwardStopIndex(puck, current.stops, currentIndex, {
-        hasApproached: approachedStopIndexRef.current === currentIndex,
-        hasArrived: arrivedStopIndexRef.current === currentIndex,
-      }),
-      currentIndex + 1,
-    );
-    if (forwardIndex > current.currentStopIndex) {
-      applyHudIndex(forwardIndex);
-      rematchNativeToHud(forwardIndex);
-      return;
-    }
-
-    if (current.currentStopIndex >= current.stops.length - 1) {
-      completeTrip();
-    }
-  }, [applyHudIndex, completeTrip, noteProximityToCurrentStop, rematchNativeToHud, resolvePuckCoordinate]);
-
   // Keep stop names/coords in sync with live schedule (DriverModel enriched data).
   useEffect(() => {
     if (state.status === 'idle' || state.status === 'cancelled' || state.status === 'completed') {
@@ -741,7 +765,9 @@ export function useMapboxTurnByTurnNavigation(
     lastSyncedNextStopKeyRef.current = key;
     if (targetIndex === current.currentStopIndex + 1) {
       applyHudIndex(targetIndex);
-      scheduleNativeRematchToHud();
+      if (!nativeFullTripRef.current) {
+        scheduleNativeRematchToHud();
+      }
     }
   }, [applyHudIndex, nextStop, schedule, scheduleNativeRematchToHud, state.status, state.stops]);
 
@@ -874,6 +900,11 @@ export function useMapboxTurnByTurnNavigation(
       setState(INITIAL_STATE);
     }, 0);
   }, [clearNativeSession]);
+
+  const handleNativeCancel = useCallback(() => {
+    // Native cancel / end must end the session — never treat as stop advance.
+    cancelNavigation();
+  }, [cancelNavigation]);
 
   const canStart =
     scheduledStops.length > 0 &&

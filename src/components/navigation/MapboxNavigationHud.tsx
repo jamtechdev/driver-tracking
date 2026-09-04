@@ -19,6 +19,8 @@ import {
   formatEtaTime,
   formatNavigationDistance,
   formatNavigationDuration,
+  formatTurnByTurnDistance,
+  getManeuverIconName,
   type PerStopRouteMetric,
 } from '@/features/navigation/navigationUtils';
 import {
@@ -26,18 +28,24 @@ import {
   HUD_ARRIVAL_METERS,
   resolveStopHudPhase,
 } from '@/features/navigation/navigationStopUtils';
+import { isStaleMapboxStopBanner } from '@/features/navigation/staleMapboxStopBanner';
 import { toStopNameText } from '@/utils/stopDisplayName';
+import { calculateDistance } from '@/utils/helpers';
 import { speedMpsToMph } from '@/api/position.api';
 
 export interface MapboxNavigationHudProps {
   theme: NavigationHudTheme;
   topOffset: number;
   bottomInset: number;
+  /** Status-bar / notch inset so the live guidance banner clears it. */
+  safeTopInset?: number;
   speedMps?: number;
   routeName?: string | null;
   routeColor?: string;
   currentStopIndex: number;
   upcomingStops: NavigationStop[];
+  /** Full trip stop list — used to ignore Mapbox banners for already-passed stops. */
+  allStops?: NavigationStop[];
   driverLocation: NavigationCoordinate | null;
   routeProgress: NativeRouteProgress | null;
   /** Shown briefly when the driver reaches a stop. */
@@ -139,15 +147,305 @@ const PHASE_LABEL: Record<'next' | 'approaching' | 'arrived', string> = {
   arrived: 'Arrived',
 };
 
+function buildTurnInstruction(
+  type?: string,
+  modifier?: string,
+  streetName?: string,
+  primaryText?: string,
+  rawInstruction?: string,
+  currentStopName?: string,
+  completedStopNames: string[] = [],
+): string | null {
+  const stopName = currentStopName?.trim() || '';
+  const primary = primaryText?.trim() || '';
+  const instruction = rawInstruction?.trim() || '';
+  const t = (type ?? '').toLowerCase();
+  const m = (modifier ?? '').toLowerCase();
+
+  const usablePrimary =
+    primary &&
+    !isStaleMapboxStopBanner(primary, stopName, completedStopNames)
+      ? primary
+      : null;
+  const usableInstruction =
+    instruction &&
+    !isStaleMapboxStopBanner(instruction, stopName, completedStopNames)
+      ? instruction
+      : null;
+
+  // Arrive / empty types are not road turns — let caller use stop-name copy instead
+  if (!t || t === 'arrive') {
+    // Never surface stale arrive banners; otherwise fall through to stop copy
+    return null;
+  }
+
+  const isDirectional =
+    t === 'turn' ||
+    t === 'roundabout' ||
+    t === 'rotary' ||
+    t === 'fork' ||
+    t === 'merge' ||
+    t === 'uturn' ||
+    t === 'end of road' ||
+    m.includes('left') ||
+    m.includes('right');
+
+  let action = 'Continue straight';
+  if (t === 'roundabout' || t === 'rotary') action = 'Enter the roundabout';
+  else if (t === 'uturn') action = 'Make a U-turn';
+  else if (t === 'merge') action = 'Merge';
+  else if (t === 'fork') {
+    action = m.includes('left') ? 'Keep left' : m.includes('right') ? 'Keep right' : 'At the fork';
+  } else if (m.includes('sharp left')) action = 'Turn sharp left';
+  else if (m.includes('sharp right')) action = 'Turn sharp right';
+  else if (m.includes('slight left')) action = 'Keep left';
+  else if (m.includes('slight right')) action = 'Keep right';
+  else if (m.includes('left')) action = 'Turn left';
+  else if (m.includes('right')) action = 'Turn right';
+  else if (t === 'turn') action = 'Turn';
+  else if (t === 'depart' || t === 'new name' || t === 'continue' || t === 'notification') {
+    action = 'Continue';
+  }
+
+  const street = streetName?.trim() || '';
+
+  // Prefer structured left/right from type+modifier so street-only Mapbox
+  // primary text never hides the actual turn.
+  if (isDirectional) {
+    if (street) return `${action} onto ${street}`;
+    // If Mapbox primary is a short street title (not a full sentence), append it
+    if (
+      usablePrimary &&
+      usablePrimary.length < 48 &&
+      !/\b(turn|keep|merge|left|right|arrive|continue)\b/i.test(usablePrimary)
+    ) {
+      return `${action} onto ${usablePrimary}`;
+    }
+    return action;
+  }
+
+  // Non-directional (continue / depart): prefer usable Mapbox sentence, else action
+  if (usablePrimary && /\b(turn|keep|merge|left|right|roundabout|exit|fork)\b/i.test(usablePrimary)) {
+    return usablePrimary;
+  }
+  if (usableInstruction && /\b(turn|keep|merge|left|right|roundabout|exit|fork)\b/i.test(usableInstruction)) {
+    return usableInstruction;
+  }
+  if (usablePrimary) return usablePrimary;
+  if (usableInstruction) return usableInstruction;
+  return street ? `${action} onto ${street}` : action;
+}
+
+function GoogleMapsGuidanceBanner({
+  theme,
+  topInset,
+  phase,
+  stopName,
+  stopDistanceMeters,
+  stopDurationSeconds,
+  stopEtaTimestamp,
+  routeProgress,
+  arrivalOverrideName,
+  nextStopName,
+  completedStopNames = [],
+}: {
+  theme: NavigationHudTheme;
+  topInset: number;
+  phase: 'next' | 'approaching' | 'arrived';
+  stopName: string;
+  stopDistanceMeters: number;
+  stopDurationSeconds?: number | null;
+  stopEtaTimestamp?: number | null;
+  routeProgress: NativeRouteProgress | null;
+  /** When set, lock banner to "You have arrived at {name}" for that stop. */
+  arrivalOverrideName?: string | null;
+  /** Upcoming stop after the current destination (for "Then" / will-arrive copy). */
+  nextStopName?: string | null;
+  /** Already-passed stops — Mapbox must never re-banner these mid-trip. */
+  completedStopNames?: string[];
+}) {
+  const lockedArrived = Boolean(arrivalOverrideName?.trim());
+  const arrivedStopName = arrivalOverrideName?.trim() || stopName;
+  const willArriveCopy = `You will arrive at ${stopName}`;
+
+  // Only switch to stop-arrival copy when the driver is actually near the stop.
+  // Do NOT treat Mapbox "arrive" waypoint banners as stop-only — that hid all turns.
+  const nearStop = lockedArrived || phase === 'arrived' || phase === 'approaching';
+  const maneuverType = (routeProgress?.maneuverType ?? '').toLowerCase();
+  const isArriveManeuver = maneuverType === 'arrive';
+  const stalePrimary = isStaleMapboxStopBanner(
+    routeProgress?.maneuverPrimaryText,
+    stopName,
+    completedStopNames,
+  );
+  const staleInstruction = isStaleMapboxStopBanner(
+    routeProgress?.maneuverInstruction,
+    stopName,
+    completedStopNames,
+  );
+  const hasDirectionalType =
+    maneuverType === 'turn' ||
+    maneuverType === 'roundabout' ||
+    maneuverType === 'rotary' ||
+    maneuverType === 'merge' ||
+    maneuverType === 'fork' ||
+    maneuverType === 'end of road' ||
+    maneuverType === 'uturn';
+  const hasDirectionalModifier = Boolean(
+    (routeProgress?.maneuverModifier ?? '').toLowerCase().match(/left|right/),
+  );
+  // Stale arrive *text* must not block real left/right turns from type+modifier.
+  const hasRoadManeuver =
+    Boolean(maneuverType) &&
+    !isArriveManeuver &&
+    (hasDirectionalType ||
+      hasDirectionalModifier ||
+      maneuverType === 'new name' ||
+      maneuverType === 'depart' ||
+      maneuverType === 'continue' ||
+      maneuverType === 'notification' ||
+      (Boolean(routeProgress?.maneuverPrimaryText) && !stalePrimary) ||
+      (Boolean(routeProgress?.maneuverInstruction) && !staleInstruction));
+
+  const turnDistance = routeProgress?.distanceToNextManeuver;
+  const hasTurnDistance =
+    turnDistance != null && Number.isFinite(turnDistance) && turnDistance >= 0;
+
+  const turnInstruction =
+    !lockedArrived && !nearStop && !isArriveManeuver
+      ? buildTurnInstruction(
+          routeProgress?.maneuverType,
+          routeProgress?.maneuverModifier,
+          routeProgress?.maneuverStreetName,
+          routeProgress?.maneuverPrimaryText,
+          routeProgress?.maneuverInstruction,
+          stopName,
+          completedStopNames,
+        )
+      : null;
+
+  // Show left/right whenever Mapbox reports a directional maneuver.
+  // Plain "continue" only becomes the banner when the next maneuver is close.
+  const showTurnGuidance =
+    !lockedArrived &&
+    !nearStop &&
+    Boolean(turnInstruction) &&
+    (hasDirectionalType ||
+      hasDirectionalModifier ||
+      (hasTurnDistance && !isArriveManeuver && turnDistance! < 800 && hasRoadManeuver));
+
+
+  // Prefer Mapbox leg remaining for stop distance when present (synced with bottom sheet).
+  const nativeStopDistance = routeProgress?.distanceRemaining;
+  const useNativeStopDistance =
+    !lockedArrived &&
+    !showTurnGuidance &&
+    nativeStopDistance != null &&
+    Number.isFinite(nativeStopDistance) &&
+    nativeStopDistance >= 0 &&
+    (stopDistanceMeters <= 0 ||
+      (nativeStopDistance <= Math.max(stopDistanceMeters * 4, stopDistanceMeters + 800) &&
+        // Reject stale ~0m after stop advance while crow-flies is still far.
+        (stopDistanceMeters <= 40 ||
+          nativeStopDistance >= Math.min(stopDistanceMeters * 0.35, stopDistanceMeters - 25))));
+  const resolvedStopDistance = useNativeStopDistance
+    ? nativeStopDistance!
+    : stopDistanceMeters;
+
+  const distanceLabel = lockedArrived
+    ? 'Now'
+    : showTurnGuidance && hasTurnDistance
+      ? formatTurnByTurnDistance(turnDistance!)
+      : formatNavigationDistance(resolvedStopDistance);
+
+  const effectivePhase = lockedArrived ? 'arrived' : phase;
+
+  const primaryText = lockedArrived
+    ? `You have arrived at ${arrivedStopName}`
+    : nearStop
+      ? effectivePhase === 'arrived'
+        ? `You have arrived at ${stopName}`
+        : willArriveCopy
+      : showTurnGuidance && turnInstruction
+        ? turnInstruction
+        : willArriveCopy;
+
+  const etaLabel =
+    stopEtaTimestamp != null
+      ? formatEtaTime(stopEtaTimestamp)
+      : stopDurationSeconds != null && Number.isFinite(stopDurationSeconds)
+        ? formatNavigationDuration(stopDurationSeconds)
+        : null;
+
+  const thenStop = nextStopName?.trim() || null;
+
+  const secondaryText = lockedArrived
+    ? thenStop
+      ? `Next · You will arrive at ${thenStop}`
+      : 'Stop complete'
+    : nearStop
+      ? [formatNavigationDistance(resolvedStopDistance), etaLabel].filter(Boolean).join(' · ')
+      : showTurnGuidance
+        ? ['Then', willArriveCopy, etaLabel].filter(Boolean).join(' · ')
+        : [etaLabel, formatNavigationDistance(resolvedStopDistance)].filter(Boolean).join(' · ');
+
+  const iconName = lockedArrived || effectivePhase === 'arrived'
+    ? 'place'
+    : nearStop
+      ? 'near-me'
+      : showTurnGuidance
+        ? getManeuverIconName(routeProgress?.maneuverType, routeProgress?.maneuverModifier)
+        : 'straight';
+
+  return (
+    <View
+      style={[
+        styles.liveGuidanceBanner,
+        {
+          paddingTop: topInset + 8,
+          backgroundColor: theme.banner,
+        },
+      ]}
+      accessibilityRole="summary"
+      accessibilityLabel={`${primaryText}, ${distanceLabel}`}
+    >
+      <View style={styles.liveGuidanceRow}>
+        <View style={styles.liveGuidanceLeft}>
+          <MaterialIcons name={iconName as any} size={40} color={theme.bannerText} />
+          <Text style={[styles.liveGuidanceDistance, { color: theme.bannerText }]}>
+            {distanceLabel}
+          </Text>
+        </View>
+        <View style={styles.liveGuidanceTextCol}>
+          <Text
+            style={[styles.liveGuidanceInstruction, { color: theme.bannerText }]}
+            numberOfLines={2}
+          >
+            {primaryText}
+          </Text>
+          <Text
+            style={[styles.liveGuidanceSecondary, { color: theme.bannerMuted }]}
+            numberOfLines={1}
+          >
+            {secondaryText}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function MapboxNavigationHud({
   theme,
   topOffset,
   bottomInset,
+  safeTopInset = 0,
   speedMps,
   routeColor: _routeColor = '#1A73E8',
   routeName: _routeName,
   currentStopIndex,
   upcomingStops,
+  allStops,
   driverLocation,
   routeProgress,
   arrivalBanner = null,
@@ -170,19 +468,40 @@ export default function MapboxNavigationHud({
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const enteredFromOutsideRef = useRef<Record<string, boolean>>({});
 
+  // Phase must use crow-flies — native leg remaining can stay ~0 after stop advance.
+  const crowDistanceToStop = useMemo(() => {
+    const stop = upcomingStops[0];
+    if (!driverLocation || !stop) return null;
+    if (
+      !Number.isFinite(driverLocation.latitude) ||
+      !Number.isFinite(driverLocation.longitude) ||
+      !Number.isFinite(stop.latitude) ||
+      !Number.isFinite(stop.longitude)
+    ) {
+      return null;
+    }
+    return calculateDistance(
+      driverLocation.latitude,
+      driverLocation.longitude,
+      stop.latitude,
+      stop.longitude,
+    );
+  }, [driverLocation, upcomingStops]);
+
   const distanceToStop = currentDestinationMetric?.distanceMeters ?? null;
+  const phaseDistance = crowDistanceToStop ?? distanceToStop;
   const stopKey = currentDestinationMetric?.stop.id ?? String(currentStopIndex);
-  if (distanceToStop != null && distanceToStop > HUD_ARRIVAL_METERS + 10) {
+  if (phaseDistance != null && phaseDistance > HUD_ARRIVAL_METERS + 10) {
     enteredFromOutsideRef.current[stopKey] = true;
   }
   const rawPhase = resolveStopHudPhase(
-    distanceToStop,
+    phaseDistance,
     HUD_APPROACHING_METERS,
     HUD_ARRIVAL_METERS,
   );
   const phase =
     rawPhase === 'arrived' && !enteredFromOutsideRef.current[stopKey]
-      ? distanceToStop != null && distanceToStop <= HUD_APPROACHING_METERS
+      ? phaseDistance != null && phaseDistance <= HUD_APPROACHING_METERS
         ? 'approaching'
         : 'next'
       : rawPhase;
@@ -190,6 +509,20 @@ export default function MapboxNavigationHud({
   const currentStopName =
     toStopNameText(currentDestinationMetric?.stop.longName) ||
     (currentDestinationMetric ? `Stop ${currentDestinationMetric.stopIndex + 1}` : 'Finding stop…');
+
+  const nextStopName =
+    toStopNameText(followingStopMetrics[0]?.stop.longName) ||
+    (followingStopMetrics[0] ? `Stop ${followingStopMetrics[0].stopIndex + 1}` : null);
+
+  const arrivalOverrideName = arrivalBanner?.stopName?.trim() || null;
+
+  const completedStopNames = useMemo(() => {
+    if (!allStops || allStops.length === 0) return [];
+    return allStops
+      .slice(0, Math.max(0, currentStopIndex))
+      .map((stop) => toStopNameText(stop.longName))
+      .filter((name) => Boolean(name));
+  }, [allStops, currentStopIndex]);
 
   const phaseLabel = PHASE_LABEL[phase];
   const phaseColor =
@@ -207,26 +540,25 @@ export default function MapboxNavigationHud({
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      {arrivalBanner ? (
-        <View
-          style={[styles.arrivalBanner, { top: topOffset }]}
-          accessibilityRole="alert"
-          accessibilityLabel={`Arrived at ${arrivalBanner.stopName}`}
-        >
-          <MaterialIcons name="flag" size={22} color="#FFF" />
-          <View style={styles.arrivalBannerTextWrap}>
-            <Text style={styles.arrivalBannerEyebrow}>Arrived</Text>
-            <Text style={styles.arrivalBannerName} numberOfLines={2}>
-              {arrivalBanner.stopName}
-            </Text>
-          </View>
-        </View>
-      ) : (
-        <View style={[styles.topBar, { top: topOffset }]} pointerEvents="box-none">
-          <SpeedPill speedMps={speedMps} theme={theme} />
-          <EndNavigationButton theme={theme} onPress={onEndNavigation} />
-        </View>
-      )}
+      {/* Always mounted for the whole trip — do not unmount on stop arrivals. */}
+      <GoogleMapsGuidanceBanner
+        theme={theme}
+        topInset={safeTopInset}
+        phase={phase}
+        stopName={currentStopName}
+        stopDistanceMeters={crowDistanceToStop ?? distanceToStop ?? 0}
+        stopDurationSeconds={currentDestinationMetric?.durationSeconds}
+        stopEtaTimestamp={currentDestinationMetric?.etaTimestamp}
+        routeProgress={arrivalOverrideName ? null : routeProgress}
+        arrivalOverrideName={arrivalOverrideName}
+        nextStopName={arrivalOverrideName ? currentStopName : nextStopName}
+        completedStopNames={completedStopNames}
+      />
+
+      <View style={[styles.topBar, { top: topOffset }]} pointerEvents="box-none">
+        <SpeedPill speedMps={speedMps} theme={theme} />
+        <EndNavigationButton theme={theme} onPress={onEndNavigation} />
+      </View>
 
       {/* Off-route banner disabled — noisy / unnecessary for current training UX
       {isOffRoute && !arrivalBanner ? (
@@ -310,6 +642,11 @@ export default function MapboxNavigationHud({
           >
             <View style={styles.collapsedHeader}>
               <Text style={[styles.phaseBadge, { color: phaseColor }]}>{phaseLabel}</Text>
+              {currentDestinationMetric ? (
+                <Text style={[styles.collapsedDistance, { color: theme.sheetPrimary }]}>
+                  {formatNavigationDistance(currentDestinationMetric.distanceMeters)}
+                </Text>
+              ) : null}
             </View>
             <Text
               style={[styles.collapsedStopName, { color: theme.sheetPrimary }]}
@@ -325,9 +662,9 @@ export default function MapboxNavigationHud({
                       {formatEtaTime(currentDestinationMetric.etaTimestamp)}
                     </Text>
                     {'  ·  '}
-                    {formatNavigationDistance(currentDestinationMetric.distanceMeters)}
-                    {'  ·  '}
                     {formatNavigationDuration(currentDestinationMetric.durationSeconds)}
+                    {'  ·  '}
+                    {`Stop ${currentStopIndex + 1}`}
                   </>
                 ) : (
                   'Waiting for stop details…'
@@ -354,6 +691,55 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  liveGuidanceBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingBottom: 14,
+    paddingHorizontal: 16,
+    elevation: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.28,
+        shadowRadius: 8,
+      },
+      android: {},
+    }),
+  },
+  liveGuidanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    minHeight: 64,
+  },
+  liveGuidanceLeft: {
+    alignItems: 'center',
+    minWidth: 64,
+    gap: 2,
+  },
+  liveGuidanceDistance: {
+    fontSize: 18,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  liveGuidanceInstruction: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 24,
+  },
+  liveGuidanceTextCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  liveGuidanceSecondary: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   speedPill: {
     minWidth: 64,
@@ -445,6 +831,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.4,
     textTransform: 'uppercase',
+  },
+  collapsedDistance: {
+    fontSize: 20,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
   },
   collapsedStopName: {
     fontSize: 18,

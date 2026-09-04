@@ -324,7 +324,8 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, isTabView = false }) 
   const { tripOrderedStops, tripId } = useTripOrderedStops({
     agencyID: agencyID || null,
     routeStopIds,
-    assignedTripId,
+    // Prefer block-assigned trip; fall back to schedule nextStop.tripID.
+    assignedTripId: assignedTripId ?? nextStop?.tripID ?? null,
     allStops: stops,
   });
 

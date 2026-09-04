@@ -1,40 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Exact Mapbox Navigation driver cursor:
-  blue rounded chevron + thick white rim + soft shadow.
-  Tip points up for bearing rotation.
+  Google-nav style driver puck for dark Mapbox maps:
+  rounded blue arrow + thick white rim. Tip points up for bearing.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
-    android:width="80dp"
-    android:height="80dp"
+    android:width="72dp"
+    android:height="72dp"
     android:viewportWidth="128"
     android:viewportHeight="128">
 
     <!-- Soft oval shadow -->
     <path
-        android:fillColor="#55000000"
-        android:pathData="M40,110c0,-4.4 10.7,-8 24,-8s24,3.6 24,8 -10.7,8 -24,8 -24,-3.6 -24,-8z" />
+        android:fillColor="#66000000"
+        android:pathData="M38,108c0,-5 11.6,-9 26,-9s26,4 26,9 -11.6,9 -26,9 -26,-4 -26,-9z" />
 
-    <!-- White outer rim (thick molded border) -->
+    <!-- White outer rim -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M64,10c14.5,0 34.5,40 47,70 4.2,10 -1.5,20.5 -14.5,17.5C83,94 72,78 64,78s-19,16 -32.5,19.5C18.5,100.5 12.8,90 17,80 29.5,50 49.5,10 64,10z" />
+        android:pathData="M64,8
+            C78,8 98,46 110,74
+            C116,88 110,102 96,98
+            C84,94 74,82 64,82
+            C54,82 44,94 32,98
+            C18,102 12,88 18,74
+            C30,46 50,8 64,8Z" />
 
-    <!-- Blue inner fill -->
+    <!-- Blue fill (slightly inset so the white border reads thick) -->
     <path
-        android:pathData="M64,22c12,0 28.5,34 39,60 2.8,7 -0.8,13.5 -10.5,11.5C82,90.5 71,78 64,78s-18,12.5 -28.5,15.5C25.8,95.5 22.2,89 25,82 35.5,56 52,22 64,22z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="64"
-                android:startY="22"
-                android:endX="64"
-                android:endY="94"
-                android:type="linear">
-                <item android:offset="0" android:color="#FF74B0FF" />
-                <item android:offset="0.4" android:color="#FF2F80FF" />
-                <item android:offset="1" android:color="#FF1757D9" />
-            </gradient>
-        </aapt:attr>
-    </path>
+        android:fillColor="#2F80FF"
+        android:pathData="M64,20
+            C75,20 91,50 101,72
+            C105,81 101,90 91,87
+            C81,84 72,76 64,76
+            C56,76 47,84 37,87
+            C27,90 23,81 27,72
+            C37,50 53,20 64,20Z" />
+
+    <!-- Subtle highlight near tip -->
+    <path
+        android:fillColor="#74B0FF"
+        android:pathData="M64,24
+            C72,24 83,44 90,58
+            C86,52 76,42 64,42
+            C52,42 42,52 38,58
+            C45,44 56,24 64,24Z" />
 </vector>

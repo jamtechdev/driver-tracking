@@ -109,69 +109,113 @@ export function computePerStopRouteMetrics(params: {
     distanceRemaining: number;
     durationRemaining: number;
     fractionTraveled: number;
+    /** Mapbox current-leg duration remaining (seconds). Prefer over trip duration. */
+    legDurationRemaining?: number;
   } | null;
 }): PerStopRouteMetric[] {
   const { remainingStops, currentStopIndex, driverLocation, routeProgress } = params;
   if (remainingStops.length === 0) return [];
 
   const legDistances: number[] = [];
-  let previous: NavigationCoordinate = driverLocation ?? remainingStops[0];
-
-  for (const stop of remainingStops) {
-    legDistances.push(
-      calculateDistance(
-        previous.latitude,
-        previous.longitude,
-        stop.latitude,
-        stop.longitude,
-      ),
-    );
-    previous = stop;
+  // Always measure from the live puck when available — never invent 0 by using the stop as origin.
+  if (!driverLocation) {
+    // No puck yet: still estimate stop-to-stop chain for upcoming list.
+    let previous: NavigationCoordinate = remainingStops[0];
+    for (let i = 0; i < remainingStops.length; i += 1) {
+      const stop = remainingStops[i];
+      if (i === 0) {
+        legDistances.push(0);
+      } else {
+        legDistances.push(
+          calculateDistance(
+            previous.latitude,
+            previous.longitude,
+            stop.latitude,
+            stop.longitude,
+          ),
+        );
+      }
+      previous = stop;
+    }
+  } else {
+    let previous: NavigationCoordinate = driverLocation;
+    for (const stop of remainingStops) {
+      legDistances.push(
+        calculateDistance(
+          previous.latitude,
+          previous.longitude,
+          stop.latitude,
+          stop.longitude,
+        ),
+      );
+      previous = stop;
+    }
   }
 
-  // Native distanceRemaining/durationRemaining are for the FULL remaining route,
-  // not the next stop — only use them to estimate average speed.
-  const nativeDistance = Math.max(0, routeProgress?.distanceRemaining ?? 0);
-  const nativeDuration = Math.max(0, routeProgress?.durationRemaining ?? 0);
+  const crow0 = Math.max(0, legDistances[0] ?? 0);
+  const totalCrow = legDistances.reduce((sum, d) => sum + Math.max(0, d), 0);
+  // Android bridge: distanceRemaining = current-leg meters. Trip duration is separate.
+  const nativeLegDistance = Math.max(0, routeProgress?.distanceRemaining ?? 0);
+  const nativeLegDuration = Math.max(0, routeProgress?.legDurationRemaining ?? 0);
+  const nativeTripDuration = Math.max(0, routeProgress?.durationRemaining ?? 0);
   const FALLBACK_MPS = 13.4; // ~30 mph urban transit-ish
-  const averageMps =
-    nativeDistance > 50 && nativeDuration > 1
-      ? nativeDistance / nativeDuration
-      : FALLBACK_MPS;
 
-  // Single remaining destination: prefer native progress when it looks sane vs straight-line.
-  const useNativeForCurrentStop =
-    remainingStops.length === 1 &&
-    nativeDistance > 0 &&
-    nativeDuration > 0 &&
-    legDistances[0] > 0 &&
-    nativeDistance / nativeDuration < 50 &&
-    nativeDistance < Math.max(legDistances[0] * 2.5, legDistances[0] + 400);
+  const singleRemaining = remainingStops.length === 1;
+  const hasLegDuration = nativeLegDuration > 1;
+  // Reject full-trip distance wrongly treated as "to next stop" (legacy / bad payloads).
+  // Also reject stale post-advance legs: Mapbox can still report ~0m while crow-flies
+  // to the *new* stop is hundreds of meters — that mislabels "Arrived at" the next stop.
+  const nativeAgreesWithCrow =
+    crow0 <= 40 ||
+    (nativeLegDistance <= Math.max(crow0 * 4, crow0 + 800) &&
+      nativeLegDistance >= Math.min(crow0 * 0.35, crow0 - 25));
+  const nativeDistancePlausible =
+    nativeLegDistance > 1 &&
+    nativeAgreesWithCrow &&
+    (singleRemaining ||
+      hasLegDuration ||
+      crow0 <= 0 ||
+      nativeLegDistance <= Math.max(crow0 * 4, crow0 + 800));
+
+  const currentDistance = nativeDistancePlausible ? nativeLegDistance : crow0;
+  const currentDuration = (() => {
+    if (!nativeDistancePlausible && crow0 <= 0) return 0;
+    if (hasLegDuration) return nativeLegDuration;
+    if (singleRemaining && nativeTripDuration > 1) return nativeTripDuration;
+    if (nativeDistancePlausible && nativeTripDuration > 1 && totalCrow > 50) {
+      // Scale trip remaining by this leg's share of the remaining crow-flies chain.
+      return Math.max(1, nativeTripDuration * (currentDistance / totalCrow));
+    }
+    return currentDistance / FALLBACK_MPS;
+  })();
+
+  const averageMps =
+    currentDistance > 50 && currentDuration > 1
+      ? currentDistance / currentDuration
+      : totalCrow > 50 && nativeTripDuration > 1 && !nativeDistancePlausible
+        ? totalCrow / nativeTripDuration
+        : FALLBACK_MPS;
 
   let cumulativeDistance = 0;
+  let cumulativeDuration = 0;
 
   return remainingStops.map((stop, index) => {
-    if (index === 0 && useNativeForCurrentStop) {
-      cumulativeDistance = nativeDistance;
-      return {
-        stopIndex: currentStopIndex + index,
-        stop,
-        distanceMeters: nativeDistance,
-        durationSeconds: nativeDuration,
-        etaTimestamp: computeEtaTimestamp(nativeDuration),
-        isCurrent: true,
-      };
+    if (index === 0) {
+      cumulativeDistance = currentDistance;
+      cumulativeDuration = currentDuration;
+    } else {
+      const leg = Math.max(0, legDistances[index] ?? 0);
+      cumulativeDistance += leg;
+      cumulativeDuration += leg / averageMps;
     }
-
-    cumulativeDistance += legDistances[index] ?? 0;
-    const durationSeconds = cumulativeDistance / averageMps;
 
     return {
       stopIndex: currentStopIndex + index,
       stop,
       distanceMeters: cumulativeDistance,
-      durationSeconds,
-      etaTimestamp: routeProgress || driverLocation ? computeEtaTimestamp(durationSeconds) : null,
+      durationSeconds: cumulativeDuration,
+      etaTimestamp:
+        driverLocation || routeProgress ? computeEtaTimestamp(cumulativeDuration) : null,
       isCurrent: index === 0,
     };
   });
